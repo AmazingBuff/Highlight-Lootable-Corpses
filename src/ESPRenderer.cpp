@@ -309,12 +309,21 @@ namespace ESPRenderer
 					auto projectToScreen = [&](const RE::NiPoint3& a_pt, float& a_px, float& a_py, float& a_depth) -> bool {
 						bool ok = false;
 						if (worldCam && worldCam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f)) {
-							// 相机 port 若是像素单位，先把输出归一化到 0..1
-							const auto  port  = worldCam->GetRuntimeData2().port;
-							const float portL = port.GetLeft();
-							const float portT = port.GetTop();
-							const float portW = port.GetRight() - portL;
-							const float portH = port.GetBottom() - portT;
+							// 相机 port 若是像素单位，先把输出归一化到 0..1。
+							// NiRect<T> 成员为 protected，不做三方库改动，按固定布局
+							// （left, right, top, bottom）memcpy 到本地结构读取。
+							const auto port = worldCam->GetRuntimeData2().port;
+							struct PortRect
+							{
+								float left, right, top, bottom;
+							};
+							static_assert(sizeof(PortRect) == sizeof(RE::NiRect<float>));
+							PortRect pr;
+							std::memcpy(&pr, &port, sizeof(pr));
+							const float portL = pr.left;
+							const float portT = pr.top;
+							const float portW = pr.right - pr.left;
+							const float portH = pr.bottom - pr.top;
 							float nx = a_px, ny = a_py;
 							if (portW > 10.0f) {
 								nx = (a_px - portL) / portW;

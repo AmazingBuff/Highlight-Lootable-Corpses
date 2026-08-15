@@ -129,6 +129,13 @@ if(("${CommonLibSSEPath}" STREQUAL "CommonLibSSEPath-NOTFOUND") OR "${CommonLibS
 	message(FATAL_ERROR "CommonLibSSE not found; expected at extern/CommonLibSSE")
 endif()
 
+# CommonLibSSE 由本仓库源码构建时，SKSE_SUPPORT_PATCH_SAFETY=OFF 下
+# Trampoline.cpp 有无用形参（C4100），与全局 /WX 冲突。在项目侧静默该警告，
+# 保持三方库源码原样（不改 extern/CommonLibSSE）。
+if(TARGET CommonLibSSE AND MSVC)
+	target_compile_options(CommonLibSSE PRIVATE /wd4100)
+endif()
+
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(simpleini CONFIG REQUIRED)
