@@ -1,0 +1,16 @@
+{
+  "name": "corpseesp",
+  "version": "1.0.0",
+  "dependencies": [
+    "fmt",
+    "spdlog",
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    "directxmath",
+    "directxtk",
+    "simpleini"
+  ],
+  "builtin-baseline": "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3"
+}

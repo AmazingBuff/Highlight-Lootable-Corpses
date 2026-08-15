@@ -1,0 +1,29 @@
+# Build output
+/build
+
+# IDE
+/.vs/
+/.vscode/
+/.idea/
+*.user
+*.suo
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+_deps/
+
+# Compiled
+*.obj
+*.pdb
+*.ipdb
+*.iobj
+*.pch
+*.dll
+*.exp
+*.lib
+
+# Logs
+*.log
