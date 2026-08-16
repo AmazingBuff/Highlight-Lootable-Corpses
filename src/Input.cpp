@@ -20,7 +20,6 @@ namespace Input
 		if (down && !g_wasDown) {
 			const bool enabled = !Config::IsEnabled();
 			Config::SetEnabled(enabled);
-			// logger::info("Toggled CorpseESP {}", enabled ? "ON" : "OFF");
 			// 控制台消息与 INI 写回放到游戏线程执行
 			SKSE::GetTaskInterface()->AddTask([enabled]() {
 				RE::ConsoleLog::GetSingleton()->Print("CorpseESP: %s", enabled ? "ON" : "OFF");

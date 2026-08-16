@@ -306,10 +306,6 @@ namespace ESPRenderer
 				const float cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
 				const float cb = static_cast<float>(rgb & 0xFF) / 255.0f;
 
-				// 诊断：每 2 秒记录第一个标记的投影数值
-				static std::chrono::steady_clock::time_point s_lastDiag{};
-				bool diagPending = std::chrono::steady_clock::now() - s_lastDiag >= std::chrono::seconds(2);
-
 				for (const auto& corpse : CorpseFinder::Snapshot()) {
 					// ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
 					// 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
@@ -472,27 +468,6 @@ namespace ESPRenderer
 						cfg.minOpacity + fade * (1.0f - cfg.minOpacity),
 						cfg.minOpacity,
 						1.0f);
-
-					// 诊断：每 2 秒输出第一个标记的投影数值
-					if (diagPending) {
-						diagPending = false;
-						s_lastDiag = std::chrono::steady_clock::now();
-						// logger::info(
-						// 	"ESP sample: anchor=({:.0f}, {:.0f}, {:.0f}) rect=({:.0f}, {:.0f})-({:.0f}, {:.0f}) ({:.0f}x{:.0f}) sz={:.2f} src={} obb={} coll={}",
-						// 	corpse.anchor.x,
-						// 	corpse.anchor.y,
-						// 	corpse.anchor.z,
-						// 	x0,
-						// 	y0,
-						// 	x1,
-						// 	y1,
-						// 	boxW,
-						// 	boxH,
-						// 	sz,
-						// 	worldCam ? "camera" : "matrix",
-						// 	corpse.hasOBB ? "yes" : "no",
-						// 	corpse.boundsFromCollision ? "collision" : "geometry");
-					}
 
 					const float half = radiusPx * 1.15f;
 

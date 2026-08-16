@@ -37,8 +37,9 @@ namespace Config
 
 		const auto path = GetIniPath();
 		const SI_Error rc = ini.LoadFile(path.string().c_str());
-		if (rc < 0)
+		if (rc < 0) {
 			logger::info("INI not found at {}, writing defaults", path.string());
+		}
 
 		g_settings.enabled = ini.GetBoolValue("General", "Enabled", g_settings.enabled);
 		g_settings.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey", static_cast<long>(g_settings.hotkey)));

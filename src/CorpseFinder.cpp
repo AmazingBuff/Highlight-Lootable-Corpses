@@ -196,12 +196,8 @@ namespace
 			const auto& bound = a_node->worldBound;
 			if (bound.radius > 0.0f && bound.radius < 100000.0f) {
 				const auto& c = bound.center;
-				a_min.x = std::min(a_min.x, c.x - bound.radius);
-				a_min.y = std::min(a_min.y, c.y - bound.radius);
-				a_min.z = std::min(a_min.z, c.z - bound.radius);
-				a_max.x = std::max(a_max.x, c.x + bound.radius);
-				a_max.y = std::max(a_max.y, c.y + bound.radius);
-				a_max.z = std::max(a_max.z, c.z + bound.radius);
+				ExpandAabb(a_min, a_max, { c.x - bound.radius, c.y - bound.radius, c.z - bound.radius });
+				ExpandAabb(a_min, a_max, { c.x + bound.radius, c.y + bound.radius, c.z + bound.radius });
 			}
 		}
 		if (auto* node = a_node->AsNode()) {
@@ -385,54 +381,55 @@ namespace
 		return IsRefFormIn(a_ref, CorpseObjectFormIDs());
 	}
 
-	// 一次性诊断：被"看起来还活着"过滤器排除的 Actor（避免每 0.5s 刷屏）
-	void LogOnceSkip(RE::Actor* a_actor, std::string_view a_reason)
+	// 按 FormID 去重的状态日志：同一 formID 的内容变化时才输出（首次必输出），
+	// 避免每 0.5s 刷屏。一次性跳过诊断与灰烬堆状态诊断共用这一个权威实现。
+	void LogStateOnce(RE::FormID a_formID, std::string_view a_detail)
 	{
-		static std::mutex              mtx;
-		static std::vector<RE::FormID> seen;
-		const auto                     formID = a_actor->GetFormID();
+		static std::mutex               mtx;
+		static std::vector<RE::FormID>  seen;
+		static std::vector<std::string> details;
 		{
 			std::lock_guard lock(mtx);
-			for (const auto id : seen) {
-				if (id == formID) {
+			for (std::size_t i = 0; i < seen.size(); ++i) {
+				if (seen[i] != a_formID) {
+					continue;
+				}
+				if (details[i] == a_detail) {
 					return;
 				}
+				details[i] = std::string(a_detail);
+				break;
 			}
-			seen.push_back(formID);
-		}
-		logger::info("Skip non-corpse {:08X} ({}): {}", formID, a_actor->GetDisplayFullName(), a_reason);
-	}
-
-	// 灰烬堆状态诊断：状态变化时才记日志（避免每 0.5s 刷屏）
-	void LogAshPileState(RE::TESObjectREFR* a_ref, std::string_view a_detail)
-	{
-		static std::mutex                    mtx;
-		static std::vector<RE::FormID>       seen;
-		static std::vector<std::string>      details;
-		const auto formID = a_ref->GetFormID();
-		{
-			std::lock_guard lock(mtx);
-			bool found = false;
-			for (std::size_t i = 0; i < seen.size(); ++i) {
-				if (seen[i] == formID) {
-					if (details[i] == a_detail) {
-						return;
-					}
-					details[i] = std::string(a_detail);
-					found = true;
-					break;
-				}
-			}
-			if (!found) {
-				seen.push_back(formID);
+			if (std::find(seen.begin(), seen.end(), a_formID) == seen.end()) {
+				seen.push_back(a_formID);
 				details.push_back(std::string(a_detail));
 			}
 		}
-		logger::info(
-			"Ash Pile {:08X} base {:08X}: {}",
-			formID,
-			a_ref->GetBaseObject() ? a_ref->GetBaseObject()->GetFormID() : 0,
-			a_detail);
+		logger::info("{}", a_detail);
+	}
+
+	// 一次性诊断：被"看起来还活着"过滤器排除的 Actor（转发到 LogStateOnce）
+	void LogOnceSkip(RE::Actor* a_actor, std::string_view a_reason)
+	{
+		LogStateOnce(
+			a_actor->GetFormID(),
+			fmt::format(
+				"Skip non-corpse {:08X} ({}): {}",
+				a_actor->GetFormID(),
+				a_actor->GetDisplayFullName(),
+				a_reason));
+	}
+
+	// 灰烬堆/静态尸体状态诊断（状态变化时才记日志，转发到 LogStateOnce）
+	void LogAshPileState(RE::TESObjectREFR* a_ref, std::string_view a_detail)
+	{
+		LogStateOnce(
+			a_ref->GetFormID(),
+			fmt::format(
+				"Ash Pile {:08X} base {:08X}: {}",
+				a_ref->GetFormID(),
+				a_ref->GetBaseObject() ? a_ref->GetBaseObject()->GetFormID() : 0,
+				a_detail));
 	}
 
 	// 查找与灰烬堆关联的 Actor（原始尸体）。

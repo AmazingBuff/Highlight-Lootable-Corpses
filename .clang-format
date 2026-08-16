@@ -1,4 +1,4 @@
-﻿---
+---
 AccessModifierOffset: -4
 AlignAfterOpenBracket: DontAlign
 AlignConsecutiveAssignments: 'false'
@@ -27,7 +27,8 @@ BitFieldColonSpacing: After
 BraceWrapping:
     AfterCaseLabel: 'true'
     AfterClass: 'true'
-    AfterControlStatement: 'false'
+    # cpp-style：Allman 大括号（控制语句也换行）
+    AfterControlStatement: 'true'
     AfterEnum: 'true'
     AfterFunction: 'true'
     AfterNamespace: 'true'
@@ -72,7 +73,11 @@ MaxEmptyLinesToKeep: 1
 NamespaceIndentation: All
 PointerAlignment: Left
 ReflowComments : 'false'
-SortIncludes: 'true'
+# cpp-style：east const（Type const& / Type const*）
+QualifierAlignment: Right
+# cpp-style include 顺序（对应头、同项目头、第三方头、标准库头）：
+# 本项目 PCH.h 必须最先包含（MSVC /Yu 预编译头要求），词法排序会破坏该顺序
+SortIncludes: 'false'
 SortUsingDeclarations: 'true'
 SpaceAfterCStyleCast: 'false'
 SpaceAfterLogicalNot: 'false'
@@ -96,6 +101,7 @@ SpacesInSquareBrackets: 'false'
 Standard: Latest
 TabWidth: 4
 UseCRLF: 'true'
-UseTab: AlignWithSpaces
+# cpp-style：无 Tab，4 空格缩进（IndentWidth: 4）
+UseTab: Never
 
 ...
