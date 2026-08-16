@@ -72,7 +72,7 @@ namespace
 	}
 
 	// 单个 Havok 刚体的世界 AABB（GetAabbWorldspace，havok 米 → 游戏单位）
-	bool AddRigidBodyAabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+	[[nodiscard]] bool AddRigidBodyAabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
 	{
 		if (!a_body) {
 			return false;
@@ -149,7 +149,7 @@ namespace
 	// ragdoll 尸体：Precision 同款 —— 取动画图里 ragdoll 实例的所有刚体 AABB 并集。
 	// 这些刚体（hkaRagdollInstance::rigidBodies）就是尸体各部位的实际碰撞体，
 	// 与躺姿完全一致。
-	bool ComputeRagdollBounds(RE::Actor* a_actor, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+	[[nodiscard]] bool ComputeRagdollBounds(RE::Actor* a_actor, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
 	{
 		RE::BSAnimationGraphManagerPtr animGraphManager;
 		if (!a_actor->GetAnimationGraphManager(animGraphManager)) {
@@ -215,7 +215,7 @@ namespace
 
 	// 综合入口：ragdoll → ragdoll 刚体；否则 → 3D 树上的碰撞对象；最后几何兜底。
 	// 返回 true 表示得到了有效的世界 AABB。
-	bool ComputeBounds(
+	[[nodiscard]] bool ComputeBounds(
 		RE::TESObjectREFR* a_ref,
 		bool               a_ragdoll,
 		RE::NiPoint3&      a_min,
@@ -357,7 +357,7 @@ namespace
 		return ids;
 	}
 
-	bool IsRefFormIn(const RE::TESObjectREFR* a_ref, const std::vector<RE::FormID>& a_ids)
+	[[nodiscard]] bool IsRefFormIn(const RE::TESObjectREFR* a_ref, const std::vector<RE::FormID>& a_ids)
 	{
 		if (!a_ref) {
 			return false;
@@ -375,12 +375,12 @@ namespace
 		return false;
 	}
 
-	bool IsAshPileRef(RE::TESObjectREFR* a_ref)
+	[[nodiscard]] bool IsAshPileRef(RE::TESObjectREFR* a_ref)
 	{
 		return IsRefFormIn(a_ref, AshPileFormIDs());
 	}
 
-	bool IsCorpseObjectRef(RE::TESObjectREFR* a_ref)
+	[[nodiscard]] bool IsCorpseObjectRef(RE::TESObjectREFR* a_ref)
 	{
 		return IsRefFormIn(a_ref, CorpseObjectFormIDs());
 	}
@@ -440,7 +440,7 @@ namespace
 	// 指向原始 Actor 的句柄（日志里 ashLink 字段）；原始 Actor 的 ExtraDataList 上
 	// 也有反向链接。物品挂在原始 Actor 的仓库上——打开灰烬堆时引擎展示的就是它，
 	// 这正是"堆本身读不到库存但能搜刮到东西"的原因。
-	RE::Actor* FindAshPileOwner(RE::TESObjectREFR* a_pile)
+	[[nodiscard]] RE::Actor* FindAshPileOwner(RE::TESObjectREFR* a_pile)
 	{
 		if (!a_pile) {
 			return nullptr;
@@ -483,7 +483,7 @@ namespace
 
 	// 静态尸体容器：基类容器条目（CONT 记录自带战利品）+ 运行时容器数据（只读）。
 	// 与灰烬堆不同，这类物体的仓库规则是普通容器规则，不依赖关联 Actor。
-	bool HasContainerLoot(RE::TESObjectREFR* a_ref)
+	[[nodiscard]] bool HasContainerLoot(RE::TESObjectREFR* a_ref)
 	{
 		if (!a_ref) {
 			return false;

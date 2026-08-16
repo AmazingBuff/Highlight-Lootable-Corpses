@@ -38,6 +38,14 @@ namespace
 	// ---------------------------------------------------------------------------
 	std::chrono::steady_clock::time_point g_lastScan{};
 
+	// NiRect<T> 成员为 protected，按固定布局（left, right, top, bottom）
+	// memcpy 到同布局的本地 POD 读取相机 port，避免修改三方库。
+	struct PortRect
+	{
+		float left, right, top, bottom;
+	};
+	static_assert(sizeof(PortRect) == sizeof(RE::NiRect<float>));
+
 	bool EnsureBackBuffer(IDXGISwapChain* a_swapChain, ID3D11Device* a_device)
 	{
 		ID3D11Texture2D* buffer = nullptr;
@@ -309,16 +317,9 @@ namespace ESPRenderer
 					auto projectToScreen = [&](const RE::NiPoint3& a_pt, float& a_px, float& a_py, float& a_depth) -> bool {
 						bool ok = false;
 						if (worldCam && worldCam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f)) {
-							// 相机 port 若是像素单位，先把输出归一化到 0..1。
-							// NiRect<T> 成员为 protected，不做三方库改动，按固定布局
-							// （left, right, top, bottom）memcpy 到本地结构读取。
+							// 相机 port 若是像素单位，先把输出归一化到 0..1
 							const auto port = worldCam->GetRuntimeData2().port;
-							struct PortRect
-							{
-								float left, right, top, bottom;
-							};
-							static_assert(sizeof(PortRect) == sizeof(RE::NiRect<float>));
-							PortRect pr;
+							PortRect   pr;
 							std::memcpy(&pr, &port, sizeof(pr));
 							const float portL = pr.left;
 							const float portT = pr.top;

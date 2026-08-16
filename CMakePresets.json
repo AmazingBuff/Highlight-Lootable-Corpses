@@ -58,24 +58,6 @@
       ],
       "name": "Release",
       "toolset": "v143,version=14.44.35207"
-    },
-    {
-      "architecture": {
-        "strategy": "set",
-        "value": "x64"
-      },
-      "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /WX",
-        "CMAKE_PREFIX_PATH": "E:/SkyrimTools/Proj/FollowerSummonAllyFix/build/vcpkg_installed/x64-windows-static-md",
-        "SKSE_SUPPORT_PATCH_SAFETY": "OFF"
-      },
-      "generator": "Visual Studio 17 2022",
-      "inherits": [
-        "cmake-dev",
-        "windows"
-      ],
-      "name": "ReleaseLocal",
-      "toolset": "v143,version=14.44.35207"
     }
   ],
   "version": 3

@@ -1,8 +1,22 @@
 set(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(SOURCE_DIR "${ROOT_DIR}/src")
 
-file(GLOB_RECURSE SOURCE_FILES ${SOURCE_DIR}/*.cpp)
-file(GLOB_RECURSE HEADER_FILES ${SOURCE_DIR}/*.h)
+# 小型稳定目标显式列出 sources，便于审查和可靠重新配置
+set(SOURCE_FILES
+	"${SOURCE_DIR}/Config.cpp"
+	"${SOURCE_DIR}/CorpseFinder.cpp"
+	"${SOURCE_DIR}/ESPRenderer.cpp"
+	"${SOURCE_DIR}/Input.cpp"
+	"${SOURCE_DIR}/main.cpp"
+)
+
+set(HEADER_FILES
+	"${SOURCE_DIR}/Config.h"
+	"${SOURCE_DIR}/CorpseFinder.h"
+	"${SOURCE_DIR}/ESPRenderer.h"
+	"${SOURCE_DIR}/Input.h"
+	"${SOURCE_DIR}/PCH.h"
+)
 
 set(VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/src/Plugin.h")
 configure_file(
