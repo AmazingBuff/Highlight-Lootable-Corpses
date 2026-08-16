@@ -1,11 +1,11 @@
-#include "PCH.h"
-#include "Config.h"
-#include "CorpseFinder.h"
-#include "ESPRenderer.h"
+#include "pch.h"
+#include "config.h"
+#include "corpse_finder.h"
+#include "esp_renderer.h"
 
 namespace
 {
-    void InitializeLog()
+    void initialize_log()
     {
         auto path = logger::log_directory();
         if (!path)
@@ -26,7 +26,7 @@ namespace
         spdlog::set_pattern("%g(%#): [%^%l%$] %v"s);
     }
 
-    void MessageHandler(SKSE::MessagingInterface::Message* a_msg)
+    void message_handler(SKSE::MessagingInterface::Message* a_msg)
     {
         switch (a_msg->type)
         {
@@ -34,7 +34,7 @@ namespace
         case SKSE::MessagingInterface::kNewGame:
         case SKSE::MessagingInterface::kPostLoadGame:
             // 此时渲染器已初始化完毕，交换链已存在，可以安全安装 Present 钩子
-            ESPRenderer::Install();
+            ESPRenderer::install();
             break;
         default:
             break;
@@ -83,14 +83,14 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(SKSE::LoadInterface const* a_s
 {
     REL::Module::reset();  // Clib-NG bug workaround
 
-    InitializeLog();
+    initialize_log();
     logger::info("{} v{}"sv, Plugin::NAME, Plugin::VERSION.string());
 
     SKSE::Init(a_skse);
 
-    Config::Load();
+    Config::load();
 
-    SKSE::GetMessagingInterface()->RegisterListener(MessageHandler);
+    SKSE::GetMessagingInterface()->RegisterListener(message_handler);
 
     logger::info("{} loaded"sv, Plugin::NAME);
     return true;

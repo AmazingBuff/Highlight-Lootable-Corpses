@@ -3,19 +3,19 @@ set(SOURCE_DIR "${ROOT_DIR}/src")
 
 # 小型稳定目标显式列出 sources，便于审查和可靠重新配置
 set(SOURCE_FILES
-	"${SOURCE_DIR}/Config.cpp"
-	"${SOURCE_DIR}/CorpseFinder.cpp"
-	"${SOURCE_DIR}/ESPRenderer.cpp"
-	"${SOURCE_DIR}/Input.cpp"
+	"${SOURCE_DIR}/config.cpp"
+	"${SOURCE_DIR}/corpse_finder.cpp"
+	"${SOURCE_DIR}/esp_renderer.cpp"
+	"${SOURCE_DIR}/input.cpp"
 	"${SOURCE_DIR}/main.cpp"
 )
 
 set(HEADER_FILES
-	"${SOURCE_DIR}/Config.h"
-	"${SOURCE_DIR}/CorpseFinder.h"
-	"${SOURCE_DIR}/ESPRenderer.h"
-	"${SOURCE_DIR}/Input.h"
-	"${SOURCE_DIR}/PCH.h"
+	"${SOURCE_DIR}/config.h"
+	"${SOURCE_DIR}/corpse_finder.h"
+	"${SOURCE_DIR}/esp_renderer.h"
+	"${SOURCE_DIR}/input.h"
+	"${SOURCE_DIR}/pch.h"
 )
 
 set(VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/src/Plugin.h")
@@ -170,7 +170,7 @@ target_link_libraries(
 target_precompile_headers(
 	${PROJECT_NAME}
 	PRIVATE
-	${SOURCE_DIR}/PCH.h
+	${SOURCE_DIR}/pch.h
 )
 
 install(

@@ -1,33 +1,33 @@
-#include "PCH.h"
-#include "Input.h"
-#include "Config.h"
+#include "pch.h"
+#include "input.h"
+#include "config.h"
 
 namespace
 {
-    bool g_wasDown = false;
+    bool g_was_down = false;
 }
 
 namespace Input
 {
-    void Poll()
+    void poll()
     {
-        auto const vk = Config::Get().hotkey;
+        auto const vk = Config::get().hotkey;
         if (vk == 0)
         {
             return;
         }
 
         bool const down = (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
-        if (down && !g_wasDown)
+        if (down && !g_was_down)
         {
-            bool const enabled = !Config::IsEnabled();
-            Config::SetEnabled(enabled);
+            bool const enabled = !Config::is_enabled();
+            Config::set_enabled(enabled);
             // 控制台消息与 INI 写回放到游戏线程执行
             SKSE::GetTaskInterface()->AddTask([enabled]() {
                 RE::ConsoleLog::GetSingleton()->Print("CorpseESP: %s", enabled ? "ON" : "OFF");
-                Config::SaveEnabled();
+                Config::save_enabled();
             });
         }
-        g_wasDown = down;
+        g_was_down = down;
     }
 }

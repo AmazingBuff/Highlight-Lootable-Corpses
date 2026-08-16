@@ -95,7 +95,7 @@ cpack --config build/CPackConfig.cmake
 > `CMakeUserPresets.json` 中并已被 `.gitignore` 排除。它关闭 CommonLibSSE 的
 > `SKSE_SUPPORT_PATCH_SAFETY` 选项（避免构建时在线拉取 hde64）；对应的
 > `/WX` 严格编译兼容问题由项目侧解决：`src/CMakeLists.txt` 对源码构建的
-> CommonLibSSE 目标附加 `/wd4100`，`ESPRenderer.cpp` 通过 memcpy 按固定布局
+> CommonLibSSE 目标附加 `/wd4100`，`esp_renderer.cpp` 通过 memcpy 按固定布局
 > 读取 `NiRect`（成员为 protected）——三方库 `extern/CommonLibSSE` 保持原样。
 
 ## 技术说明
