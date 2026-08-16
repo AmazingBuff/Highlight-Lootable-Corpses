@@ -6,7 +6,7 @@
 // 无链接依赖；头文件自身带多种 /W4 告警（C4996 弃用 codecvt、C5054 跨枚举 |、
 // C4099 struct/class 混用、C4267/C4244 隐式转换），项目 /WX 下需静默。
 #pragma warning(push)
-#pragma warning(disable : 4996 5054 4099 4267 4244 4061 4062)
+#pragma warning(disable: 4996 5054 4099 4267 4244 4061 4062)
 #include <SKSEMCP/utils.hpp>
 #pragma warning(pop)
 
