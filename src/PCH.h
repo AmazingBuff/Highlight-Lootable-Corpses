@@ -11,7 +11,7 @@
 
 // Direct3D / DirectXTK
 #pragma warning(push)
-#pragma warning(disable : 4324)  // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)  // structure was padded due to alignment specifier
 #include <d3d11.h>
 #include <dxgi.h>
 #include <DirectXMath.h>
@@ -37,7 +37,7 @@ namespace logger = SKSE::log;
 
 namespace util
 {
-	using SKSE::stl::report_and_fail;
+    using SKSE::stl::report_and_fail;
 }
 
 #define DLLEXPORT __declspec(dllexport)

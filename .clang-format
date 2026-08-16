@@ -55,7 +55,9 @@ ConstructorInitializerAllOnOneLineOrOnePerLine: 'false'
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: 'false'
-DeriveLineEnding: 'true'
+# 行尾：clang-format >=16 弃用 UseCRLF，改用 LineEnding；关闭 DeriveLineEnding 保证确定性
+DeriveLineEnding: 'false'
+LineEnding: CRLF
 DerivePointerAlignment: 'false'
 DisableFormat: 'false'
 FixNamespaceComments: 'false'
@@ -100,7 +102,6 @@ SpacesInParentheses: 'false'
 SpacesInSquareBrackets: 'false'
 Standard: Latest
 TabWidth: 4
-UseCRLF: 'true'
 # cpp-style：无 Tab，4 空格缩进（IndentWidth: 4）
 UseTab: Never
 
