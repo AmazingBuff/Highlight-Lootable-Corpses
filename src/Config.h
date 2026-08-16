@@ -19,6 +19,10 @@ namespace Config
 		bool          showGlow{ false };            // 画发光填充（默认关闭）
 		bool          showCenterDot{ false };       // 画中心点（默认关闭）
 		bool          showIndicator{ true };        // 画右上角开关指示点
+
+		// 距离衰减：FadeStartDistance 内完全可见，超过后按 FadePower 指数淡出到 MinOpacity
+		float         fadeStartDistance{ 1000.0f };  // 开始淡出的距离（游戏单位）
+		float         fadePower{ 2.0f };             // 淡出曲线指数（越大衰减越快）
 	};
 
 	[[nodiscard]] const Settings& Get() noexcept;

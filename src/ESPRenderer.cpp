@@ -459,10 +459,16 @@ namespace ESPRenderer
 					// 发光/中心点用的半径（取矩形面积的等效半径）
 					const float radiusPx = std::clamp(std::sqrt(std::max(boxW * boxH, 1.0f)) * 0.5f, kMinBox, 300.0f);
 
-					// 距离淡出
-					const float t = 1.0f - (corpse.distance / std::max(cfg.maxDistance, 1.0f));
+					// 距离衰减：FadeStartDistance 内完全不透明；超过后按
+					// FadePower 指数衰减，到 MaxDistance 处达到 MinOpacity 下限。
+					// 远处尸体的 box 边框越来越"虚"，近处保持清晰。
+					const float fadeRange = std::max(cfg.maxDistance - cfg.fadeStartDistance, 1.0f);
+					const float f = corpse.distance <= cfg.fadeStartDistance
+						? 1.0f
+						: 1.0f - std::clamp((corpse.distance - cfg.fadeStartDistance) / fadeRange, 0.0f, 1.0f);
+					const float fade = std::pow(f, cfg.fadePower);
 					const float alpha = std::clamp(
-						cfg.minOpacity + t * (1.0f - cfg.minOpacity),
+						cfg.minOpacity + fade * (1.0f - cfg.minOpacity),
 						cfg.minOpacity,
 						1.0f);
 

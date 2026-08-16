@@ -53,6 +53,8 @@ namespace Config
 		g_settings.showGlow = ini.GetBoolValue("Display", "ShowGlow", g_settings.showGlow);
 		g_settings.showCenterDot = ini.GetBoolValue("Display", "ShowCenterDot", g_settings.showCenterDot);
 		g_settings.showIndicator = ini.GetBoolValue("Display", "ShowIndicator", g_settings.showIndicator);
+		g_settings.fadeStartDistance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fadeStartDistance));
+		g_settings.fadePower = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fadePower));
 
 		g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
 
@@ -69,6 +71,8 @@ namespace Config
 		ini.SetBoolValue("Display", "ShowGlow", g_settings.showGlow);
 		ini.SetBoolValue("Display", "ShowCenterDot", g_settings.showCenterDot);
 		ini.SetBoolValue("Display", "ShowIndicator", g_settings.showIndicator);
+		ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fadeStartDistance);
+		ini.SetDoubleValue("Display", "FadePower", g_settings.fadePower);
 
 		const SI_Error saveRc = ini.SaveFile(path.string().c_str());
 		if (saveRc < 0) {
