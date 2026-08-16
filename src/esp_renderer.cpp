@@ -32,6 +32,28 @@ namespace
     ID3D11Texture2D* g_back_buffer = nullptr;
     std::uint32_t g_back_w = 0;  // 后台缓冲真实尺寸（来自交换链纹理描述）
     std::uint32_t g_back_h = 0;
+    DXGI_FORMAT g_back_buffer_format = DXGI_FORMAT_UNKNOWN;
+
+    // sRGB 编码值 → 线性值。后台缓冲为 *_SRGB 格式时，DX11 输出合并阶段会把
+    // 写入值再做 线性→sRGB 编码；为让 box 显示颜色 == 配置值（与 UI 色块一致），
+    // 需预先把 sRGB 值还原为线性值，写入后硬件再编码回原值。
+    [[nodiscard]] float SrgbToLinear(float a_c) noexcept
+    {
+        return a_c <= 0.04045f ? a_c / 12.92f : std::pow((a_c + 0.055f) / 1.055f, 2.4f);
+    }
+
+    [[nodiscard]] bool IsSrgbBackBuffer() noexcept
+    {
+        switch (g_back_buffer_format)
+        {
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+            return true;
+        default:
+            return false;
+        }
+    }
 
     // ---------------------------------------------------------------------------
     // 扫描调度（渲染线程计时，游戏线程执行）
@@ -77,6 +99,11 @@ namespace
         buffer->GetDesc(&desc);
         g_back_w = desc.Width;
         g_back_h = desc.Height;
+        g_back_buffer_format = desc.Format;
+        if (g_back_buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM)
+        {
+            logger::info("Back buffer format: {}", static_cast<int>(g_back_buffer_format));
+        }
         HRESULT const rtv_hr = a_device->CreateRenderTargetView(buffer, nullptr, &g_back_buffer_rtv);
         if (FAILED(rtv_hr) || !g_back_buffer_rtv)
         {
@@ -279,7 +306,9 @@ namespace ESPRenderer
         {
             bool const enabled = Config::is_enabled();
             auto const color = enabled ? DirectX::XMFLOAT4{ 0.0f, 1.0f, 0.35f, 1.0f } : DirectX::XMFLOAT4{ 0.45f, 0.45f, 0.45f, 0.8f };
-            draw_filled_rect(w - 26.0f, 16.0f, w - 12.0f, 30.0f, color);
+            draw_filled_rect(
+                w - 26.0f, 16.0f, w - 12.0f, 30.0f,
+                IsSrgbBackBuffer() ? DirectX::XMFLOAT4{ SrgbToLinear(color.x), SrgbToLinear(color.y), SrgbToLinear(color.z), color.w } : color);
         }
 
         // ---- 尸体 ESP 标记 ----
@@ -331,6 +360,16 @@ namespace ESPRenderer
                 float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
                 float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                 float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
+                // sRGB 后台缓冲：预还原为线性值，保证显示颜色与配置值/UI 色块一致
+                bool const srgb_back = IsSrgbBackBuffer();
+                auto const to_output = [&](float r, float g, float b, float a) {
+                    return DirectX::XMFLOAT4{
+                        srgb_back ? SrgbToLinear(r) : r,
+                        srgb_back ? SrgbToLinear(g) : g,
+                        srgb_back ? SrgbToLinear(b) : b,
+                        a
+                    };
+                };
 
                 for (auto const& corpse : CorpseFinder::snapshot())
                 {
@@ -518,7 +557,7 @@ namespace ESPRenderer
                             float const ga = alpha * cfg.glow_alpha / static_cast<float>(i);
                             draw_filled_rect(
                                 sx - grow, sy - grow, sx + grow, sy + grow,
-                                DirectX::XMFLOAT4{ cr, cg, cb, ga });
+                                to_output(cr, cg, cb, ga));
                         }
                     }
 
@@ -536,7 +575,7 @@ namespace ESPRenderer
                                 { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
                                 { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
                             };
-                            auto const col = DirectX::XMFLOAT4{ cr, cg, cb, alpha };
+                            auto const col = to_output(cr, cg, cb, alpha);
                             for (auto const& e : kEdges)
                             {
                                 draw_thick_line(
@@ -549,7 +588,7 @@ namespace ESPRenderer
                         {
                             draw_rect_outline(
                                 x0, y0, x1, y1, cfg.outline_thickness,
-                                DirectX::XMFLOAT4{ cr, cg, cb, alpha });
+                                to_output(cr, cg, cb, alpha));
                         }
                     }
 
@@ -558,7 +597,7 @@ namespace ESPRenderer
                         float const d = std::max(2.0f, radius_px * 0.12f);
                         draw_filled_rect(
                             sx - d, sy - d, sx + d, sy + d,
-                            DirectX::XMFLOAT4{ cr, cg, cb, std::min(1.0f, alpha + 0.2f) });
+                            to_output(cr, cg, cb, std::min(1.0f, alpha + 0.2f)));
                     }
                 }
             }

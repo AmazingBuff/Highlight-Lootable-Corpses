@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ui_menu.h"
 #include "config.h"
+#include "corpse_finder.h"
 
 // SKSE-MCP（header-only）通过 GetProcAddress 动态加载 SKSEMenuFramework.dll，
 // 无链接依赖；头文件自身带多种 /W4 告警（C4996 弃用 codecvt、C5054 跨枚举 |、
@@ -18,7 +19,12 @@ namespace
     {
         auto& s = Config::get_mutable();
 
-        ImGuiMCP::Checkbox("Enabled", &s.enabled);
+        // 总开关：必须经 set_enabled 同步 g_enabled（渲染线程读它），直接改字段无效
+        bool enabled = s.enabled;
+        if (ImGuiMCP::Checkbox("Enabled", &enabled))
+        {
+            Config::set_enabled(enabled);
+        }
 
         ImGuiMCP::SliderFloat("Max Search Distance", &s.max_distance, 500.0f, 50000.0f, "%.0f");
         int scan_ms = static_cast<int>(s.scan_interval_ms);
@@ -27,7 +33,7 @@ namespace
             s.scan_interval_ms = static_cast<std::uint32_t>(scan_ms);
         }
 
-        // 描边颜色：uint32 RGB -> float[3]
+        // 描边颜色：uint32 RGB -> float[3]（sRGB 值，与渲染端提取逻辑一致）
         float col[3] = {
             static_cast<float>((s.outline_color >> 16) & 0xFF) / 255.0f,
             static_cast<float>((s.outline_color >> 8) & 0xFF) / 255.0f,
@@ -41,19 +47,24 @@ namespace
                 static_cast<std::uint32_t>(col[2] * 255.0f);
         }
 
-        ImGuiMCP::SliderFloat("Glow Alpha", &s.glow_alpha, 0.0f, 1.0f, "%.2f");
         ImGuiMCP::SliderFloat("Min Opacity", &s.min_opacity, 0.0f, 1.0f, "%.2f");
         ImGuiMCP::SliderFloat("Outline Thickness", &s.outline_thickness, 1.0f, 8.0f, "%.1f");
 
         ImGuiMCP::Checkbox("Show Outline", &s.show_outline);
-        ImGuiMCP::Checkbox("Show Glow", &s.show_glow);
-        ImGuiMCP::Checkbox("Show Center Dot", &s.show_center_dot);
-        ImGuiMCP::Checkbox("Show Indicator", &s.show_indicator);
 
-        ImGuiMCP::SliderFloat("Fade Start Distance", &s.fade_start_distance, 100.0f, s.max_distance, "%.0f");
+        ImGuiMCP::SliderFloat("Fade Start Distance", &s.fade_start_distance, 0.0f, s.max_distance, "%.0f");
         ImGuiMCP::SliderFloat("Fade Power", &s.fade_power, 0.1f, 8.0f, "%.1f");
 
         ImGuiMCP::Separator();
+
+        // 实时状态：帮助验证距离衰减（fade 只作用于超过 Fade Start 距离的尸体）
+        auto const corpses = CorpseFinder::snapshot();
+        float nearest = 0.0f;
+        for (auto const& corpse : corpses)
+        {
+            nearest = nearest == 0.0f ? corpse.distance : std::min(nearest, corpse.distance);
+        }
+        ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
         ImGuiMCP::Text("ESP Toggle Hotkey: 0x%02X (edit in INI)", s.hotkey);
 
         if (ImGuiMCP::Button("Save to INI"))

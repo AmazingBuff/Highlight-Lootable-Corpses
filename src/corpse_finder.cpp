@@ -447,10 +447,10 @@ namespace
                 details[i] = std::string(a_detail);
                 break;
             }
-            if (std::find(seen.begin(), seen.end(), a_form_id) == seen.end())
+            if (std::ranges::find(seen, a_form_id) == seen.end())
             {
                 seen.push_back(a_form_id);
-                details.push_back(std::string(a_detail));
+                details.emplace_back(a_detail);
             }
         }
         logger::info("{}", a_detail);
