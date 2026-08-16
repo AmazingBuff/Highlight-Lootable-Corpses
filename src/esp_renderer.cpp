@@ -301,22 +301,11 @@ namespace ESPRenderer
 
         g_batch->Begin();
 
-        // ---- 右上角开关指示点 ----
-        if (Config::get().show_indicator)
-        {
-            bool const enabled = Config::is_enabled();
-            auto const color = enabled ? DirectX::XMFLOAT4{ 0.0f, 1.0f, 0.35f, 1.0f } : DirectX::XMFLOAT4{ 0.45f, 0.45f, 0.45f, 0.8f };
-            draw_filled_rect(
-                w - 26.0f, 16.0f, w - 12.0f, 30.0f,
-                IsSrgbBackBuffer() ? DirectX::XMFLOAT4{ SrgbToLinear(color.x), SrgbToLinear(color.y), SrgbToLinear(color.z), color.w } : color);
-        }
-
         // ---- 尸体 ESP 标记 ----
         if (Config::is_enabled())
         {
             auto const& cfg = Config::get();
-            bool const drawSomething = cfg.show_outline || cfg.show_glow || cfg.show_center_dot;
-            if (drawSomething)
+            if (cfg.show_outline)
             {
                 // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
                 RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
@@ -532,9 +521,6 @@ namespace ESPRenderer
                         y1 = sy + half_y;
                     }
 
-                    // 发光/中心点用的半径（取矩形面积的等效半径）
-                    float const radius_px = std::clamp(std::sqrt(std::max(box_w * box_h, 1.0f)) * 0.5f, kMinBox, 300.0f);
-
                     // 距离衰减：FadeStartDistance 内完全不透明；超过后按
                     // FadePower 指数衰减，到 MaxDistance 处达到 MinOpacity 下限。
                     // 远处尸体的 box 边框越来越"虚"，近处保持清晰。
@@ -545,21 +531,6 @@ namespace ESPRenderer
                         cfg.min_opacity + fade * (1.0f - cfg.min_opacity),
                         cfg.min_opacity,
                         1.0f);
-
-                    float const half = radius_px * 1.15f;
-
-                    if (cfg.show_glow)
-                    {
-                        // 多层外扩发光（默认关闭，仅保留边框时可忽略）
-                        for (int i = 4; i >= 1; --i)
-                        {
-                            float const grow = half * (1.0f + 0.25f * static_cast<float>(i));
-                            float const ga = alpha * cfg.glow_alpha / static_cast<float>(i);
-                            draw_filled_rect(
-                                sx - grow, sy - grow, sx + grow, sy + grow,
-                                to_output(cr, cg, cb, ga));
-                        }
-                    }
 
                     // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
                     // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
@@ -590,14 +561,6 @@ namespace ESPRenderer
                                 x0, y0, x1, y1, cfg.outline_thickness,
                                 to_output(cr, cg, cb, alpha));
                         }
-                    }
-
-                    if (cfg.show_center_dot)
-                    {
-                        float const d = std::max(2.0f, radius_px * 0.12f);
-                        draw_filled_rect(
-                            sx - d, sy - d, sx + d, sy + d,
-                            to_output(cr, cg, cb, std::min(1.0f, alpha + 0.2f)));
                     }
                 }
             }

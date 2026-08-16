@@ -14,13 +14,11 @@
   Soul Ember、灰烬魔等变体），通过 `ExtraAshPileRef` 关联原始 Actor 判断库存
 - 支持**静态尸体**：干尸/裹尸/烧焦尸体等容器物体（`TreasDraugrAmbushCorpse*`、
   `TreasBurntCorpse*`、`defaultGhostCorpse` 等，含 DLC 变体）
-- 纯标记，无文字干扰：默认仅绘制**包围盒描边边框**（发光填充与中心点默认关闭，
-  可在 INI 开启），边框按距离指数衰减（越远越"虚"）
+- 纯标记，无文字干扰：只绘制**包围盒描边边框**，边框按距离指数衰减（越远越"虚"）
 - 包围盒取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体，与尸体实际
   碰撞范围一致；有方向碰撞盒时绘制 12 边 3D 线框
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
 - 热键一键开关（默认 `F7`，可在 INI 中修改）
-- 右上角小指示点显示当前开关状态（可在 INI 中关闭）
 - **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
   的 "CorpseESP > Settings" 页面实时调整并保存到 INI
 - 全部选项由 INI 配置，首次运行自动生成默认配置文件
@@ -56,8 +54,6 @@ ScanIntervalMs=500
 [Display]
 ; 描边颜色（RGB 十六进制）
 OutlineColor=00FF66
-; 发光强度
-GlowAlpha=0.30
 ; 远处标记最小不透明度
 MinOpacity=0.15
 ; 描边线宽（像素）
@@ -68,12 +64,6 @@ FadeStartDistance=1000.0
 FadePower=2.0
 ; 是否画包围盒描边
 ShowOutline=true
-; 是否画发光
-ShowGlow=false
-; 是否画中心点
-ShowCenterDot=false
-; 是否画右上角开关指示点
-ShowIndicator=true
 ```
 
 ## 构建

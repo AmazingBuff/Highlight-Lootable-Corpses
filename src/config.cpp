@@ -49,13 +49,9 @@ namespace Config
         g_settings.scan_interval_ms = static_cast<std::uint32_t>(ini.GetLongValue("General", "ScanIntervalMs", static_cast<long>(g_settings.scan_interval_ms)));
 
         g_settings.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor", "00FF66"), 0x00FF66);
-        g_settings.glow_alpha = static_cast<float>(ini.GetDoubleValue("Display", "GlowAlpha", g_settings.glow_alpha));
         g_settings.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity", g_settings.min_opacity));
         g_settings.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness));
         g_settings.show_outline = ini.GetBoolValue("Display", "ShowOutline", g_settings.show_outline);
-        g_settings.show_glow = ini.GetBoolValue("Display", "ShowGlow", g_settings.show_glow);
-        g_settings.show_center_dot = ini.GetBoolValue("Display", "ShowCenterDot", g_settings.show_center_dot);
-        g_settings.show_indicator = ini.GetBoolValue("Display", "ShowIndicator", g_settings.show_indicator);
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
@@ -87,13 +83,9 @@ namespace Config
         ini.SetDoubleValue("General", "MaxDistance", g_settings.max_distance);
         ini.SetLongValue("General", "ScanIntervalMs", static_cast<long>(g_settings.scan_interval_ms));
         ini.SetValue("Display", "OutlineColor", fmt::format("{:06X}", g_settings.outline_color).c_str());
-        ini.SetDoubleValue("Display", "GlowAlpha", g_settings.glow_alpha);
         ini.SetDoubleValue("Display", "MinOpacity", g_settings.min_opacity);
         ini.SetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness);
         ini.SetBoolValue("Display", "ShowOutline", g_settings.show_outline);
-        ini.SetBoolValue("Display", "ShowGlow", g_settings.show_glow);
-        ini.SetBoolValue("Display", "ShowCenterDot", g_settings.show_center_dot);
-        ini.SetBoolValue("Display", "ShowIndicator", g_settings.show_indicator);
         ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
         ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
 
