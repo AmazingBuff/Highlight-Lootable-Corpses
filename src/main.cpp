@@ -2,6 +2,7 @@
 #include "config.h"
 #include "corpse_finder.h"
 #include "esp_renderer.h"
+#include "ui_menu.h"
 
 namespace
 {
@@ -35,6 +36,8 @@ namespace
         case SKSE::MessagingInterface::kPostLoadGame:
             // 此时渲染器已初始化完毕，交换链已存在，可以安全安装 Present 钩子
             ESPRenderer::install();
+            // 所有插件已加载完毕：注册 MCP 参数面板（探测 SKSEMenuFramework.dll）
+            UiMenu::register_menus();
             break;
         default:
             break;

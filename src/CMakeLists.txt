@@ -8,6 +8,7 @@ set(SOURCE_FILES
 	"${SOURCE_DIR}/esp_renderer.cpp"
 	"${SOURCE_DIR}/input.cpp"
 	"${SOURCE_DIR}/main.cpp"
+	"${SOURCE_DIR}/ui_menu.cpp"
 )
 
 set(HEADER_FILES
@@ -16,6 +17,7 @@ set(HEADER_FILES
 	"${SOURCE_DIR}/esp_renderer.h"
 	"${SOURCE_DIR}/input.h"
 	"${SOURCE_DIR}/pch.h"
+	"${SOURCE_DIR}/ui_menu.h"
 )
 
 set(VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/src/Plugin.h")
@@ -150,6 +152,12 @@ if(TARGET CommonLibSSE AND MSVC)
 	target_compile_options(CommonLibSSE PRIVATE /wd4100)
 endif()
 
+# SKSE-MCP：header-only 的 SKSE Menu Framework 插件侧封装（动态加载 SKSEMenuFramework.dll）
+add_subdirectory(
+	"${ROOT_DIR}/extern/SKSE-MCP"
+	"${CMAKE_CURRENT_BINARY_DIR}/SKSE-MCP"
+)
+
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(simpleini CONFIG REQUIRED)
@@ -163,6 +171,7 @@ target_link_libraries(
 	CommonLibSSE::CommonLibSSE
 	SimpleIni::SimpleIni
 	Microsoft::DirectXTK
+	SKSE-MCP::SKSE-MCP
 	d3d11
 	dxgi
 )

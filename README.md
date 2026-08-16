@@ -21,6 +21,8 @@
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
 - 热键一键开关（默认 `F7`，可在 INI 中修改）
 - 右上角小指示点显示当前开关状态（可在 INI 中关闭）
+- **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
+  的 "CorpseESP > Settings" 页面实时调整并保存到 INI
 - 全部选项由 INI 配置，首次运行自动生成默认配置文件
 
 ## 安装
@@ -28,13 +30,17 @@
 1. 安装 [SKSE64](https://skse.silverlock.org/)（AE 版本，与游戏版本匹配）
 2. 安装 [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
 3. 将 `CorpseESP.dll` 放入游戏目录的 `Data\SKSE\Plugins\` 下
-4. 启动游戏，进入游戏后插件自动生效
+4. （可选但推荐）安装 [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352)，
+   以获得游戏内设置面板；未安装时插件其余功能不受影响（日志会提示面板禁用）
+5. 启动游戏，进入游戏后插件自动生效
 
 > 日志文件：`Documents\My Games\Skyrim Special Edition\SKSE\CorpseESP.log`
 
 ## 配置文件
 
-首次运行会在 `Data\SKSE\Plugins\CorpseESP.ini` 生成默认配置：
+首次运行会在 `Data\SKSE\Plugins\CorpseESP.ini` 生成默认配置。
+所有选项也都可以在游戏内 Mod Control Panel 中实时调整（"CorpseESP > Settings"，
+"Save to INI" 按钮写回本文件）：
 
 ```ini
 [General]
@@ -76,6 +82,12 @@ ShowIndicator=true
 
 依赖（spdlog、fmt、DirectXTK、simpleini、DirectXMath）可通过 vcpkg 安装，
 也可以复用本工作区已构建好的依赖目录（`FollowerSummonAllyFix\build\vcpkg_installed\...`）。
+仓库包含两个 submodule：`extern/CommonLibSSE`（引擎库）与 `extern/SKSE-MCP`
+（游戏内菜单的 header-only 封装），首次克隆需：
+
+```powershell
+git submodule update --init --recursive
+```
 
 ```powershell
 # 方案 A：使用 vcpkg（需设置 VCPKG_ROOT 环境变量，首次会安装依赖）
@@ -119,6 +131,11 @@ cpack --config build/CPackConfig.cmake
 - **线程模型**：扫描经 `SKSE::GetTaskInterface()->AddTask` 派发（可能运行在
   游戏任务线程池上），渲染线程只读取互斥锁保护的尸体快照与不可变配置；
   热键在渲染回调中轮询。
+- **游戏内菜单**：`ui_menu.cpp` 通过 [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
+  （header-only）在 `kDataLoaded` 后探测 `SKSEMenuFramework.dll` 并注册
+  "CorpseESP > Settings" 面板；imgui 函数经 `GetProcAddress` 动态调用框架
+  导出（`igXXX`），无链接依赖。面板回调在游戏主线程执行，直接读写
+  `Config::get_mutable()`（与渲染线程的无锁读取同现有模式）。
 
 ## 路线图
 

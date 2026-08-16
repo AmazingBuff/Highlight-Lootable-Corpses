@@ -1,3 +1,6 @@
-﻿[submodule "extern/CommonLibSSE"]
+[submodule "extern/CommonLibSSE"]
 	path = extern/CommonLibSSE
 	url = https://github.com/alandtse/CommonLibSSE-NG.git
+[submodule "extern/SKSE-MCP"]
+	path = extern/SKSE-MCP
+	url = https://github.com/QTR-Modding/SKSE-MCP.git

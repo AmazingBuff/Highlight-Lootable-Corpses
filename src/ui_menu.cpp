@@ -1,0 +1,88 @@
+#include "pch.h"
+#include "ui_menu.h"
+#include "config.h"
+
+// SKSE-MCP（header-only）通过 GetProcAddress 动态加载 SKSEMenuFramework.dll，
+// 无链接依赖；头文件自身带多种 /W4 告警（C4996 弃用 codecvt、C5054 跨枚举 |、
+// C4099 struct/class 混用、C4267/C4244 隐式转换），项目 /WX 下需静默。
+#pragma warning(push)
+#pragma warning(disable : 4996 5054 4099 4267 4244 4061 4062)
+#include <SKSEMCP/utils.hpp>
+#pragma warning(pop)
+
+namespace
+{
+    // MCP 菜单回调：游戏主线程执行（框架在 imgui 帧内调用），
+    // 直接读写 Config 设置；修改即时生效，渲染线程无锁读取（与 set_enabled 同模式）。
+    void __stdcall render_settings()
+    {
+        auto& s = Config::get_mutable();
+
+        ImGuiMCP::Checkbox("Enabled", &s.enabled);
+
+        ImGuiMCP::SliderFloat("Max Search Distance", &s.max_distance, 500.0f, 50000.0f, "%.0f");
+        int scan_ms = static_cast<int>(s.scan_interval_ms);
+        if (ImGuiMCP::SliderInt("Scan Interval (ms)", &scan_ms, 100, 5000))
+        {
+            s.scan_interval_ms = static_cast<std::uint32_t>(scan_ms);
+        }
+
+        // 描边颜色：uint32 RGB -> float[3]
+        float col[3] = {
+            static_cast<float>((s.outline_color >> 16) & 0xFF) / 255.0f,
+            static_cast<float>((s.outline_color >> 8) & 0xFF) / 255.0f,
+            static_cast<float>(s.outline_color & 0xFF) / 255.0f,
+        };
+        if (ImGuiMCP::ColorEdit3("Outline Color", col))
+        {
+            s.outline_color =
+                (static_cast<std::uint32_t>(col[0] * 255.0f) << 16) |
+                (static_cast<std::uint32_t>(col[1] * 255.0f) << 8) |
+                static_cast<std::uint32_t>(col[2] * 255.0f);
+        }
+
+        ImGuiMCP::SliderFloat("Glow Alpha", &s.glow_alpha, 0.0f, 1.0f, "%.2f");
+        ImGuiMCP::SliderFloat("Min Opacity", &s.min_opacity, 0.0f, 1.0f, "%.2f");
+        ImGuiMCP::SliderFloat("Outline Thickness", &s.outline_thickness, 1.0f, 8.0f, "%.1f");
+
+        ImGuiMCP::Checkbox("Show Outline", &s.show_outline);
+        ImGuiMCP::Checkbox("Show Glow", &s.show_glow);
+        ImGuiMCP::Checkbox("Show Center Dot", &s.show_center_dot);
+        ImGuiMCP::Checkbox("Show Indicator", &s.show_indicator);
+
+        ImGuiMCP::SliderFloat("Fade Start Distance", &s.fade_start_distance, 100.0f, s.max_distance, "%.0f");
+        ImGuiMCP::SliderFloat("Fade Power", &s.fade_power, 0.1f, 8.0f, "%.1f");
+
+        ImGuiMCP::Separator();
+        ImGuiMCP::Text("ESP Toggle Hotkey: 0x%02X (edit in INI)", s.hotkey);
+
+        if (ImGuiMCP::Button("Save to INI"))
+        {
+            Config::save();
+        }
+        ImGuiMCP::SameLine();
+        if (ImGuiMCP::Button("Reset to Defaults"))
+        {
+            Config::reset_defaults();
+        }
+    }
+}
+
+namespace UiMenu
+{
+    void register_menus()
+    {
+        if (!SKSEMenuFramework::IsInstalled())
+        {
+            logger::warn("SKSE Menu Framework (SKSEMenuFramework.dll) not installed, in-game settings menu disabled");
+            return;
+        }
+
+        SKSEMenuFramework::SetSection("CorpseESP");
+        SKSEMenuFramework::AddSectionItem("Settings", render_settings);
+
+        logger::info(
+            "Registered CorpseESP settings page (SKSE Menu Framework v{:.2f})",
+            SKSEMenuFramework::GetMenuFrameworkVersion());
+    }
+}

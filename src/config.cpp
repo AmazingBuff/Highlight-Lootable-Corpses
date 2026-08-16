@@ -62,6 +62,26 @@ namespace Config
         g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
 
         // 写回，保证文件存在且包含全部选项说明
+        save();
+
+        logger::info(
+            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms",
+            g_settings.enabled,
+            g_settings.hotkey,
+            g_settings.max_distance,
+            g_settings.scan_interval_ms);
+    }
+
+    void save() noexcept
+    {
+        CSimpleIniA ini;
+        ini.SetUnicode();
+        auto const path = get_ini_path();
+        if (ini.LoadFile(path.string().c_str()) < 0)
+        {
+            logger::info("INI not found at {}, writing defaults", path.string());
+        }
+
         ini.SetBoolValue("General", "Enabled", g_settings.enabled);
         ini.SetLongValue("General", "Hotkey", static_cast<long>(g_settings.hotkey));
         ini.SetDoubleValue("General", "MaxDistance", g_settings.max_distance);
@@ -82,16 +102,22 @@ namespace Config
         {
             logger::warn("Failed to write INI at {}", path.string());
         }
+    }
 
-        logger::info(
-            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms",
-            g_settings.enabled,
-            g_settings.hotkey,
-            g_settings.max_distance,
-            g_settings.scan_interval_ms);
+    void reset_defaults() noexcept
+    {
+        g_settings = Settings{};
+        g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
+        save();
+        logger::info("Config reset to defaults");
     }
 
     Settings const& get() noexcept
+    {
+        return g_settings;
+    }
+
+    Settings& get_mutable() noexcept
     {
         return g_settings;
     }

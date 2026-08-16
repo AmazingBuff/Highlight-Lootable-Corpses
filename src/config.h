@@ -26,11 +26,15 @@ namespace Config
     };
 
     [[nodiscard]] Settings const& get() noexcept;
+    // 游戏主线程（MCP 菜单）修改用；渲染线程经 get() 无锁读取，与 set_enabled 同模式
+    [[nodiscard]] Settings& get_mutable() noexcept;
 
     [[nodiscard]] bool is_enabled() noexcept;
     void set_enabled(bool a_enabled) noexcept;
     void save_enabled() noexcept;
 
     void load() noexcept;
+    void save() noexcept;            // 全量写回 INI（含全部选项说明）
+    void reset_defaults() noexcept;  // 恢复默认值并写回
     [[nodiscard]] std::filesystem::path get_ini_path() noexcept;
 }
