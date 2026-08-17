@@ -17,34 +17,30 @@ namespace
     // 直接读写 Config 设置；修改即时生效，渲染线程无锁读取（与 set_enabled 同模式）。
     void __stdcall render_settings()
     {
-        auto& s = Config::get_mutable();
+        Config::Settings& s = Config::get_mutable();
 
         // 总开关：必须经 set_enabled 同步 g_enabled（渲染线程读它），直接改字段无效
         bool enabled = s.enabled;
         if (ImGuiMCP::Checkbox("Enabled", &enabled))
-        {
             Config::set_enabled(enabled);
-        }
 
         ImGuiMCP::SliderFloat("Max Search Distance", &s.max_distance, 500.0f, 50000.0f, "%.0f");
         int scan_ms = static_cast<int>(s.scan_interval_ms);
         if (ImGuiMCP::SliderInt("Scan Interval (ms)", &scan_ms, 100, 5000))
-        {
             s.scan_interval_ms = static_cast<std::uint32_t>(scan_ms);
-        }
 
         // 描边颜色：uint32 RGB -> float[3]（sRGB 值，与渲染端提取逻辑一致）
-        float col[3] = {
+        float color[3] = {
             static_cast<float>((s.outline_color >> 16) & 0xFF) / 255.0f,
             static_cast<float>((s.outline_color >> 8) & 0xFF) / 255.0f,
             static_cast<float>(s.outline_color & 0xFF) / 255.0f,
         };
-        if (ImGuiMCP::ColorEdit3("Outline Color", col))
+        if (ImGuiMCP::ColorEdit3("Outline Color", color))
         {
             s.outline_color =
-                (static_cast<std::uint32_t>(col[0] * 255.0f) << 16) |
-                (static_cast<std::uint32_t>(col[1] * 255.0f) << 8) |
-                static_cast<std::uint32_t>(col[2] * 255.0f);
+                (static_cast<std::uint32_t>(color[0] * 255.0f) << 16) |
+                (static_cast<std::uint32_t>(color[1] * 255.0f) << 8) |
+                static_cast<std::uint32_t>(color[2] * 255.0f);
         }
 
         ImGuiMCP::SliderFloat("Min Opacity", &s.min_opacity, 0.0f, 1.0f, "%.2f");
@@ -58,24 +54,20 @@ namespace
         ImGuiMCP::Separator();
 
         // 实时状态：帮助验证距离衰减（fade 只作用于超过 Fade Start 距离的尸体）
-        auto const corpses = CorpseFinder::snapshot();
+        std::vector<CorpseFinder::CorpseEntry> const corpses = CorpseFinder::snapshot();
         float nearest = 0.0f;
         for (auto const& corpse : corpses)
-        {
             nearest = nearest == 0.0f ? corpse.distance : std::min(nearest, corpse.distance);
-        }
+
         ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
         ImGuiMCP::Text("ESP Toggle Hotkey: 0x%02X (edit in INI)", s.hotkey);
 
         if (ImGuiMCP::Button("Save to INI"))
-        {
             Config::save();
-        }
+
         ImGuiMCP::SameLine();
         if (ImGuiMCP::Button("Reset to Defaults"))
-        {
             Config::reset_defaults();
-        }
     }
 }
 

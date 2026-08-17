@@ -12,8 +12,8 @@ namespace Config
     std::filesystem::path get_ini_path() noexcept
     {
         // 放在游戏 Data\SKSE\Plugins\ 下，与 DLL 同目录
-        auto const exePath = REL::Module::get().filePath();  // SkyrimSE.exe 的完整路径（wstring_view）
-        std::filesystem::path game_root(exePath);
+        REL::stl::zwstring const exePath = REL::Module::get().filePath();  // SkyrimSE.exe 的完整路径（wstring_view）
+        const std::filesystem::path game_root(exePath);
         return game_root.parent_path() / "Data" / "SKSE" / "Plugins" / (std::string(Plugin::NAME) + ".ini");
     }
 
@@ -22,12 +22,11 @@ namespace Config
         std::uint32_t parse_hex(char const* a_value, std::uint32_t a_default) noexcept
         {
             if (!a_value || !*a_value)
-            {
                 return a_default;
-            }
+
             char* end = nullptr;
-            auto const value = std::strtoul(a_value, &end, 16);
-            return end == a_value ? a_default : static_cast<std::uint32_t>(value);
+            uint32_t const value = std::strtoul(a_value, &end, 16);
+            return end == a_value ? a_default : value;
         }
     }
 
@@ -39,9 +38,7 @@ namespace Config
         auto const path = get_ini_path();
         SI_Error const rc = ini.LoadFile(path.string().c_str());
         if (rc < 0)
-        {
             logger::info("INI not found at {}, writing defaults", path.string());
-        }
 
         g_settings.enabled = ini.GetBoolValue("General", "Enabled", g_settings.enabled);
         g_settings.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey", static_cast<long>(g_settings.hotkey)));
@@ -72,11 +69,9 @@ namespace Config
     {
         CSimpleIniA ini;
         ini.SetUnicode();
-        auto const path = get_ini_path();
+        std::filesystem::path const path = get_ini_path();
         if (ini.LoadFile(path.string().c_str()) < 0)
-        {
             logger::info("INI not found at {}, writing defaults", path.string());
-        }
 
         ini.SetBoolValue("General", "Enabled", g_settings.enabled);
         ini.SetLongValue("General", "Hotkey", static_cast<long>(g_settings.hotkey));
@@ -91,9 +86,7 @@ namespace Config
 
         SI_Error const save_rc = ini.SaveFile(path.string().c_str());
         if (save_rc < 0)
-        {
             logger::warn("Failed to write INI at {}", path.string());
-        }
     }
 
     void reset_defaults() noexcept
@@ -129,15 +122,13 @@ namespace Config
     {
         CSimpleIniA ini;
         ini.SetUnicode();
-        auto const path = get_ini_path();
+        std::filesystem::path const path = get_ini_path();
         if (ini.LoadFile(path.string().c_str()) >= 0)
         {
             ini.SetBoolValue("General", "Enabled", is_enabled());
             SI_Error const save_rc = ini.SaveFile(path.string().c_str());
             if (save_rc < 0)
-            {
                 logger::warn("Failed to save enabled state to INI at {}", path.string());
-            }
         }
     }
 }

@@ -10,9 +10,9 @@ namespace
     // IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位）
     // 运行时无关：不依赖 Address Library ID，任何 AE 版本都有效
     // ---------------------------------------------------------------------------
-    using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+    using PresentFunc = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 
-    PresentFn g_original_present = nullptr;
+    PresentFunc g_original_present = nullptr;
     void** g_hooked_slot = nullptr;
 
     HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swapChain, UINT a_syncInterval, UINT a_flags)
@@ -25,35 +25,12 @@ namespace
     // 绘制资源（懒创建，渲染线程独占）
     // ---------------------------------------------------------------------------
     std::unique_ptr<DirectX::CommonStates> g_states;
-    std::unique_ptr<DirectX::BasicEffect> g_effect;
-    std::unique_ptr<DirectX::PrimitiveBatch<DirectX::VertexPositionColor>> g_batch;
 
     ID3D11RenderTargetView* g_back_buffer_rtv = nullptr;
     ID3D11Texture2D* g_back_buffer = nullptr;
     std::uint32_t g_back_w = 0;  // 后台缓冲真实尺寸（来自交换链纹理描述）
     std::uint32_t g_back_h = 0;
     DXGI_FORMAT g_back_buffer_format = DXGI_FORMAT_UNKNOWN;
-
-    // sRGB 编码值 → 线性值。后台缓冲为 *_SRGB 格式时，DX11 输出合并阶段会把
-    // 写入值再做 线性→sRGB 编码；为让 box 显示颜色 == 配置值（与 UI 色块一致），
-    // 需预先把 sRGB 值还原为线性值，写入后硬件再编码回原值。
-    [[nodiscard]] float SrgbToLinear(float a_c) noexcept
-    {
-        return a_c <= 0.04045f ? a_c / 12.92f : std::pow((a_c + 0.055f) / 1.055f, 2.4f);
-    }
-
-    [[nodiscard]] bool IsSrgbBackBuffer() noexcept
-    {
-        switch (g_back_buffer_format)
-        {
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
-        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
-            return true;
-        default:
-            return false;
-        }
-    }
 
     // ---------------------------------------------------------------------------
     // 扫描调度（渲染线程计时，游戏线程执行）
@@ -101,9 +78,11 @@ namespace
         g_back_h = desc.Height;
         g_back_buffer_format = desc.Format;
         if (g_back_buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM)
-        {
-            logger::info("Back buffer format: {}", static_cast<int>(g_back_buffer_format));
-        }
+            logger::warn(
+                "Back buffer format is {} (expected B8G8R8A8_UNORM=87): HDR swap chain. "
+                "R10G10B10A2's alpha channel is only 2-bit (4 levels), overlay opacity is quantized.",
+                static_cast<int>(g_back_buffer_format));
+
         HRESULT const rtv_hr = a_device->CreateRenderTargetView(buffer, nullptr, &g_back_buffer_rtv);
         if (FAILED(rtv_hr) || !g_back_buffer_rtv)
         {
@@ -113,34 +92,214 @@ namespace
         return true;
     }
 
-    void ensure_draw_resources(ID3D11Device* a_device, ID3D11DeviceContext* a_context)
+
+    // ---------------------------------------------------------------------------
+    // 自绘管线：自编译 VS/PS + 自建 InputLayout/顶点缓冲。
+    // DirectXTK 的 BasicEffect/PrimitiveBatch 在本机环境（Skyrim 1.6.1170 +
+    // ReShade/渲染链）下顶点颜色错乱（实测写入红绿蓝显示绿红红、box 变红），
+    // 故整体绘制迁移到此管线。顶点位置在 CPU 端直接换算为 NDC。
+    //
+    // 混合约定（重要）：OM 绑定的 DirectXTK CommonStates::AlphaBlend() 是
+    // (SrcBlend=ONE, DestBlend=INV_SRC_ALPHA) 的“预乘 alpha”混合，因此 PS 必须
+    // 输出 rgb*a 的预乘颜色。此前 PS 直出直 alpha 颜色，rgb 以全强度（×ONE）叠加，
+    // alpha 只控制背景透出比例，导致 alpha=0.5 的方块视觉上仍是实心——
+    // 这就是“边框透明度不对/距离衰减无效”的根因。
+    //
+    // 另：本机后备缓冲为 R10G10B10A2_UNORM（HDR，DXGI 格式 24），alpha 仅 2 bit，
+    // (1-a) 侧被量化为 4 级，半透明精度天然受限（见 ensure_back_buffer 的告警）。
+    // ---------------------------------------------------------------------------
+    struct UiVertex
+    {
+        float x, y, z;
+        float r, g, b, a;
+    };
+
+    ID3D11VertexShader* g_ui_vs = nullptr;
+    ID3D11PixelShader* g_ui_ps = nullptr;
+    ID3D11InputLayout* g_ui_layout = nullptr;
+    ID3D11Buffer* g_ui_vb = nullptr;
+    bool g_ui_ready = false;
+    std::vector<UiVertex> g_ui_verts;  // 渲染线程独占：一帧内累积，flush 统一提交
+
+    // 像素取证：64x64 暂存纹理（读回 backbuffer 实际像素）。
+    // 延迟到取证时按当前后台缓冲格式创建：CopySubresourceRegion 要求源/目标
+    // 同格式（或同 TYPELESS 族），跨格式拷贝会被 D3D11 静默丢弃（此前用固定
+    // R8G8B8A8 读 R10G10B10A2 后台缓冲，全 0 读回即此因）。
+    ID3D11Texture2D* g_pick_tex = nullptr;
+
+    // 绘制互斥：日志实测 on_present 会被多个线程并发进入（Present hook 触发线程
+    // 与游戏渲染线程交替），而绘制共享 g_ui_verts/g_ui_vb/backbuffer 等状态，
+    // 并发下导致绘制错乱/不显示/透明度异常，故整个绘制段串行化。
+    std::mutex g_draw_mutex;
+
+    void ensure_ui_pipeline(ID3D11Device* a_device)
+    {
+        if (g_ui_ready)
+            return;
+
+        char const* vs_src = R"(
+            struct VS_IN
+            {
+                float3 pos : POSITION;
+                float4 color : COLOR;
+            };
+            struct PS_IN
+            {
+                float4 pos : SV_Position;
+                float4 color : COLOR;
+            };
+
+            PS_IN main(VS_IN input)
+            {
+                PS_IN output;
+                output.pos = float4(input.pos, 1.0f);
+                output.color = input.color;
+                return output;
+            }
+        )";
+        char const* ps_src = R"(
+            struct PS_IN
+            {
+                float4 pos : SV_Position;
+                float4 color : COLOR;
+            };
+
+            float4 main(PS_IN input) : SV_Target
+            {
+                // OM 的混合状态是 CommonStates::AlphaBlend()（ONE/INV_SRC_ALPHA，
+                // 预乘 alpha 约定）：必须输出预乘颜色（rgb*a），否则 rgb 全强度
+                // 叠加、alpha 失效（半透明方块显示为实心）。
+                return float4(input.color.rgb * input.color.a, input.color.a);
+            }
+        )";
+
+        ID3DBlob* vs_blob = nullptr;
+        ID3DBlob* ps_blob = nullptr;
+        ID3DBlob* err = nullptr;
+        if (FAILED(D3DCompile(vs_src, std::strlen(vs_src), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vs_blob, &err)) ||
+            FAILED(D3DCompile(ps_src, std::strlen(ps_src), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &ps_blob, &err)))
+        {
+            logger::error("UI pipeline shader compile failed");
+            return;
+        }
+        a_device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_ui_vs);
+        a_device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_ui_ps);
+
+        constexpr D3D11_INPUT_ELEMENT_DESC Layout_Desc[] = {
+            {
+                .SemanticName = "POSITION",
+                .SemanticIndex = 0,
+                .Format = DXGI_FORMAT_R32G32B32_FLOAT,
+                .InputSlot = 0, 
+                .AlignedByteOffset = 0,
+                .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+                .InstanceDataStepRate = 0
+            },
+            {
+                .SemanticName = "COLOR",
+                .SemanticIndex = 0,
+                .Format = DXGI_FORMAT_R32G32B32A32_FLOAT,
+                .InputSlot = 0,
+                .AlignedByteOffset = 12,
+                .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+                .InstanceDataStepRate = 0
+            },
+        };
+        a_device->CreateInputLayout(Layout_Desc, 2, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_ui_layout);
+
+        D3D11_BUFFER_DESC bd = {};
+        bd.Usage = D3D11_USAGE_DYNAMIC;
+        bd.ByteWidth = 1024 * 1024;  // 1MB：约 36k 顶点，尸体 box 规模下绰绰有余
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        a_device->CreateBuffer(&bd, nullptr, &g_ui_vb);
+
+        g_ui_ready = g_ui_vs && g_ui_ps && g_ui_layout && g_ui_vb;
+        logger::info("UI pipeline ready: {}", g_ui_ready);
+    }
+
+    // 累积一个屏幕空间四边形（像素坐标）到本帧顶点列表（TRIANGLELIST：2 三角形 6 顶点）
+    void draw_quad(float a_x0, float a_y0, float a_x1, float a_y1, DirectX::XMFLOAT4 const& a_color)
+    {
+        if (g_back_w == 0 || g_back_h == 0)
+            return;
+
+        float const ndc_x0 = a_x0 * 2.0f / static_cast<float>(g_back_w) - 1.0f;
+        float const ndc_x1 = a_x1 * 2.0f / static_cast<float>(g_back_w) - 1.0f;
+        float const ndc_y0 = 1.0f - a_y0 * 2.0f / static_cast<float>(g_back_h);
+        float const ndc_y1 = 1.0f - a_y1 * 2.0f / static_cast<float>(g_back_h);
+
+        g_ui_verts.emplace_back(ndc_x0, ndc_y0, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v0
+        g_ui_verts.emplace_back(ndc_x1, ndc_y0, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v1
+        g_ui_verts.emplace_back(ndc_x1, ndc_y1, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v2
+        g_ui_verts.emplace_back(ndc_x0, ndc_y0, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v0
+        g_ui_verts.emplace_back(ndc_x1, ndc_y1, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v2
+        g_ui_verts.emplace_back(ndc_x0, ndc_y1, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v3
+    }
+
+    void ensure_draw_resources(ID3D11Device* a_device)
     {
         if (!g_states)
-        {
             g_states = std::make_unique<DirectX::CommonStates>(a_device);
-        }
-        if (!g_effect)
+
+        ensure_ui_pipeline(a_device);
+    }
+
+    // 任意四点凸四边形（屏幕像素坐标），TRIANGLELIST 展开
+    void draw_quad_corners(float a_x0, float a_y0, float a_x1, float a_y1, float a_x2, float a_y2, float a_x3, float a_y3, DirectX::XMFLOAT4 const& a_color)
+    {
+        if (g_back_w == 0 || g_back_h == 0)
+            return;
+
+        float const inv_w = 2.0f / static_cast<float>(g_back_w);
+        float const inv_h = 2.0f / static_cast<float>(g_back_h);
+        auto const to_ndc = [&](float px, float py) {
+            return std::pair{ px * inv_w - 1.0f, 1.0f - py * inv_h };
+        };
+        auto const [nx0, ny0] = to_ndc(a_x0, a_y0);
+        auto const [nx1, ny1] = to_ndc(a_x1, a_y1);
+        auto const [nx2, ny2] = to_ndc(a_x2, a_y2);
+        auto const [nx3, ny3] = to_ndc(a_x3, a_y3);
+
+        g_ui_verts.emplace_back(nx0, ny0, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v0
+        g_ui_verts.emplace_back(nx1, ny1, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v1
+        g_ui_verts.emplace_back(nx2, ny2, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v2
+        g_ui_verts.emplace_back(nx0, ny0, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v0
+        g_ui_verts.emplace_back(nx2, ny2, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v2
+        g_ui_verts.emplace_back(nx3, ny3, 0.5f, a_color.x, a_color.y, a_color.z, a_color.w); // v3
+    }
+
+    // 把本帧累积的四边形统一提交（一次 Map + 一次 Draw）
+    void flush_ui_quads(ID3D11DeviceContext* a_context)
+    {
+        if (!g_ui_ready || g_ui_verts.empty())
+            return;
+
+        std::size_t const count = g_ui_verts.size();
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        if (FAILED(a_context->Map(g_ui_vb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         {
-            g_effect = std::make_unique<DirectX::BasicEffect>(a_device);
-            g_effect->SetVertexColorEnabled(true);
+            g_ui_verts.clear();
+            return;
         }
-        if (!g_batch)
-        {
-            g_batch = std::make_unique<DirectX::PrimitiveBatch<DirectX::VertexPositionColor>>(a_context);
-        }
+        std::memcpy(mapped.pData, g_ui_verts.data(), count * sizeof(UiVertex));
+        a_context->Unmap(g_ui_vb, 0);
+
+        constexpr UINT stride = sizeof(UiVertex);
+        constexpr UINT offset = 0;
+        a_context->IASetInputLayout(g_ui_layout);
+        a_context->IASetVertexBuffers(0, 1, &g_ui_vb, &stride, &offset);
+        a_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        a_context->VSSetShader(g_ui_vs, nullptr, 0);
+        a_context->PSSetShader(g_ui_ps, nullptr, 0);
+        a_context->Draw(static_cast<UINT>(count), 0);
+
+        g_ui_verts.clear();
     }
 
     void draw_filled_rect(float a_x0, float a_y0, float a_x1, float a_y1, DirectX::XMFLOAT4 const& a_color)
     {
-        DirectX::VertexPositionColor const vertices[6] = {
-            { DirectX::XMFLOAT3(a_x0, a_y0, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_x1, a_y0, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_x1, a_y1, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_x0, a_y0, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_x1, a_y1, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_x0, a_y1, 0.5f), a_color },
-        };
-        g_batch->Draw(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, vertices, 6);
+        draw_quad(a_x0, a_y0, a_x1, a_y1, a_color);
     }
 
     void draw_rect_outline(float a_x0, float a_y0, float a_x1, float a_y1, float a_thickness, DirectX::XMFLOAT4 const& a_color)
@@ -166,15 +325,14 @@ namespace
         }
         float const nx = -dy / len * t;
         float const ny = dx / len * t;
-        DirectX::VertexPositionColor const vertices[6] = {
-            { DirectX::XMFLOAT3(a_p0.x + nx, a_p0.y + ny, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_p0.x - nx, a_p0.y - ny, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_p1.x - nx, a_p1.y - ny, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_p0.x + nx, a_p0.y + ny, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_p1.x - nx, a_p1.y - ny, 0.5f), a_color },
-            { DirectX::XMFLOAT3(a_p1.x + nx, a_p1.y + ny, 0.5f), a_color },
-        };
-        g_batch->Draw(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, vertices, 6);
+        // 旋转四边形（凸环绕顺序：p0+n, p0-n, p1-n, p1+n；此前 p1 两点顺序颠倒
+        // 导致 Z 形自交，两三角形重叠区 alpha 被混合两次，边框看似不透明）
+        draw_quad_corners(
+            a_p0.x + nx, a_p0.y + ny,
+            a_p0.x - nx, a_p0.y - ny,
+            a_p1.x - nx, a_p1.y - ny,
+            a_p1.x + nx, a_p1.y + ny,
+            a_color);
     }
 }
 
@@ -183,32 +341,28 @@ namespace ESPRenderer
     void install()
     {
         if (g_hooked_slot)
-        {
             return;  // 已安装
-        }
 
         auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
         if (!renderer)
-        {
             return;
-        }
 
-        auto& rt = renderer->GetRuntimeData();
-        if (!rt.renderWindows || !rt.renderWindows[0].swapChain)
+        RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
+        if (!rt.renderWindows[0].swapChain)
         {
             logger::warn("SwapChain not available yet, will retry on next game message");
             return;
         }
 
-        auto* swapChain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
-        void** vtable = *reinterpret_cast<void***>(swapChain);
+        IDXGISwapChain* swap_chain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
+        void** vtable = *reinterpret_cast<void***>(swap_chain);
 
         // IDXGISwapChain::Present 是虚函数表中第 8 个槽位
         g_hooked_slot = &vtable[8];
-        g_original_present = reinterpret_cast<PresentFn>(*g_hooked_slot);
+        g_original_present = reinterpret_cast<PresentFunc>(*g_hooked_slot);
 
-        DWORD oldProtect = 0;
-        if (!VirtualProtect(g_hooked_slot, sizeof(void*), PAGE_READWRITE, &oldProtect))
+        DWORD old_protect = 0;
+        if (!VirtualProtect(g_hooked_slot, sizeof(void*), PAGE_READWRITE, &old_protect))
         {
             logger::error("VirtualProtect failed, cannot install Present hook");
             g_hooked_slot = nullptr;
@@ -216,13 +370,32 @@ namespace ESPRenderer
             return;
         }
         *g_hooked_slot = reinterpret_cast<void*>(&present_thunk);
-        VirtualProtect(g_hooked_slot, sizeof(void*), oldProtect, &oldProtect);
+        VirtualProtect(g_hooked_slot, sizeof(void*), old_protect, &old_protect);
 
-        logger::info("Installed IDXGISwapChain::Present hook (swapchain={}, original={})", fmt::ptr(swapChain), fmt::ptr(g_original_present));
+        // 诊断（临时）：解析 original Present 所在模块（判断我们与真 Present 之间是否隔了别的钩子）
+        HMODULE orig_mod = nullptr;
+        if (GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(g_original_present),
+                &orig_mod) &&
+            orig_mod)
+        {
+            wchar_t buf[MAX_PATH]{};
+            if (GetModuleFileNameW(orig_mod, buf, MAX_PATH) > 0)
+            {
+                std::filesystem::path const p(buf);
+                logger::info("Original Present module: {}", p.filename().string());
+            }
+        }
+
+        logger::info("Installed IDXGISwapChain::Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(g_original_present));
     }
 
     void on_present(IDXGISwapChain* a_swapChain)
     {
+        // 整个绘制段串行化（见 g_draw_mutex 注释：多线程并发进入 Present hook）
+        std::lock_guard<std::mutex> const draw_lock(g_draw_mutex);
+
         Input::poll();
 
         // 定时派发尸体扫描任务到游戏线程
@@ -247,30 +420,52 @@ namespace ESPRenderer
             return;
         }
 
+        // === 每帧只画一次：游戏同帧可能多次调用 Present（实测 ~60-90/s），重复绘制会让
+        // alpha 叠加（0.5^n → 近似不透明）——这是"透明度/fade 无效果、方块实心"的根因。
+        // 用 BSGraphics::State::frameCount 判帧，同帧的后续 Present 跳过绘制。
+        auto* bs_state = RE::BSGraphics::State::GetSingleton();
+        std::uint32_t const frame = bs_state ? bs_state->frameCount : 0;
+        static std::uint32_t s_last_drawn_frame = static_cast<std::uint32_t>(-1);
+        static std::uint32_t s_skipped = 0;
+        bool const skip_draw = (frame != 0) && (frame == s_last_drawn_frame);
+        if (skip_draw)
+        {
+            ++s_skipped;
+        }
+        static std::uint32_t s_present_calls = 0;
+        if ((++s_present_calls % 120) == 0)
+        {
+            logger::info("present diag: {} calls, {} skipped, frame={}", s_present_calls, s_skipped, frame);
+        }
+        // ============================================================
+
+        if (!skip_draw)
+        {
+            if (frame != 0)
+            {
+                s_last_drawn_frame = frame;
+            }
+
         if (!ensure_back_buffer(a_swapChain, device))
         {
             return;
         }
 
-        ensure_draw_resources(device, context);
-        if (!g_states || !g_effect || !g_batch)
-        {
+        ensure_draw_resources(device);
+        if (!g_states || !g_ui_ready)
             return;
-        }
 
         float w = static_cast<float>(g_back_w);
         float h = static_cast<float>(g_back_h);
         if (w <= 0.0f || h <= 0.0f)
         {
             // 后备：渲染器报告的屏幕尺寸
-            auto const screen = RE::BSGraphics::Renderer::GetScreenSize();
+            RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
             w = static_cast<float>(screen.width);
             h = static_cast<float>(screen.height);
         }
         if (w <= 0.0f || h <= 0.0f)
-        {
             return;
-        }
 
         // ---- 保存游戏渲染状态，设置我们的绘制状态 ----
         ID3D11RenderTargetView* prev_rtv = nullptr;
@@ -294,17 +489,19 @@ namespace ESPRenderer
         context->OMSetDepthStencilState(g_states->DepthNone(), 0);
         context->RSSetState(g_states->CullNone());
 
-        g_effect->SetWorld(DirectX::XMMatrixIdentity());
-        g_effect->SetView(DirectX::XMMatrixIdentity());
-        g_effect->SetProjection(DirectX::XMMatrixOrthographicOffCenterLH(0.0f, w, h, 0.0f, 0.0f, 1.0f));
-        g_effect->Apply(context);
-
-        g_batch->Begin();
+        // === 混合诊断（临时）：屏幕中央两方块（红色！绿色会被草地背景掩盖），左 alpha=1、右 alpha=0.5。
+        // PS 改为预乘输出后应显示：左块实心、右块明显半透明；
+        // R10G10B10A2 的 2-bit alpha 把 0.5 量化为 2/3，右块会略偏实（预期内）===
+        float const cx = w * 0.5f - 45.0f;
+        float const cy = h * 0.5f - 10.0f;
+        draw_quad(cx + 0.0f, cy, cx + 40.0f, cy + 20.0f, DirectX::XMFLOAT4{ 1.0f, 0.0f, 0.0f, 1.0f });
+        draw_quad(cx + 45.0f, cy, cx + 85.0f, cy + 20.0f, DirectX::XMFLOAT4{ 1.0f, 0.0f, 0.0f, 0.5f });
+        // ============================================================
 
         // ---- 尸体 ESP 标记 ----
         if (Config::is_enabled())
         {
-            auto const& cfg = Config::get();
+            Config::Settings const& cfg = Config::get();
             if (cfg.show_outline)
             {
                 // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
@@ -326,9 +523,7 @@ namespace ESPRenderer
                         }
                     }
                     if (!view_data && !state_rt.cameraDataCacheA.empty())
-                    {
                         view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
-                    }
                 }
 
                 static bool s_loggedProjectionSource = false;
@@ -345,33 +540,34 @@ namespace ESPRenderer
                         view_data ? view_data->viewProjMatrixUnjittered._43 : 0.0f);
                 }
 
-                auto const rgb = cfg.outline_color;
+                uint32_t const rgb = cfg.outline_color;
                 float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
                 float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                 float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
                 // sRGB 后台缓冲：预还原为线性值，保证显示颜色与配置值/UI 色块一致
-                bool const srgb_back = IsSrgbBackBuffer();
-                auto const to_output = [&](float r, float g, float b, float a) {
-                    return DirectX::XMFLOAT4{
-                        srgb_back ? SrgbToLinear(r) : r,
-                        srgb_back ? SrgbToLinear(g) : g,
-                        srgb_back ? SrgbToLinear(b) : b,
-                        a
-                    };
-                };
+                // bool const srgb_back = IsSrgbBackBuffer();
+                // auto const to_output = [&](float r, float g, float b, float a) {
+                //     return DirectX::XMFLOAT4{
+                //         srgb_back ? SrgbToLinear(r) : r,
+                //         srgb_back ? SrgbToLinear(g) : g,
+                //         srgb_back ? SrgbToLinear(b) : b,
+                //         a
+                //     };
+                // };
 
-                for (auto const& corpse : CorpseFinder::snapshot())
+                for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
                 {
                     // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
                     // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
                     // 失败时兜底用 State 的 viewProj 矩阵。
-                    auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool {
+                    auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool
+                    {
                         bool ok = false;
                         if (world_cam && world_cam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f))
                         {
                             // 相机 port 若是像素单位，先把输出归一化到 0..1
-                            auto const port = world_cam->GetRuntimeData2().port;
-                            PortRect pr;
+                            RE::NiRect<float> const& port = world_cam->GetRuntimeData2().port;
+                            PortRect pr{};
                             std::memcpy(&pr, &port, sizeof(pr));
                             float const port_l = pr.left;
                             float const port_t = pr.top;
@@ -379,24 +575,20 @@ namespace ESPRenderer
                             float const port_h = pr.bottom - pr.top;
                             float nx = a_px, ny = a_py;
                             if (port_w > 10.0f)
-                            {
                                 nx = (a_px - port_l) / port_w;
-                            }
+
                             if (port_h > 10.0f)
-                            {
                                 ny = (a_py - port_t) / port_h;
-                            }
+
                             // 引擎函数输出为“左下原点”归一化坐标（TrueDirectionalMovement 同样处理），翻转为左上原点
                             a_px = nx * w;
                             a_py = (1.0f - ny) * h;
                             ok = a_depth > 0.0f;
-                        } else if (view_data &&
-                                   (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
+                        }
+                        else if (view_data && (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
                         {
-                            auto const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
-                            DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(
-                                DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f),
-                                viewProj);
+                            Matrix const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
+                            DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f), viewProj);
                             float const clip_w = DirectX::XMVectorGetW(clip);
                             if (std::fabs(clip_w) >= 1e-5f)
                             {
@@ -432,7 +624,8 @@ namespace ESPRenderer
                     float proj_x[8]{}, proj_y[8]{};
                     bool obb_ok[8]{};
 
-                    auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1) {
+                    auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1)
+                    {
                         float px = 0.0f, py = 0.0f, d = 0.0f;
                         if (project_to_screen(a_pt, px, py, d))
                         {
@@ -457,14 +650,12 @@ namespace ESPRenderer
                     {
                         // 投影碰撞盒（OBB）的 8 个世界角点：屏幕矩形贴合碰撞盒的屏幕足迹
                         for (int i = 0; i < 8; ++i)
-                        {
                             add_projected(corpse.obb_corners[i], i);
-                        }
+
                         for (bool ok : obb_ok)
-                        {
                             obb_all_ok = obb_all_ok && ok;
-                        }
-                    } else if (hasAABB)
+                    }
+                    else if (hasAABB)
                     {
                         // 投影 AABB 的 8 个角，得到贴合尸体包围盒的屏幕矩形
                         RE::NiPoint3 const corners[8] = {
@@ -478,10 +669,9 @@ namespace ESPRenderer
                             { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z },
                         };
                         for (auto const& corner : corners)
-                        {
                             add_projected(corner);
-                        }
-                    } else
+                    }
+                    else
                     {
                         // 兜底：没有 AABB 时用锚点 + 世界半径投影上下左右
                         RE::NiPoint3 camRight{ 1.0f, 0.0f, 0.0f };
@@ -499,9 +689,7 @@ namespace ESPRenderer
                     }
 
                     if (!has_rect)
-                    {
                         continue;
-                    }
 
                     // 矩形与中心
                     float const sx = (min_x + max_x) * 0.5f;
@@ -527,18 +715,17 @@ namespace ESPRenderer
                     float const fade_range = std::max(cfg.max_distance - cfg.fade_start_distance, 1.0f);
                     float const f = corpse.distance <= cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((corpse.distance - cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
                     float const fade = std::pow(f, cfg.fade_power);
-                    float const alpha = std::clamp(
-                        cfg.min_opacity + fade * (1.0f - cfg.min_opacity),
-                        cfg.min_opacity,
-                        1.0f);
+                    float const alpha = std::clamp(cfg.min_opacity + fade * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
 
                     // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
                     // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
-                    bool const use_wireframe =
-                        corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
+                    bool const use_wireframe = corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
 
                     if (cfg.show_outline)
                     {
+                        DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
+                        logger::info("Color RGBA: {}, {}, {}, {}", cr, cg, cb, alpha);
+
                         if (use_wireframe)
                         {
                             static constexpr std::int32_t kEdges[12][2] = {
@@ -546,27 +733,122 @@ namespace ESPRenderer
                                 { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
                                 { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
                             };
-                            auto const col = to_output(cr, cg, cb, alpha);
                             for (auto const& e : kEdges)
                             {
                                 draw_thick_line(
                                     DirectX::XMFLOAT2{ proj_x[e[0]], proj_y[e[0]] },
                                     DirectX::XMFLOAT2{ proj_x[e[1]], proj_y[e[1]] },
                                     cfg.outline_thickness,
-                                    col);
+                                    color);
                             }
-                        } else
-                        {
-                            draw_rect_outline(
-                                x0, y0, x1, y1, cfg.outline_thickness,
-                                to_output(cr, cg, cb, alpha));
                         }
+                        else
+                            draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
                     }
                 }
             }
         }
 
-        g_batch->End();
+        flush_ui_quads(context);
+
+        // === 像素取证诊断（临时，仅一次）：读回方块与参照点的实际像素 ===
+        static bool s_pixel_logged = false;
+        if (!s_pixel_logged)
+        {
+            s_pixel_logged = true;
+            bool const fmt_supported =
+                g_back_buffer_format == DXGI_FORMAT_R10G10B10A2_UNORM ||
+                g_back_buffer_format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+                g_back_buffer_format == DXGI_FORMAT_R8G8B8A8_UNORM;
+            bool pick_ready = false;
+            if (fmt_supported)
+            {
+                // 取证纹理按当前后台缓冲格式创建：跨格式族的 CopySubresourceRegion
+                // 会被 D3D11 静默丢弃（此前 R8G8B8A8 读 R10G10B10A2 全 0 即此因）
+                if (g_pick_tex)
+                {
+                    g_pick_tex->Release();
+                    g_pick_tex = nullptr;
+                }
+                D3D11_TEXTURE2D_DESC pick_desc = {};
+                pick_desc.Width = 64;
+                pick_desc.Height = 64;
+                pick_desc.MipLevels = 1;
+                pick_desc.ArraySize = 1;
+                pick_desc.Format = g_back_buffer_format;
+                pick_desc.SampleDesc.Count = 1;
+                pick_desc.Usage = D3D11_USAGE_STAGING;
+                pick_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                pick_ready = SUCCEEDED(device->CreateTexture2D(&pick_desc, nullptr, &g_pick_tex));
+            }
+            else
+            {
+                logger::warn("pixel diag skipped: unsupported back buffer format {}", static_cast<int>(g_back_buffer_format));
+            }
+            if (pick_ready)
+            {
+                // 拷贝前必须解绑 RTV（D3D11 禁止从输出绑定资源拷贝）
+                context->OMSetRenderTargets(0, nullptr, nullptr);
+                auto const copy_pick = [&](float a_sx, float a_sy, UINT a_dx) {
+                    D3D11_BOX box = {};
+                    box.left = static_cast<UINT>(a_sx) - 8;
+                    box.top = static_cast<UINT>(a_sy) - 8;
+                    box.right = box.left + 16;
+                    box.bottom = box.top + 16;
+                    box.back = 1;
+                    context->CopySubresourceRegion(g_pick_tex, 0, a_dx, 0, 0, g_back_buffer, 0, &box);
+                };
+                copy_pick(cx + 20.0f, cy + 10.0f, 0);   // 左块中心
+                copy_pick(cx + 65.0f, cy + 10.0f, 16);  // 右块中心
+                copy_pick(cx - 60.0f, cy + 10.0f, 32);  // 参照（远离方块）
+                D3D11_MAPPED_SUBRESOURCE mapped = {};
+                if (SUCCEEDED(context->Map(g_pick_tex, 0, D3D11_MAP_READ, 0, &mapped)))
+                {
+                    auto const* px = static_cast<std::uint8_t const*>(mapped.pData);
+                    auto const read = [&](UINT a_x, UINT a_y) {
+                        std::uint8_t const* p = px + a_y * mapped.RowPitch + a_x * 4;
+                        if (g_back_buffer_format == DXGI_FORMAT_R10G10B10A2_UNORM)
+                        {
+                            // R10G10B10A2：低 10 位 R，其后 G/B 各 10 位，高 2 位 A
+                            std::uint32_t v = 0;
+                            std::memcpy(&v, p, sizeof(v));
+                            auto const r10 = [](std::uint32_t t) { return t * 255u / 1023u; };
+                            return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{
+                                r10(v & 0x3FFu), r10((v >> 10) & 0x3FFu), r10((v >> 20) & 0x3FFu), ((v >> 30) & 0x3u) * 85u };
+                        }
+                        if (g_back_buffer_format == DXGI_FORMAT_B8G8R8A8_UNORM)
+                        {
+                            // 字节序为 B,G,R,A
+                            return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{ p[2], p[1], p[0], p[3] };
+                        }
+                        return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{ p[0], p[1], p[2], p[3] };
+                    };
+                    auto const [lr, lg, lb, la] = read(8, 8);
+                    auto const [rr, rg, rb, ra] = read(24, 8);
+                    auto const [fr, fg, fb, fa] = read(40, 8);
+                    logger::info(
+                        "pixel diag: left={},{},{},{} right={},{},{},{} ref={},{},{},{}",
+                        lr, lg, lb, la, rr, rg, rb, ra, fr, fg, fb, fa);
+                    context->Unmap(g_pick_tex, 0);
+                }
+                context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
+            }
+            ID3D11BlendState* cur = nullptr;
+            context->OMGetBlendState(&cur, nullptr, nullptr);
+            if (cur)
+            {
+                D3D11_BLEND_DESC desc{};
+                cur->GetDesc(&desc);
+                logger::info(
+                    "blend desc diag: enable={} src={} dst={} op={}",
+                    desc.RenderTarget[0].BlendEnable,
+                    static_cast<int>(desc.RenderTarget[0].SrcBlend),
+                    static_cast<int>(desc.RenderTarget[0].DestBlend),
+                    static_cast<int>(desc.RenderTarget[0].BlendOp));
+                cur->Release();
+            }
+        }
+        // ============================================================
 
         // ---- 恢复游戏渲染状态 ----
         context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
@@ -575,24 +857,19 @@ namespace ESPRenderer
         context->RSSetState(prev_rs);
 
         if (prev_rtv)
-        {
             prev_rtv->Release();
-        }
+
         if (prev_dsv)
-        {
             prev_dsv->Release();
-        }
+
         if (prev_blend)
-        {
             prev_blend->Release();
-        }
+
         if (prev_depth)
-        {
             prev_depth->Release();
-        }
+
         if (prev_rs)
-        {
             prev_rs->Release();
-        }
+        }  // if (!skip_draw)
     }
 }

@@ -8,20 +8,18 @@ namespace
 {
     void initialize_log()
     {
-        auto path = logger::log_directory();
+        std::optional<std::filesystem::path> path = logger::log_directory();
         if (!path)
-        {
             util::report_and_fail("Failed to find standard logging directory"sv);
-        }
 
         *path /= fmt::format("{}.log"sv, Plugin::NAME);
         auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
 
-        constexpr auto level = spdlog::level::info;
+        constexpr static spdlog::level::level_enum Level = spdlog::level::info;
 
         auto log = std::make_shared<spdlog::logger>("global log"s, std::move(sink));
-        log->set_level(level);
-        log->flush_on(level);
+        log->set_level(Level);
+        log->flush_on(Level);
 
         spdlog::set_default_logger(std::move(log));
         spdlog::set_pattern("%g(%#): [%^%l%$] %v"s);

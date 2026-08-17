@@ -2,20 +2,18 @@
 #include "input.h"
 #include "config.h"
 
-namespace
-{
-    bool g_was_down = false;
-}
-
 namespace Input
 {
+    namespace
+    {
+        bool g_was_down = false;
+    }
+
     void poll()
     {
-        auto const vk = Config::get().hotkey;
+        uint32_t const vk = Config::get().hotkey;
         if (vk == 0)
-        {
             return;
-        }
 
         bool const down = (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
         if (down && !g_was_down)
@@ -23,7 +21,8 @@ namespace Input
             bool const enabled = !Config::is_enabled();
             Config::set_enabled(enabled);
             // 控制台消息与 INI 写回放到游戏线程执行
-            SKSE::GetTaskInterface()->AddTask([enabled]() {
+            SKSE::GetTaskInterface()->AddTask([enabled]()
+            {
                 RE::ConsoleLog::GetSingleton()->Print("CorpseESP: %s", enabled ? "ON" : "OFF");
                 Config::save_enabled();
             });

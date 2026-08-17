@@ -174,6 +174,7 @@ target_link_libraries(
 	SKSE-MCP::SKSE-MCP
 	d3d11
 	dxgi
+	d3dcompiler
 )
 
 target_precompile_headers(

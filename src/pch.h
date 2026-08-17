@@ -14,11 +14,9 @@
 #pragma warning(disable: 4324)  // structure was padded due to alignment specifier
 #include <d3d11.h>
 #include <dxgi.h>
+#include <d3dcompiler.h>
 #include <DirectXMath.h>
 #include <CommonStates.h>
-#include <Effects.h>
-#include <PrimitiveBatch.h>
-#include <VertexTypes.h>
 #pragma warning(pop)
 
 #include <SimpleIni.h>

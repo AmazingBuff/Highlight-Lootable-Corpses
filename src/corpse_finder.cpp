@@ -4,7 +4,9 @@
 
 namespace
 {
-    constexpr char const* kSkyrimPlugin = "Skyrim.esm";
+    constexpr char const* SkyrimPlugin = "Skyrim.esm";
+    constexpr char const* DawnguardPlugin = "Dawnguard.esm";
+    constexpr char const* DragonbornPlugin = "Dragonborn.esm";
 
     // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
     std::mutex g_mutex;
@@ -36,8 +38,8 @@ namespace
     // Havok 世界尺度逆：米 → 游戏单位（引擎全局，Precision 同款地址）
     [[nodiscard]] float world_scale_inverse()
     {
-        static REL::Relocation<float*> g_worldScaleInverse{ RELOCATION_ID(230692, 187407) };
-        auto* scale = g_worldScaleInverse.get();
+        static REL::Relocation<float*> g_world_scale_inverse{ RELOCATION_ID(230692, 187407) };
+        float* scale = g_world_scale_inverse.get();
         return scale ? *scale : 70.0f;
     }
 
@@ -46,7 +48,7 @@ namespace
     {
         RE::NiTransform out;
         out.scale = 1.0f;
-        auto const& r = a_t.rotation;
+        RE::hkRotation const& r = a_t.rotation;
         out.rotate.entry[0][0] = hk_x(r.col0);
         out.rotate.entry[0][1] = hk_x(r.col1);
         out.rotate.entry[0][2] = hk_x(r.col2);
@@ -75,18 +77,16 @@ namespace
     [[nodiscard]] bool add_rigid_body_aabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (!a_body)
-        {
             return false;
-        }
+        
         RE::hkAabb aabb;
         a_body->GetAabbWorldspace(aabb);
         float const s = world_scale_inverse();
         RE::NiPoint3 const mn{ hk_x(aabb.min) * s, hk_y(aabb.min) * s, hk_z(aabb.min) * s };
         RE::NiPoint3 const mx{ hk_x(aabb.max) * s, hk_y(aabb.max) * s, hk_z(aabb.max) * s };
         if (mn.x > mx.x || mn.y > mx.y || mn.z > mx.z)
-        {
             return false;
-        }
+        
         expand_aabb(a_min, a_max, mn);
         expand_aabb(a_min, a_max, mx);
         return true;
@@ -106,33 +106,33 @@ namespace
         float& a_best_volume)
     {
         if (!a_node)
-        {
             return;
-        }
-        if (auto* colObj = a_node->GetCollisionObject())
+        
+        if (RE::bhkCollisionObject* col_obj = a_node->GetCollisionObject())
         {
-            if (auto* body = colObj->GetRigidBody())
+            if (RE::bhkRigidBody* body = col_obj->GetRigidBody())
             {
-                if (auto* rb = body->GetRigidBody())
+                if (RE::hkpRigidBody* rb = body->GetRigidBody())
                 {
                     if (rb->world)
-                    {  // 在 Havok 世界里 → 变换实时有效
+                    {   
+                        // 在 Havok 世界里 → 变换实时有效
                         if (add_rigid_body_aabb(body, a_min, a_max))
                         {
                             ++a_count;
                             if (a_obb_corners)
                             {
-                                auto const* shape = rb->GetShape();
+                                RE::hkpShape const* shape = rb->GetShape();
                                 if (shape && shape->type == RE::hkpShapeType::kBox)
                                 {
-                                    auto const* box = static_cast<RE::hkpBoxShape const*>(shape);
+                                    RE::hkpBoxShape const* box = static_cast<RE::hkpBoxShape const*>(shape);
                                     float const s = world_scale_inverse();
-                                    auto const he = hk_to_ni(box->halfExtents) * s;
+                                    RE::NiPoint3 const he = hk_to_ni(box->halfExtents) * s;
                                     float const vol = he.x * he.y * he.z;
                                     if (vol > a_best_volume)
                                     {
                                         a_best_volume = vol;
-                                        auto const world = hk_transform_to_ni(rb->motion.motionState.transform);
+                                        RE::NiTransform const world = hk_transform_to_ni(rb->motion.motionState.transform);
                                         for (int i = 0; i < 8; ++i)
                                         {
                                             float const sx = (i & 1) ? he.x : -he.x;
@@ -149,14 +149,12 @@ namespace
                 }
             }
         }
-        if (auto* node = a_node->AsNode())
+        if (RE::NiNode* node = a_node->AsNode())
         {
-            for (auto const& child : node->children)
+            for (RE::NiPointer<RE::NiAVObject> const& child : node->children)
             {
                 if (child)
-                {
                     expand_collision_objects(child.get(), a_min, a_max, a_count, a_obb_corners, a_hasOBB, a_best_volume);
-                }
             }
         }
     }
@@ -168,40 +166,32 @@ namespace
     {
         RE::BSAnimationGraphManagerPtr anim_graph_manager;
         if (!a_actor->GetAnimationGraphManager(anim_graph_manager))
-        {
             return false;
-        }
 
         std::size_t count = 0;
         RE::BSSpinLockGuard lock(anim_graph_manager->GetRuntimeData().updateLock);
-        for (auto const& graph : anim_graph_manager->graphs)
+        for (RE::BSTSmartPointer<RE::BShkbAnimationGraph> const& graph : anim_graph_manager->graphs)
         {
             if (!graph)
-            {
                 continue;
-            }
-            auto& driver = graph.get()->characterInstance.ragdollDriver;
+            
+            RE::hkRefPtr<RE::hkbRagdollDriver> const& driver = graph->characterInstance.ragdollDriver;
             if (!driver)
-            {
                 continue;
-            }
-            auto* ragdoll = driver->ragdoll;
+            
+            RE::hkaRagdollInstance* ragdoll = driver->ragdoll;
             if (!ragdoll)
-            {
                 continue;
-            }
-            for (auto* rb : ragdoll->rigidBodies)
+            
+            for (RE::hkpRigidBody const* rb : ragdoll->rigidBodies)
             {
                 if (!rb)
-                {
                     continue;
-                }
+                
                 // hkpRigidBody::userData 指向它的 bhkRigidBody 包装（Precision 同款用法）
-                auto* wrapper = reinterpret_cast<RE::bhkRigidBody*>(rb->userData);
+                RE::bhkRigidBody* wrapper = reinterpret_cast<RE::bhkRigidBody*>(rb->userData);
                 if (add_rigid_body_aabb(wrapper, a_min, a_max))
-                {
                     ++count;
-                }
             }
         }
         return count > 0;
@@ -213,27 +203,24 @@ namespace
     void expand_geometry_bounds(RE::NiAVObject* a_node, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (!a_node)
-        {
             return;
-        }
+        
         if (a_node->AsGeometry())
         {
-            auto const& bound = a_node->worldBound;
+            RE::NiBound const& bound = a_node->worldBound;
             if (bound.radius > 0.0f && bound.radius < 100000.0f)
             {
-                auto const& c = bound.center;
+                RE::NiPoint3 const& c = bound.center;
                 expand_aabb(a_min, a_max, { c.x - bound.radius, c.y - bound.radius, c.z - bound.radius });
                 expand_aabb(a_min, a_max, { c.x + bound.radius, c.y + bound.radius, c.z + bound.radius });
             }
         }
-        if (auto* node = a_node->AsNode())
+        if (RE::NiNode* node = a_node->AsNode())
         {
-            for (auto const& child : node->children)
+            for (RE::NiPointer<RE::NiAVObject> const& child : node->children)
             {
                 if (child)
-                {
                     expand_geometry_bounds(child.get(), a_min, a_max);
-                }
             }
         }
     }
@@ -252,21 +239,18 @@ namespace
         a_hasOBB = false;
         a_from_collision = false;
         if (!a_ref)
-        {
             return false;
-        }
-        auto* node = a_ref->Get3D();
+        
+        RE::NiAVObject* node = a_ref->Get3D();
         if (!node)
-        {
             return false;
-        }
 
-        RE::NiPoint3 mn{ FLT_MAX, FLT_MAX, FLT_MAX };
-        RE::NiPoint3 mx{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+        RE::NiPoint3 mn{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
+        RE::NiPoint3 mx{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
 
         if (a_ragdoll)
         {
-            if (auto* actor = a_ref->As<RE::Actor>())
+            if (RE::Actor* actor = a_ref->As<RE::Actor>())
             {
                 if (compute_ragdoll_bounds(actor, mn, mx))
                 {
@@ -275,10 +259,11 @@ namespace
                     a_from_collision = true;
                     return true;
                 }
-                mn = RE::NiPoint3{ FLT_MAX, FLT_MAX, FLT_MAX };
-                mx = RE::NiPoint3{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+                mn = RE::NiPoint3{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
+                mx = RE::NiPoint3{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
             }
-        } else
+        } 
+        else
         {
             std::size_t count = 0;
             float best_vol = 0.0f;
@@ -290,8 +275,8 @@ namespace
                 a_from_collision = true;
                 return true;
             }
-            mn = RE::NiPoint3{ FLT_MAX, FLT_MAX, FLT_MAX };
-            mx = RE::NiPoint3{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+            mn = RE::NiPoint3{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
+            mx = RE::NiPoint3{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
             a_hasOBB = false;
         }
 
@@ -310,23 +295,21 @@ namespace
     // 一样返回垃圾值，不可用；GetFormID 是纯数据读取，安全。
     struct StaticFormID
     {
-        std::uint32_t local;
+        uint32_t local;
         char const* plugin;
     };
 
     [[nodiscard]] std::vector<RE::FormID> resolve_form_ids(std::initializer_list<StaticFormID> a_forms)
     {
         std::vector<RE::FormID> out;
-        auto* dh = RE::TESDataHandler::GetSingleton();
+        RE::TESDataHandler* dh = RE::TESDataHandler::GetSingleton();
         if (dh)
         {
-            for (auto const& f : a_forms)
+            for (auto const& [local, plugin] : a_forms)
             {
-                auto const id = dh->LookupFormID(f.local, f.plugin);
+                RE::FormID const id = dh->LookupFormID(local, plugin);
                 if (id != 0)
-                {
                     out.push_back(id);
-                }
             }
         }
         return out;
@@ -341,18 +324,21 @@ namespace
     // Dragonborn.esm：DLC2AshSpawnAshPile（灰烬魔）= 0x3280A, DLC2HMDaedraAshPile = 0x23F83
     [[nodiscard]] std::vector<RE::FormID> const& ash_pile_form_ids()
     {
-        static auto const ids = resolve_form_ids({
-            { 0x0000001B, kSkyrimPlugin }, { 0x00000022, kSkyrimPlugin },
-            { 0x00101048, kSkyrimPlugin }, { 0x001069E4, kSkyrimPlugin },
-            { 0x0010C649, kSkyrimPlugin }, { 0x0010D6EF, kSkyrimPlugin },
-            { 0x0000A905, "Dawnguard.esm" },   // DLC01DefaultAshPileSoul (Soul Ember)
-            { 0x0000BDCE, "Dawnguard.esm" },   // DLC01DefaultAshPileEnemies
-            { 0x0000FC74, "Dawnguard.esm" },   // DLC1dunHarkonAshPile
-            { 0x00003522, "Dawnguard.esm" },   // DLC1_WESC08AshPile
-            { 0x0003280A, "Dragonborn.esm" },  // DLC2AshSpawnAshPile
-            { 0x00023F83, "Dragonborn.esm" },  // DLC2HMDaedraAshPile
+        static std::vector<RE::FormID> const Ids = resolve_form_ids({
+            { .local = 0x0000001B, .plugin = SkyrimPlugin }, 
+            { .local = 0x00000022, .plugin = SkyrimPlugin },
+            { .local = 0x00101048, .plugin = SkyrimPlugin }, 
+            { .local = 0x001069E4, .plugin = SkyrimPlugin },
+            { .local = 0x0010C649, .plugin = SkyrimPlugin }, 
+            { .local = 0x0010D6EF, .plugin = SkyrimPlugin },
+            { .local = 0x0000A905, .plugin = DawnguardPlugin },   // DLC01DefaultAshPileSoul (Soul Ember)
+            { .local = 0x0000BDCE, .plugin = DawnguardPlugin },   // DLC01DefaultAshPileEnemies
+            { .local = 0x0000FC74, .plugin = DawnguardPlugin },   // DLC1dunHarkonAshPile
+            { .local = 0x00003522, .plugin = DawnguardPlugin },   // DLC1_WESC08AshPile
+            { .local = 0x0003280A, .plugin = DragonbornPlugin },  // DLC2AshSpawnAshPile
+            { .local = 0x00023F83, .plugin = DragonbornPlugin },  // DLC2HMDaedraAshPile
         });
-        return ids;
+        return Ids;
     }
 
     // 干尸/裹尸/烧焦尸体等"静态尸体"容器（ESM 解析确认）。
@@ -360,59 +346,55 @@ namespace
     // 不依赖关联 Actor。
     [[nodiscard]] std::vector<RE::FormID> const& corpse_object_form_ids()
     {
-        static auto const ids = resolve_form_ids({
+        static auto const Ids = resolve_form_ids({
             // Skyrim.esm
-            { 0x00023969, kSkyrimPlugin },  // TreasDraugrAmbushCorpse01
-            { 0x0008008D, kSkyrimPlugin },  // TreasDraugrAmbushCorpseWrapped01
-            { 0x0008008E, kSkyrimPlugin },  // TreasDraugrAmbushCorpseWrapped02
-            { 0x0008008F, kSkyrimPlugin },  // TreasDraugrAmbushCorpse02
-            { 0x00080090, kSkyrimPlugin },  // TreasDraugrAmbushCorpse03
-            { 0x00080091, kSkyrimPlugin },  // TreasDraugrAmbushCorpse04
-            { 0x00080092, kSkyrimPlugin },  // TreasDraugrAmbushCorpse05
-            { 0x00080093, kSkyrimPlugin },  // TreasDraugrAmbushCorpse06
-            { 0x00080094, kSkyrimPlugin },  // TreasDraugrAmbushCorpse07
-            { 0x00042745, kSkyrimPlugin },  // TreasBurntCorpse01
-            { 0x00042746, kSkyrimPlugin },  // TreasBurntCorpse02
-            { 0x00042747, kSkyrimPlugin },  // TreasBurntCorpse03
-            { 0x00042748, kSkyrimPlugin },  // TreasBurntCorpse04
-            { 0x00042749, kSkyrimPlugin },  // TreasBurntCorpse05
-            { 0x000DD060, kSkyrimPlugin },  // MQ104BurntCorpse03
-            { 0x000DD061, kSkyrimPlugin },  // MQ104BurntCorpse04
-            { 0x000BAD05, kSkyrimPlugin },  // TreasCorpseMammoth
-            { 0x000D4FFD, kSkyrimPlugin },  // POICorpseFrozenMammoth
-            { 0x00020668, kSkyrimPlugin },  // TreasSpiderWebCorpseHuman
-            { 0x000C674B, kSkyrimPlugin },  // defaultGhostCorpse
-            { 0x000E7A36, kSkyrimPlugin },  // dunGeirmundCorpse
-            { 0x00018E73, kSkyrimPlugin },  // MS05_SvaknirsCorpse
-            { 0x0010EB29, kSkyrimPlugin },  // wispCorpseContainer
-            { 0x00023968, kSkyrimPlugin },  // DraugrBodyLaying0000 (STAT)
+            { .local = 0x00023969, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse01
+            { .local = 0x0008008D, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpseWrapped01
+            { .local = 0x0008008E, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpseWrapped02
+            { .local = 0x0008008F, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse02
+            { .local = 0x00080090, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse03
+            { .local = 0x00080091, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse04
+            { .local = 0x00080092, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse05
+            { .local = 0x00080093, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse06
+            { .local = 0x00080094, .plugin = SkyrimPlugin },  // TreasDraugrAmbushCorpse07
+            { .local = 0x00042745, .plugin = SkyrimPlugin },  // TreasBurntCorpse01
+            { .local = 0x00042746, .plugin = SkyrimPlugin },  // TreasBurntCorpse02
+            { .local = 0x00042747, .plugin = SkyrimPlugin },  // TreasBurntCorpse03
+            { .local = 0x00042748, .plugin = SkyrimPlugin },  // TreasBurntCorpse04
+            { .local = 0x00042749, .plugin = SkyrimPlugin },  // TreasBurntCorpse05
+            { .local = 0x000DD060, .plugin = SkyrimPlugin },  // MQ104BurntCorpse03
+            { .local = 0x000DD061, .plugin = SkyrimPlugin },  // MQ104BurntCorpse04
+            { .local = 0x000BAD05, .plugin = SkyrimPlugin },  // TreasCorpseMammoth
+            { .local = 0x000D4FFD, .plugin = SkyrimPlugin },  // POICorpseFrozenMammoth
+            { .local = 0x00020668, .plugin = SkyrimPlugin },  // TreasSpiderWebCorpseHuman
+            { .local = 0x000C674B, .plugin = SkyrimPlugin },  // defaultGhostCorpse
+            { .local = 0x000E7A36, .plugin = SkyrimPlugin },  // dunGeirmundCorpse
+            { .local = 0x00018E73, .plugin = SkyrimPlugin },  // MS05_SvaknirsCorpse
+            { .local = 0x0010EB29, .plugin = SkyrimPlugin },  // wispCorpseContainer
+            { .local = 0x00023968, .plugin = SkyrimPlugin },  // DraugrBodyLaying0000 (STAT)
             // DLC
-            { 0x0000A904, "Dawnguard.esm" },   // DLC01defaultSoulCorpse
-            { 0x00018C3B, "Dragonborn.esm" },  // DLC2TreasDraugrAmbushCorpseWrapped01EMPTY
+            { .local = 0x0000A904, .plugin = DawnguardPlugin },   // DLC01defaultSoulCorpse
+            { .local = 0x00018C3B, .plugin = DragonbornPlugin },  // DLC2TreasDraugrAmbushCorpseWrapped01EMPTY
         });
-        return ids;
+        return Ids;
     }
 
     [[nodiscard]] bool is_ref_form_in(RE::TESObjectREFR const* a_ref, std::vector<RE::FormID> const& a_ids)
     {
         if (!a_ref)
-        {
             return false;
-        }
-        auto const* base = a_ref->GetBaseObject();
+        
+        RE::TESBoundObject const* base = a_ref->GetBaseObject();
         if (!base)
-        {
             return false;
-        }
-        auto const id = base->GetFormID();
-        for (auto const fid : a_ids)
+        
+        RE::FormID const id = base->GetFormID();
+        return std::ranges::all_of(a_ids, [&](RE::FormID const& a_form)
         {
-            if (id == fid)
-            {
+            if (id == a_form)
                 return true;
-            }
-        }
-        return false;
+            return false;
+        });
     }
 
     [[nodiscard]] bool is_ash_pile_ref(RE::TESObjectREFR* a_ref)
@@ -437,13 +419,10 @@ namespace
             for (std::size_t i = 0; i < seen.size(); ++i)
             {
                 if (seen[i] != a_form_id)
-                {
                     continue;
-                }
                 if (details[i] == a_detail)
-                {
                     return;
-                }
+                
                 details[i] = std::string(a_detail);
                 break;
             }
@@ -488,52 +467,42 @@ namespace
     [[nodiscard]] RE::Actor* find_ash_pile_owner(RE::TESObjectREFR* a_pile)
     {
         if (!a_pile)
-        {
             return nullptr;
-        }
+        
         // 优先：灰烬堆自己的 ExtraAshPileRef → 原始 Actor
-        auto const pile_link = a_pile->extraList.GetAshPileRef();
+        RE::ObjectRefHandle const pile_link = a_pile->extraList.GetAshPileRef();
         if (pile_link)
         {
-            if (auto ref = pile_link.get())
+            if (RE::NiPointer<RE::TESObjectREFR> const ref = pile_link.get())
             {
-                if (auto* actor = ref->As<RE::Actor>())
-                {
+                if (RE::Actor* actor = ref->As<RE::Actor>())
                     return actor;
-                }
             }
         }
         // 兜底：过程列表里 ExtraAshPileRef == 本堆句柄 的 Actor
-        auto const pile_handle = a_pile->GetHandle().native_handle();
-        auto* process_lists = RE::ProcessLists::GetSingleton();
+        uint32_t const pile_handle = a_pile->GetHandle().native_handle();
+        RE::ProcessLists* process_lists = RE::ProcessLists::GetSingleton();
         if (!process_lists)
-        {
             return nullptr;
-        }
-        auto const findIn = [&](RE::BSTArray<RE::ActorHandle> const& a_list) -> RE::Actor* {
-            for (auto const& handle : a_list)
+        
+        auto const find_in = [&](RE::BSTArray<RE::ActorHandle> const& a_list) -> RE::Actor* 
+        {
+            for (RE::ActorHandle const& handle : a_list)
             {
-                auto actor = handle.get();
+                const RE::NiPointer<RE::Actor> actor = handle.get();
                 if (actor && actor->extraList.GetAshPileRef().native_handle() == pile_handle)
-                {
                     return actor.get();
-                }
             }
             return nullptr;
         };
-        if (auto* actor = findIn(process_lists->highActorHandles))
-        {
+        
+        if (RE::Actor* actor = find_in(process_lists->highActorHandles))
             return actor;
-        }
-        if (auto* actor = findIn(process_lists->middleHighActorHandles))
-        {
+        if (RE::Actor* actor = find_in(process_lists->middleHighActorHandles))
             return actor;
-        }
-        if (auto* actor = findIn(process_lists->middleLowActorHandles))
-        {
+        if (RE::Actor* actor = find_in(process_lists->middleLowActorHandles))
             return actor;
-        }
-        return findIn(process_lists->lowActorHandles);
+        return find_in(process_lists->lowActorHandles);
     }
 
     // 静态尸体容器：基类容器条目（CONT 记录自带战利品）+ 运行时容器数据（只读）。
@@ -541,22 +510,17 @@ namespace
     [[nodiscard]] bool has_container_loot(RE::TESObjectREFR* a_ref)
     {
         if (!a_ref)
-        {
             return false;
-        }
-        if (auto* container = a_ref->GetContainer())
+        
+        if (RE::TESContainer* container = a_ref->GetContainer())
         {
             if (container->numContainerObjects > 0)
-            {
                 return true;
-            }
         }
-        if (auto* changes = a_ref->GetInventoryChanges(true))
+        if (RE::InventoryChanges* changes = a_ref->GetInventoryChanges(true))
         {
             if (changes->entryList && !changes->entryList->empty())
-            {
                 return true;
-            }
         }
         return false;
     }
@@ -566,31 +530,26 @@ namespace CorpseFinder
 {
     void scan()
     {
-        auto* tes = RE::TES::GetSingleton();
-        auto* player = RE::PlayerCharacter::GetSingleton();
+        RE::TES* tes = RE::TES::GetSingleton();
+        RE::PlayerCharacter* player = RE::PlayerCharacter::GetSingleton();
         if (!tes || !player)
-        {
             return;
-        }
 
-        auto const& cfg = Config::get();
-        auto const player_pos = player->GetPosition();
+        Config::Settings const& cfg = Config::get();
+        RE::NiPoint3 const player_pos = player->GetPosition();
 
         std::vector<CorpseEntry> found;
         found.reserve(64);
-
-        auto const consider = [&](RE::Actor* a_actor) {
+        
+        auto const consider = [&](RE::Actor* a_actor) 
+        {
             if (!a_actor || a_actor == player)
-            {
                 return;
-            }
             if (a_actor->IsDisabled() || a_actor->IsDeleted())
-            {
                 return;
-            }
 
             // 距离已由 ForEachReferenceInRange 保证在 max_distance 内；这里只算距离用于淡出
-            auto const pos = a_actor->GetPosition();
+            RE::NiPoint3 const pos = a_actor->GetPosition();
             float const dist = (pos - player_pos).Length();
 
             // ---- 死亡判定（不直接信引擎虚函数 IsDead()）----
@@ -598,34 +557,25 @@ namespace CorpseFinder
             // true（连 Belethor、Gerdur 这些活人也报死），不可用——疑似该 CommonLibSSE
             // 版本对 AE 的 Actor 虚表槽位标错。这里直接读 life_state 位域：
             // 只有 kDead 才算候选尸体，kDying（倒地濒死，随从/召唤物还会爬起来）不算。
-            auto const life_state = a_actor->AsActorState()->GetLifeState();
+            RE::ACTOR_LIFE_STATE const life_state = a_actor->AsActorState()->GetLifeState();
             if (life_state != RE::ACTOR_LIFE_STATE::kDead)
             {
                 if (life_state == RE::ACTOR_LIFE_STATE::kDying)
-                {
                     log_once_skip(a_actor, "downed/bleedout (kDying), may get up");
-                }
                 return;
             }
 
             if (a_actor->IsReanimated())
-            {
                 return;
-            }
             if (a_actor->IsGhost())
-            {
                 return;
-            }
             if (!a_actor->Is3DLoaded())
-            {
                 return;
-            }
+            
 
             // 只显示仍有余下可搜刮物品的尸体
             if (a_actor->GetInventory().empty())
-            {
                 return;
-            }
 
             CorpseEntry entry;
             entry.form_id = a_actor->GetFormID();
@@ -643,10 +593,11 @@ namespace CorpseFinder
                 // 锚点/半径改为取包围盒本身，保证投影与盒子一致
                 entry.anchor = { (b_min.x + b_max.x) * 0.5f, (b_min.y + b_max.y) * 0.5f, (b_min.z + b_max.z) * 0.5f };
                 entry.radius = std::max((b_max - b_min).Length() * 0.5f, 10.0f);
-            } else if (auto* node = a_actor->Get3D())
+            } 
+            else if (const RE::NiAVObject* node = a_actor->Get3D())
             {
                 // 兜底：根节点包围球
-                auto const& bound = node->worldBound;
+                RE::NiBound const& bound = node->worldBound;
                 if (bound.radius > 0.0f && bound.radius < 10000.0f)
                 {
                     entry.anchor = bound.center;
@@ -654,27 +605,26 @@ namespace CorpseFinder
                 }
             }
 
-            found.push_back(std::move(entry));
+            found.push_back(entry);
         };
 
-        auto const consider_object = [&](RE::TESObjectREFR* a_ref) {
+        auto const consider_object = [&](RE::TESObjectREFR* a_ref)
+        {
             bool const is_ash = is_ash_pile_ref(a_ref);
             bool const is_corpse_obj = is_ash ? false : is_corpse_object_ref(a_ref);
             if (!is_ash && !is_corpse_obj)
-            {
                 return;
-            }
 
             // 诊断：只读检查容器状态（不创建任何东西）
             bool const has_extra = a_ref->extraList.HasType<RE::ExtraContainerChanges>();
-            auto* changes = a_ref->GetInventoryChanges(true);
-            auto const entry_count = changes && changes->entryList ? changes->entryList->size() : 0;
+            RE::InventoryChanges const* changes = a_ref->GetInventoryChanges(true);
+            uint32_t const entry_count = changes && changes->entryList ? changes->entryList->size() : 0;
             // 引擎自身视角（地址库重定位，非虚表）：容器 UI 用的条目计数。
             // 参数变体都试一遍，避免语义/调用方式偏差；任何一个 > 0 都视为可搜刮。
-            auto const cnt_view = std::max(a_ref->GetInventoryItemCount(true, false), 0);
-            auto const cnt_self = std::max(a_ref->GetInventoryItemCount(false, false), 0);
-            auto const cnt_play = std::max(a_ref->GetInventoryItemCount(false, true), 0);
-            auto const ash_link = a_ref->extraList.GetAshPileRef().native_handle();
+            int const cnt_view = std::max(a_ref->GetInventoryItemCount(true, false), 0);
+            int const cnt_self = std::max(a_ref->GetInventoryItemCount(false, false), 0);
+            int const cnt_play = std::max(a_ref->GetInventoryItemCount(false, true), 0);
+            uint32_t const ash_link = a_ref->extraList.GetAshPileRef().native_handle();
             bool const base_loot = is_corpse_obj && has_container_loot(a_ref);
 
             bool lootable = entry_count > 0 || cnt_view > 0 || cnt_self > 0 || cnt_play > 0 || base_loot;
@@ -682,7 +632,7 @@ namespace CorpseFinder
             if (!lootable)
             {
                 // 兜底：物品可能挂在 ExtraAshPileRef 关联的 Actor 上
-                if (auto* owner = find_ash_pile_owner(a_ref))
+                if (RE::Actor* owner = find_ash_pile_owner(a_ref))
                 {
                     owner_id = owner->GetFormID();
                     lootable = !owner->GetInventory().empty();
@@ -705,18 +655,16 @@ namespace CorpseFinder
 
             // 只认还有东西可搜刮的
             if (!lootable)
-            {
                 return;
-            }
 
             CorpseEntry entry;
             entry.form_id = a_ref->GetFormID();
             entry.anchor = a_ref->GetPosition();
             entry.anchor.z += 15.0f;
             entry.radius = 40.0f;
-            if (auto* node = a_ref->Get3D())
+            if (const RE::NiAVObject* node = a_ref->Get3D())
             {
-                auto const& bound = node->worldBound;
+                RE::NiBound const& bound = node->worldBound;
                 if (bound.radius > 0.0f && bound.radius < 10000.0f)
                 {
                     entry.anchor = bound.center;
@@ -734,20 +682,19 @@ namespace CorpseFinder
             entry.distance = (entry.anchor - player_pos).Length();
             entry.is_ash_pile = is_ash;
             entry.is_static_corpse = is_corpse_obj;
-            found.push_back(std::move(entry));
+            found.push_back(entry);
         };
 
         // 单次半径扫描：Actor 尸体 + 灰烬堆 + 静态尸体（干尸/裹尸等）一次遍历完成。
         // 用 TES::ForEachReferenceInRange（内部空间/外部网格/天空 cell 全覆盖，
         // 且按平方距离精确裁剪），不再遍历全量过程列表。
-        tes->ForEachReferenceInRange(player, cfg.max_distance, [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult {
-            if (auto* actor = a_ref->As<RE::Actor>())
-            {
+        tes->ForEachReferenceInRange(player, cfg.max_distance, [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult 
+        {
+            if (RE::Actor* actor = a_ref->As<RE::Actor>())
                 consider(actor);
-            } else if (is_ash_pile_ref(a_ref) || is_corpse_object_ref(a_ref))
-            {
+            else if (is_ash_pile_ref(a_ref) || is_corpse_object_ref(a_ref))
                 consider_object(a_ref);
-            }
+            
             return RE::BSContainer::ForEachResult::kContinue;
         });
 
@@ -758,27 +705,21 @@ namespace CorpseFinder
 
         // 诊断：打印当前列表（LookupForm 传完整 FormID 在 Skyrim.esm 上等价于
         // 全库查找；临时 ref（FFxxxxxx）查不到时只打 ID）
-        for (auto const& corpse : g_corpses)
+        for (CorpseEntry const& corpse : g_corpses)
         {
-            auto dh = RE::TESDataHandler::GetSingleton();
+            RE::TESDataHandler* dh = RE::TESDataHandler::GetSingleton();
             if (!dh)
-            {
                 break;
-            }
-            auto form = dh->LookupForm(corpse.form_id, kSkyrimPlugin);
+            RE::TESForm* form = dh->LookupForm(corpse.form_id, SkyrimPlugin);
             if (form)
             {
-                if (auto* actor = form->As<RE::Actor>())
-                {
+                if (RE::Actor* actor = form->As<RE::Actor>())
                     logger::info("Corpse {:08X} ({}) added to list", actor->GetFormID(), actor->GetDisplayFullName());
-                } else
-                {
+                else
                     logger::info("Corpse {:08X} (non-actor: {}) added to list", corpse.form_id, form->GetFormEditorID());
-                }
-            } else
-            {
+            } 
+            else
                 logger::info("Corpse {:08X} (temp/unresolved) added to list", corpse.form_id);
-            }
         }
 
         std::size_t ash_count = 0;
@@ -786,12 +727,9 @@ namespace CorpseFinder
         for (auto const& e : g_corpses)
         {
             if (e.is_ash_pile)
-            {
                 ++ash_count;
-            } else if (e.is_static_corpse)
-            {
+            else if (e.is_static_corpse)
                 ++corpse_count;
-            }
         }
         logger::info("Corpse scan found {} searchable corpses ({} ash piles, {} static corpses)", g_corpses.size(), ash_count, corpse_count);
     }
