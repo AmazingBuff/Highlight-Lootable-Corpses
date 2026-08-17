@@ -121,12 +121,6 @@ namespace
     bool g_ui_ready = false;
     std::vector<UiVertex> g_ui_verts;  // 渲染线程独占：一帧内累积，flush 统一提交
 
-    // 像素取证：64x64 暂存纹理（读回 backbuffer 实际像素）。
-    // 延迟到取证时按当前后台缓冲格式创建：CopySubresourceRegion 要求源/目标
-    // 同格式（或同 TYPELESS 族），跨格式拷贝会被 D3D11 静默丢弃（此前用固定
-    // R8G8B8A8 读 R10G10B10A2 后台缓冲，全 0 读回即此因）。
-    ID3D11Texture2D* g_pick_tex = nullptr;
-
     // 绘制互斥：日志实测 on_present 会被多个线程并发进入（Present hook 触发线程
     // 与游戏渲染线程交替），而绘制共享 g_ui_verts/g_ui_vb/backbuffer 等状态，
     // 并发下导致绘制错乱/不显示/透明度异常，故整个绘制段串行化。
@@ -372,22 +366,6 @@ namespace ESPRenderer
         *g_hooked_slot = reinterpret_cast<void*>(&present_thunk);
         VirtualProtect(g_hooked_slot, sizeof(void*), old_protect, &old_protect);
 
-        // 诊断（临时）：解析 original Present 所在模块（判断我们与真 Present 之间是否隔了别的钩子）
-        HMODULE orig_mod = nullptr;
-        if (GetModuleHandleExW(
-                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                reinterpret_cast<LPCWSTR>(g_original_present),
-                &orig_mod) &&
-            orig_mod)
-        {
-            wchar_t buf[MAX_PATH]{};
-            if (GetModuleFileNameW(orig_mod, buf, MAX_PATH) > 0)
-            {
-                std::filesystem::path const p(buf);
-                logger::info("Original Present module: {}", p.filename().string());
-            }
-        }
-
         logger::info("Installed IDXGISwapChain::Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(g_original_present));
     }
 
@@ -420,24 +398,11 @@ namespace ESPRenderer
             return;
         }
 
-        // === 每帧只画一次：游戏同帧可能多次调用 Present（实测 ~60-90/s），重复绘制会让
-        // alpha 叠加（0.5^n → 近似不透明）——这是"透明度/fade 无效果、方块实心"的根因。
-        // 用 BSGraphics::State::frameCount 判帧，同帧的后续 Present 跳过绘制。
+        // 防御：同一游戏帧内 Present 若被多次调用，只绘制一次，避免 alpha 叠加。
         auto* bs_state = RE::BSGraphics::State::GetSingleton();
         std::uint32_t const frame = bs_state ? bs_state->frameCount : 0;
         static std::uint32_t s_last_drawn_frame = static_cast<std::uint32_t>(-1);
-        static std::uint32_t s_skipped = 0;
         bool const skip_draw = (frame != 0) && (frame == s_last_drawn_frame);
-        if (skip_draw)
-        {
-            ++s_skipped;
-        }
-        static std::uint32_t s_present_calls = 0;
-        if ((++s_present_calls % 120) == 0)
-        {
-            logger::info("present diag: {} calls, {} skipped, frame={}", s_present_calls, s_skipped, frame);
-        }
-        // ============================================================
 
         if (!skip_draw)
         {
@@ -489,15 +454,6 @@ namespace ESPRenderer
         context->OMSetDepthStencilState(g_states->DepthNone(), 0);
         context->RSSetState(g_states->CullNone());
 
-        // === 混合诊断（临时）：屏幕中央两方块（红色！绿色会被草地背景掩盖），左 alpha=1、右 alpha=0.5。
-        // PS 改为预乘输出后应显示：左块实心、右块明显半透明；
-        // R10G10B10A2 的 2-bit alpha 把 0.5 量化为 2/3，右块会略偏实（预期内）===
-        float const cx = w * 0.5f - 45.0f;
-        float const cy = h * 0.5f - 10.0f;
-        draw_quad(cx + 0.0f, cy, cx + 40.0f, cy + 20.0f, DirectX::XMFLOAT4{ 1.0f, 0.0f, 0.0f, 1.0f });
-        draw_quad(cx + 45.0f, cy, cx + 85.0f, cy + 20.0f, DirectX::XMFLOAT4{ 1.0f, 0.0f, 0.0f, 0.5f });
-        // ============================================================
-
         // ---- 尸体 ESP 标记 ----
         if (Config::is_enabled())
         {
@@ -526,34 +482,10 @@ namespace ESPRenderer
                         view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
                 }
 
-                static bool s_loggedProjectionSource = false;
-                if (!s_loggedProjectionSource)
-                {
-                    s_loggedProjectionSource = true;
-                    logger::info(
-                        "Projection source: world_cam={} cameraDataCacheSize={} view_data={} viewProjDiag=(unj _11={:.3f} _22={:.3f} _43={:.3f})",
-                        fmt::ptr(world_cam),
-                        state ? static_cast<int>(state->GetRuntimeData().cameraDataCacheA.size()) : -1,
-                        fmt::ptr(view_data),
-                        view_data ? view_data->viewProjMatrixUnjittered._11 : 0.0f,
-                        view_data ? view_data->viewProjMatrixUnjittered._22 : 0.0f,
-                        view_data ? view_data->viewProjMatrixUnjittered._43 : 0.0f);
-                }
-
                 uint32_t const rgb = cfg.outline_color;
                 float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
                 float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                 float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
-                // sRGB 后台缓冲：预还原为线性值，保证显示颜色与配置值/UI 色块一致
-                // bool const srgb_back = IsSrgbBackBuffer();
-                // auto const to_output = [&](float r, float g, float b, float a) {
-                //     return DirectX::XMFLOAT4{
-                //         srgb_back ? SrgbToLinear(r) : r,
-                //         srgb_back ? SrgbToLinear(g) : g,
-                //         srgb_back ? SrgbToLinear(b) : b,
-                //         a
-                //     };
-                // };
 
                 for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
                 {
@@ -724,7 +656,6 @@ namespace ESPRenderer
                     if (cfg.show_outline)
                     {
                         DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
-                        logger::info("Color RGBA: {}, {}, {}, {}", cr, cg, cb, alpha);
 
                         if (use_wireframe)
                         {
@@ -750,105 +681,6 @@ namespace ESPRenderer
         }
 
         flush_ui_quads(context);
-
-        // === 像素取证诊断（临时，仅一次）：读回方块与参照点的实际像素 ===
-        static bool s_pixel_logged = false;
-        if (!s_pixel_logged)
-        {
-            s_pixel_logged = true;
-            bool const fmt_supported =
-                g_back_buffer_format == DXGI_FORMAT_R10G10B10A2_UNORM ||
-                g_back_buffer_format == DXGI_FORMAT_B8G8R8A8_UNORM ||
-                g_back_buffer_format == DXGI_FORMAT_R8G8B8A8_UNORM;
-            bool pick_ready = false;
-            if (fmt_supported)
-            {
-                // 取证纹理按当前后台缓冲格式创建：跨格式族的 CopySubresourceRegion
-                // 会被 D3D11 静默丢弃（此前 R8G8B8A8 读 R10G10B10A2 全 0 即此因）
-                if (g_pick_tex)
-                {
-                    g_pick_tex->Release();
-                    g_pick_tex = nullptr;
-                }
-                D3D11_TEXTURE2D_DESC pick_desc = {};
-                pick_desc.Width = 64;
-                pick_desc.Height = 64;
-                pick_desc.MipLevels = 1;
-                pick_desc.ArraySize = 1;
-                pick_desc.Format = g_back_buffer_format;
-                pick_desc.SampleDesc.Count = 1;
-                pick_desc.Usage = D3D11_USAGE_STAGING;
-                pick_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-                pick_ready = SUCCEEDED(device->CreateTexture2D(&pick_desc, nullptr, &g_pick_tex));
-            }
-            else
-            {
-                logger::warn("pixel diag skipped: unsupported back buffer format {}", static_cast<int>(g_back_buffer_format));
-            }
-            if (pick_ready)
-            {
-                // 拷贝前必须解绑 RTV（D3D11 禁止从输出绑定资源拷贝）
-                context->OMSetRenderTargets(0, nullptr, nullptr);
-                auto const copy_pick = [&](float a_sx, float a_sy, UINT a_dx) {
-                    D3D11_BOX box = {};
-                    box.left = static_cast<UINT>(a_sx) - 8;
-                    box.top = static_cast<UINT>(a_sy) - 8;
-                    box.right = box.left + 16;
-                    box.bottom = box.top + 16;
-                    box.back = 1;
-                    context->CopySubresourceRegion(g_pick_tex, 0, a_dx, 0, 0, g_back_buffer, 0, &box);
-                };
-                copy_pick(cx + 20.0f, cy + 10.0f, 0);   // 左块中心
-                copy_pick(cx + 65.0f, cy + 10.0f, 16);  // 右块中心
-                copy_pick(cx - 60.0f, cy + 10.0f, 32);  // 参照（远离方块）
-                D3D11_MAPPED_SUBRESOURCE mapped = {};
-                if (SUCCEEDED(context->Map(g_pick_tex, 0, D3D11_MAP_READ, 0, &mapped)))
-                {
-                    auto const* px = static_cast<std::uint8_t const*>(mapped.pData);
-                    auto const read = [&](UINT a_x, UINT a_y) {
-                        std::uint8_t const* p = px + a_y * mapped.RowPitch + a_x * 4;
-                        if (g_back_buffer_format == DXGI_FORMAT_R10G10B10A2_UNORM)
-                        {
-                            // R10G10B10A2：低 10 位 R，其后 G/B 各 10 位，高 2 位 A
-                            std::uint32_t v = 0;
-                            std::memcpy(&v, p, sizeof(v));
-                            auto const r10 = [](std::uint32_t t) { return t * 255u / 1023u; };
-                            return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{
-                                r10(v & 0x3FFu), r10((v >> 10) & 0x3FFu), r10((v >> 20) & 0x3FFu), ((v >> 30) & 0x3u) * 85u };
-                        }
-                        if (g_back_buffer_format == DXGI_FORMAT_B8G8R8A8_UNORM)
-                        {
-                            // 字节序为 B,G,R,A
-                            return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{ p[2], p[1], p[0], p[3] };
-                        }
-                        return std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t>{ p[0], p[1], p[2], p[3] };
-                    };
-                    auto const [lr, lg, lb, la] = read(8, 8);
-                    auto const [rr, rg, rb, ra] = read(24, 8);
-                    auto const [fr, fg, fb, fa] = read(40, 8);
-                    logger::info(
-                        "pixel diag: left={},{},{},{} right={},{},{},{} ref={},{},{},{}",
-                        lr, lg, lb, la, rr, rg, rb, ra, fr, fg, fb, fa);
-                    context->Unmap(g_pick_tex, 0);
-                }
-                context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
-            }
-            ID3D11BlendState* cur = nullptr;
-            context->OMGetBlendState(&cur, nullptr, nullptr);
-            if (cur)
-            {
-                D3D11_BLEND_DESC desc{};
-                cur->GetDesc(&desc);
-                logger::info(
-                    "blend desc diag: enable={} src={} dst={} op={}",
-                    desc.RenderTarget[0].BlendEnable,
-                    static_cast<int>(desc.RenderTarget[0].SrcBlend),
-                    static_cast<int>(desc.RenderTarget[0].DestBlend),
-                    static_cast<int>(desc.RenderTarget[0].BlendOp));
-                cur->Release();
-            }
-        }
-        // ============================================================
 
         // ---- 恢复游戏渲染状态 ----
         context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
