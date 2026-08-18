@@ -3,6 +3,7 @@
 #include "config.h"
 #include "corpse_finder.h"
 #include "input.h"
+#include "loot_filter.h"
 
 namespace
 {
@@ -50,9 +51,7 @@ namespace
         ID3D11Texture2D* buffer = nullptr;
         HRESULT const hr = a_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
         if (FAILED(hr) || !buffer)
-        {
             return false;
-        }
 
         if (buffer == g_back_buffer)
         {
@@ -337,7 +336,7 @@ namespace ESPRenderer
         if (g_hooked_slot)
             return;  // 已安装
 
-        auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+        RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
         if (!renderer)
             return;
 
@@ -377,331 +376,328 @@ namespace ESPRenderer
         Input::poll();
 
         // 定时派发尸体扫描任务到游戏线程
-        auto const now = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
         if (now - g_last_scan >= std::chrono::milliseconds(Config::get().scan_interval_ms))
         {
             g_last_scan = now;
-            SKSE::GetTaskInterface()->AddTask([]() { CorpseFinder::scan(); });
+            SKSE::GetTaskInterface()->AddTask([] { CorpseFinder::scan(); });
         }
 
-        auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+        RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
         if (!renderer)
-        {
             return;
-        }
 
-        auto& rt = renderer->GetRuntimeData();
-        auto* device = reinterpret_cast<ID3D11Device*>(rt.forwarder);
-        auto* context = reinterpret_cast<ID3D11DeviceContext*>(rt.context);
+        RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
+        ID3D11Device* device = reinterpret_cast<ID3D11Device*>(rt.forwarder);
+        ID3D11DeviceContext* context = reinterpret_cast<ID3D11DeviceContext*>(rt.context);
         if (!device || !context)
-        {
             return;
-        }
 
         // 防御：同一游戏帧内 Present 若被多次调用，只绘制一次，避免 alpha 叠加。
-        auto* bs_state = RE::BSGraphics::State::GetSingleton();
+        RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
         std::uint32_t const frame = bs_state ? bs_state->frameCount : 0;
-        static std::uint32_t s_last_drawn_frame = static_cast<std::uint32_t>(-1);
+
+        static std::uint32_t s_last_drawn_frame = std::numeric_limits<std::uint32_t>::max();
         bool const skip_draw = (frame != 0) && (frame == s_last_drawn_frame);
 
         if (!skip_draw)
         {
             if (frame != 0)
-            {
                 s_last_drawn_frame = frame;
-            }
 
-        if (!ensure_back_buffer(a_swapChain, device))
-        {
-            return;
-        }
+            if (!ensure_back_buffer(a_swapChain, device))
+                return;
 
-        ensure_draw_resources(device);
-        if (!g_states || !g_ui_ready)
-            return;
+            ensure_draw_resources(device);
+            if (!g_states || !g_ui_ready)
+                return;
 
-        float w = static_cast<float>(g_back_w);
-        float h = static_cast<float>(g_back_h);
-        if (w <= 0.0f || h <= 0.0f)
-        {
-            // 后备：渲染器报告的屏幕尺寸
-            RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
-            w = static_cast<float>(screen.width);
-            h = static_cast<float>(screen.height);
-        }
-        if (w <= 0.0f || h <= 0.0f)
-            return;
-
-        // ---- 保存游戏渲染状态，设置我们的绘制状态 ----
-        ID3D11RenderTargetView* prev_rtv = nullptr;
-        ID3D11DepthStencilView* prev_dsv = nullptr;
-        context->OMGetRenderTargets(1, &prev_rtv, &prev_dsv);
-        context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
-
-        ID3D11BlendState* prev_blend = nullptr;
-        float blend_factor[4]{};
-        UINT sample_mask = 0;
-        context->OMGetBlendState(&prev_blend, blend_factor, &sample_mask);
-
-        ID3D11DepthStencilState* prev_depth = nullptr;
-        UINT prev_stencil = 0;
-        context->OMGetDepthStencilState(&prev_depth, &prev_stencil);
-
-        ID3D11RasterizerState* prev_rs = nullptr;
-        context->RSGetState(&prev_rs);
-
-        context->OMSetBlendState(g_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
-        context->OMSetDepthStencilState(g_states->DepthNone(), 0);
-        context->RSSetState(g_states->CullNone());
-
-        // ---- 尸体 ESP 标记 ----
-        if (Config::is_enabled())
-        {
-            Config::Settings const& cfg = Config::get();
-            if (cfg.show_outline)
+            float w = static_cast<float>(g_back_w);
+            float h = static_cast<float>(g_back_h);
+            if (w <= 0.0f || h <= 0.0f)
             {
-                // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
-                RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
+                // 后备：渲染器报告的屏幕尺寸
+                RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
+                w = static_cast<float>(screen.width);
+                h = static_cast<float>(screen.height);
+            }
+            if (w <= 0.0f || h <= 0.0f)
+                return;
 
-                // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
-                // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
-                auto* state = RE::BSGraphics::State::GetSingleton();
-                RE::BSGraphics::ViewData const* view_data = nullptr;
-                if (state)
+            // ---- 保存游戏渲染状态，设置我们的绘制状态 ----
+            ID3D11RenderTargetView* prev_rtv = nullptr;
+            ID3D11DepthStencilView* prev_dsv = nullptr;
+            context->OMGetRenderTargets(1, &prev_rtv, &prev_dsv);
+            context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
+
+            ID3D11BlendState* prev_blend = nullptr;
+            float blend_factor[4]{};
+            UINT sample_mask = 0;
+            context->OMGetBlendState(&prev_blend, blend_factor, &sample_mask);
+
+            ID3D11DepthStencilState* prev_depth = nullptr;
+            UINT prev_stencil = 0;
+            context->OMGetDepthStencilState(&prev_depth, &prev_stencil);
+
+            ID3D11RasterizerState* prev_rs = nullptr;
+            context->RSGetState(&prev_rs);
+
+            context->OMSetBlendState(g_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
+            context->OMSetDepthStencilState(g_states->DepthNone(), 0);
+            context->RSSetState(g_states->CullNone());
+
+            // ---- 尸体 ESP 标记 ----
+            if (Config::is_enabled())
+            {
+                Config::Settings const& cfg = Config::get();
+                if (cfg.show_outline)
                 {
-                    auto& state_rt = state->GetRuntimeData();
-                    for (auto const& cam_data : state_rt.cameraDataCacheA)
+                    // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
+                    RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
+
+                    // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
+                    // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
+                    RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton();
+                    RE::BSGraphics::ViewData const* view_data = nullptr;
+                    if (state)
                     {
-                        if (cam_data.referenceCamera == world_cam)
+                        RE::BSGraphics::State::RUNTIME_DATA& state_rt = state->GetRuntimeData();
+                        for (RE::BSGraphics::CameraStateData const& cam_data : state_rt.cameraDataCacheA)
                         {
-                            view_data = std::addressof(cam_data.GetCameraStateRuntimeData().camViewData);
-                            break;
-                        }
-                    }
-                    if (!view_data && !state_rt.cameraDataCacheA.empty())
-                        view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
-                }
-
-                uint32_t const rgb = cfg.outline_color;
-                float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
-                float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
-                float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
-
-                for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
-                {
-                    // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
-                    // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
-                    // 失败时兜底用 State 的 viewProj 矩阵。
-                    auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool
-                    {
-                        bool ok = false;
-                        if (world_cam && world_cam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f))
-                        {
-                            // 相机 port 若是像素单位，先把输出归一化到 0..1
-                            RE::NiRect<float> const& port = world_cam->GetRuntimeData2().port;
-                            PortRect pr{};
-                            std::memcpy(&pr, &port, sizeof(pr));
-                            float const port_l = pr.left;
-                            float const port_t = pr.top;
-                            float const port_w = pr.right - pr.left;
-                            float const port_h = pr.bottom - pr.top;
-                            float nx = a_px, ny = a_py;
-                            if (port_w > 10.0f)
-                                nx = (a_px - port_l) / port_w;
-
-                            if (port_h > 10.0f)
-                                ny = (a_py - port_t) / port_h;
-
-                            // 引擎函数输出为“左下原点”归一化坐标（TrueDirectionalMovement 同样处理），翻转为左上原点
-                            a_px = nx * w;
-                            a_py = (1.0f - ny) * h;
-                            ok = a_depth > 0.0f;
-                        }
-                        else if (view_data && (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
-                        {
-                            Matrix const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
-                            DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f), viewProj);
-                            float const clip_w = DirectX::XMVectorGetW(clip);
-                            if (std::fabs(clip_w) >= 1e-5f)
+                            if (cam_data.referenceCamera == world_cam)
                             {
-                                DirectX::XMVECTOR const ndc = DirectX::XMVectorDivide(clip, DirectX::XMVectorReplicate(clip_w));
-                                float const ndc_x = DirectX::XMVectorGetX(ndc);
-                                float const ndc_y = DirectX::XMVectorGetY(ndc);
-                                float const ndc_z = DirectX::XMVectorGetZ(ndc);
-                                if (ndc_x >= -1.0f && ndc_x <= 1.0f && ndc_y >= -1.0f && ndc_y <= 1.0f && ndc_z >= 0.0f && ndc_z <= 1.0f)
+                                view_data = std::addressof(cam_data.GetCameraStateRuntimeData().camViewData);
+                                break;
+                            }
+                        }
+                        if (!view_data && !state_rt.cameraDataCacheA.empty())
+                            view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
+                    }
+
+                    uint32_t const rgb = cfg.outline_color;
+                    float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
+                    float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
+                    float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
+
+                    for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
+                    {
+                        // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
+                        if (cfg.loot_filter_enabled && (corpse.loot_categories & LootFilter::enabled_category_mask()) == 0)
+                            continue;
+
+                        // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
+                        // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
+                        // 失败时兜底用 State 的 viewProj 矩阵。
+                        auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool
+                        {
+                            bool ok = false;
+                            if (world_cam && world_cam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f))
+                            {
+                                // 相机 port 若是像素单位，先把输出归一化到 0..1
+                                RE::NiRect<float> const& port = world_cam->GetRuntimeData2().port;
+                                PortRect pr{};
+                                std::memcpy(&pr, &port, sizeof(pr));
+                                float const port_l = pr.left;
+                                float const port_t = pr.top;
+                                float const port_w = pr.right - pr.left;
+                                float const port_h = pr.bottom - pr.top;
+                                float nx = a_px, ny = a_py;
+                                if (port_w > 10.0f)
+                                    nx = (a_px - port_l) / port_w;
+
+                                if (port_h > 10.0f)
+                                    ny = (a_py - port_t) / port_h;
+
+                                // 引擎函数输出为“左下原点”归一化坐标（TrueDirectionalMovement 同样处理），翻转为左上原点
+                                a_px = nx * w;
+                                a_py = (1.0f - ny) * h;
+                                ok = a_depth > 0.0f;
+                            }
+                            else if (view_data && (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
+                            {
+                                Matrix const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
+                                DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f), viewProj);
+                                float const clip_w = DirectX::XMVectorGetW(clip);
+                                if (std::fabs(clip_w) >= 1e-5f)
                                 {
-                                    a_px = (ndc_x * 0.5f + 0.5f) * w;
-                                    a_py = (1.0f - ndc_y) * 0.5f * h;
-                                    a_depth = ndc_z;
-                                    ok = true;
+                                    DirectX::XMVECTOR const ndc = DirectX::XMVectorDivide(clip, DirectX::XMVectorReplicate(clip_w));
+                                    float const ndc_x = DirectX::XMVectorGetX(ndc);
+                                    float const ndc_y = DirectX::XMVectorGetY(ndc);
+                                    float const ndc_z = DirectX::XMVectorGetZ(ndc);
+                                    if (ndc_x >= -1.0f && ndc_x <= 1.0f && ndc_y >= -1.0f && ndc_y <= 1.0f && ndc_z >= 0.0f && ndc_z <= 1.0f)
+                                    {
+                                        a_px = (ndc_x * 0.5f + 0.5f) * w;
+                                        a_py = (1.0f - ndc_y) * 0.5f * h;
+                                        a_depth = ndc_z;
+                                        ok = true;
+                                    }
                                 }
                             }
-                        }
-                        return ok;
-                    };
-
-                    // 尸体世界 AABB 是否有效
-                    bool const hasAABB =
-                        corpse.bound_min.x <= corpse.bound_max.x &&
-                        corpse.bound_min.y <= corpse.bound_max.y &&
-                        corpse.bound_min.z <= corpse.bound_max.z;
-
-                    // 把一批世界点投影到屏幕，取屏幕包围矩形
-                    float min_x = 1e30f, max_x = -1e30f, min_y = 1e30f, max_y = -1e30f;
-                    float depth_sum = 0.0f;
-                    int depth_count = 0;
-                    bool has_rect = false;
-
-                    // OBB 线框盒：记录 8 个角各自的屏幕坐标
-                    float proj_x[8]{}, proj_y[8]{};
-                    bool obb_ok[8]{};
-
-                    auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1)
-                    {
-                        float px = 0.0f, py = 0.0f, d = 0.0f;
-                        if (project_to_screen(a_pt, px, py, d))
-                        {
-                            min_x = std::min(min_x, px);
-                            max_x = std::max(max_x, px);
-                            min_y = std::min(min_y, py);
-                            max_y = std::max(max_y, py);
-                            depth_sum += d;
-                            ++depth_count;
-                            has_rect = true;
-                            if (a_idx >= 0 && a_idx < 8)
-                            {
-                                proj_x[a_idx] = px;
-                                proj_y[a_idx] = py;
-                                obb_ok[a_idx] = true;
-                            }
-                        }
-                    };
-
-                    bool obb_all_ok = true;
-                    if (corpse.has_obb)
-                    {
-                        // 投影碰撞盒（OBB）的 8 个世界角点：屏幕矩形贴合碰撞盒的屏幕足迹
-                        for (int i = 0; i < 8; ++i)
-                            add_projected(corpse.obb_corners[i], i);
-
-                        for (bool ok : obb_ok)
-                            obb_all_ok = obb_all_ok && ok;
-                    }
-                    else if (hasAABB)
-                    {
-                        // 投影 AABB 的 8 个角，得到贴合尸体包围盒的屏幕矩形
-                        RE::NiPoint3 const corners[8] = {
-                            { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
-                            { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_min.z },
-                            { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_min.z },
-                            { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_min.z },
-                            { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_max.z },
-                            { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_max.z },
-                            { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_max.z },
-                            { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z },
+                            return ok;
                         };
-                        for (auto const& corner : corners)
-                            add_projected(corner);
-                    }
-                    else
-                    {
-                        // 兜底：没有 AABB 时用锚点 + 世界半径投影上下左右
-                        RE::NiPoint3 camRight{ 1.0f, 0.0f, 0.0f };
-                        RE::NiPoint3 camUp{ 0.0f, 1.0f, 0.0f };
-                        if (world_cam)
+
+                        // 尸体世界 AABB 是否有效
+                        bool const hasAABB =
+                            corpse.bound_min.x <= corpse.bound_max.x &&
+                            corpse.bound_min.y <= corpse.bound_max.y &&
+                            corpse.bound_min.z <= corpse.bound_max.z;
+
+                        // 把一批世界点投影到屏幕，取屏幕包围矩形
+                        float min_x = 1e30f, max_x = -1e30f, min_y = 1e30f, max_y = -1e30f;
+                        float depth_sum = 0.0f;
+                        int depth_count = 0;
+                        bool has_rect = false;
+
+                        // OBB 线框盒：记录 8 个角各自的屏幕坐标
+                        float proj_x[8]{}, proj_y[8]{};
+                        bool obb_ok[8]{};
+
+                        auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1)
                         {
-                            camRight = world_cam->world.rotate.GetVectorX();
-                            camUp = world_cam->world.rotate.GetVectorY();
-                        }
-                        add_projected(corpse.anchor);
-                        add_projected(corpse.anchor + camRight * corpse.radius);
-                        add_projected(corpse.anchor - camRight * corpse.radius);
-                        add_projected(corpse.anchor + camUp * corpse.radius);
-                        add_projected(corpse.anchor - camUp * corpse.radius);
-                    }
-
-                    if (!has_rect)
-                        continue;
-
-                    // 矩形与中心
-                    float const sx = (min_x + max_x) * 0.5f;
-                    float const sy = (min_y + max_y) * 0.5f;
-                    float const box_w = max_x - min_x;
-                    float const box_h = max_y - min_y;
-                    // 保证最小可见尺寸（太远时不会缩成一个点）
-                    constexpr float kMinBox = 5.0f;
-                    float x0 = min_x, y0 = min_y, x1 = max_x, y1 = max_y;
-                    if (box_w < kMinBox || box_h < kMinBox)
-                    {
-                        float const half_x = std::max(box_w * 0.5f, kMinBox * 0.5f);
-                        float const half_y = std::max(box_h * 0.5f, kMinBox * 0.5f);
-                        x0 = sx - half_x;
-                        x1 = sx + half_x;
-                        y0 = sy - half_y;
-                        y1 = sy + half_y;
-                    }
-
-                    // 距离衰减：FadeStartDistance 内完全不透明；超过后按
-                    // FadePower 指数衰减，到 MaxDistance 处达到 MinOpacity 下限。
-                    // 远处尸体的 box 边框越来越"虚"，近处保持清晰。
-                    float const fade_range = std::max(cfg.max_distance - cfg.fade_start_distance, 1.0f);
-                    float const f = corpse.distance <= cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((corpse.distance - cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
-                    float const fade = std::pow(f, cfg.fade_power);
-                    float const alpha = std::clamp(cfg.min_opacity + fade * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
-
-                    // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
-                    // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
-                    bool const use_wireframe = corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
-
-                    if (cfg.show_outline)
-                    {
-                        DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
-
-                        if (use_wireframe)
-                        {
-                            static constexpr std::int32_t kEdges[12][2] = {
-                                { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },  // 底面
-                                { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
-                                { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
-                            };
-                            for (auto const& e : kEdges)
+                            float px = 0.0f, py = 0.0f, d = 0.0f;
+                            if (project_to_screen(a_pt, px, py, d))
                             {
-                                draw_thick_line(
-                                    DirectX::XMFLOAT2{ proj_x[e[0]], proj_y[e[0]] },
-                                    DirectX::XMFLOAT2{ proj_x[e[1]], proj_y[e[1]] },
-                                    cfg.outline_thickness,
-                                    color);
+                                min_x = std::min(min_x, px);
+                                max_x = std::max(max_x, px);
+                                min_y = std::min(min_y, py);
+                                max_y = std::max(max_y, py);
+                                depth_sum += d;
+                                ++depth_count;
+                                has_rect = true;
+                                if (a_idx >= 0 && a_idx < 8)
+                                {
+                                    proj_x[a_idx] = px;
+                                    proj_y[a_idx] = py;
+                                    obb_ok[a_idx] = true;
+                                }
                             }
+                        };
+
+                        bool obb_all_ok = true;
+                        if (corpse.has_obb)
+                        {
+                            // 投影碰撞盒（OBB）的 8 个世界角点：屏幕矩形贴合碰撞盒的屏幕足迹
+                            for (int i = 0; i < 8; ++i)
+                                add_projected(corpse.obb_corners[i], i);
+
+                            for (bool ok : obb_ok)
+                                obb_all_ok = obb_all_ok && ok;
+                        }
+                        else if (hasAABB)
+                        {
+                            // 投影 AABB 的 8 个角，得到贴合尸体包围盒的屏幕矩形
+                            RE::NiPoint3 const corners[8] = {
+                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
+                                { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_min.z },
+                                { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_min.z },
+                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_min.z },
+                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_max.z },
+                                { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_max.z },
+                                { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_max.z },
+                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z },
+                            };
+                            for (RE::NiPoint3 const& corner : corners)
+                                add_projected(corner);
                         }
                         else
-                            draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
+                        {
+                            // 兜底：没有 AABB 时用锚点 + 世界半径投影上下左右
+                            RE::NiPoint3 camRight{ 1.0f, 0.0f, 0.0f };
+                            RE::NiPoint3 camUp{ 0.0f, 1.0f, 0.0f };
+                            if (world_cam)
+                            {
+                                camRight = world_cam->world.rotate.GetVectorX();
+                                camUp = world_cam->world.rotate.GetVectorY();
+                            }
+                            add_projected(corpse.anchor);
+                            add_projected(corpse.anchor + camRight * corpse.radius);
+                            add_projected(corpse.anchor - camRight * corpse.radius);
+                            add_projected(corpse.anchor + camUp * corpse.radius);
+                            add_projected(corpse.anchor - camUp * corpse.radius);
+                        }
+
+                        if (!has_rect)
+                            continue;
+
+                        // 矩形与中心
+                        float const sx = (min_x + max_x) * 0.5f;
+                        float const sy = (min_y + max_y) * 0.5f;
+                        float const box_w = max_x - min_x;
+                        float const box_h = max_y - min_y;
+                        // 保证最小可见尺寸（太远时不会缩成一个点）
+                        constexpr float kMinBox = 5.0f;
+                        float x0 = min_x, y0 = min_y, x1 = max_x, y1 = max_y;
+                        if (box_w < kMinBox || box_h < kMinBox)
+                        {
+                            float const half_x = std::max(box_w * 0.5f, kMinBox * 0.5f);
+                            float const half_y = std::max(box_h * 0.5f, kMinBox * 0.5f);
+                            x0 = sx - half_x;
+                            x1 = sx + half_x;
+                            y0 = sy - half_y;
+                            y1 = sy + half_y;
+                        }
+
+                        // 距离衰减：FadeStartDistance 内完全不透明；超过后按
+                        // FadePower 指数衰减，到 MaxDistance 处达到 MinOpacity 下限。
+                        // 远处尸体的 box 边框越来越"虚"，近处保持清晰。
+                        float const fade_range = std::max(cfg.max_distance - cfg.fade_start_distance, 1.0f);
+                        float const f = corpse.distance <= cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((corpse.distance - cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
+                        float const fade = std::pow(f, cfg.fade_power);
+                        float const alpha = std::clamp(cfg.min_opacity + fade * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
+
+                        // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
+                        // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
+                        bool const use_wireframe = corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
+
+                        if (cfg.show_outline)
+                        {
+                            DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
+
+                            if (use_wireframe)
+                            {
+                                static constexpr std::int32_t kEdges[12][2] = {
+                                    { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },  // 底面
+                                    { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
+                                    { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
+                                };
+                                for (auto const& [e0, e1] : kEdges)
+                                {
+                                    draw_thick_line(
+                                        DirectX::XMFLOAT2{ proj_x[e0], proj_y[e0] },
+                                        DirectX::XMFLOAT2{ proj_x[e1], proj_y[e1] },
+                                        cfg.outline_thickness,
+                                        color);
+                                }
+                            }
+                            else
+                                draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
+                        }
                     }
                 }
             }
-        }
 
-        flush_ui_quads(context);
+            flush_ui_quads(context);
 
-        // ---- 恢复游戏渲染状态 ----
-        context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
-        context->OMSetBlendState(prev_blend, blend_factor, sample_mask);
-        context->OMSetDepthStencilState(prev_depth, prev_stencil);
-        context->RSSetState(prev_rs);
+            // ---- 恢复游戏渲染状态 ----
+            context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
+            context->OMSetBlendState(prev_blend, blend_factor, sample_mask);
+            context->OMSetDepthStencilState(prev_depth, prev_stencil);
+            context->RSSetState(prev_rs);
 
-        if (prev_rtv)
-            prev_rtv->Release();
+            if (prev_rtv)
+                prev_rtv->Release();
 
-        if (prev_dsv)
-            prev_dsv->Release();
+            if (prev_dsv)
+                prev_dsv->Release();
 
-        if (prev_blend)
-            prev_blend->Release();
+            if (prev_blend)
+                prev_blend->Release();
 
-        if (prev_depth)
-            prev_depth->Release();
+            if (prev_depth)
+                prev_depth->Release();
 
-        if (prev_rs)
-            prev_rs->Release();
+            if (prev_rs)
+                prev_rs->Release();
         }  // if (!skip_draw)
     }
 }

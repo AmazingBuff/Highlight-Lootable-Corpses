@@ -20,6 +20,10 @@ namespace CorpseFinder
         bool has_obb{ false };
         RE::NiPoint3 obb_corners[8]{};
         bool bounds_from_collision{ false };  // 诊断：包围盒是否来自 Havok 碰撞体（否则为几何兜底）
+
+        // 战利品筛选（扫描期由 LootFilter::evaluate 计算）：命中的价值分类位掩码与最高单件价值
+        std::uint16_t loot_categories{ 0 };
+        std::int32_t best_item_value{ 0 };
     };
 
     // 在游戏主线程上执行：扫描已加载的 Actor，找出"已死亡且仍有可搜刮物品"的尸体；

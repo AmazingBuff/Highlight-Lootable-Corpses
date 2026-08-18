@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "corpse_finder.h"
+
 #include "config.h"
+#include "loot_filter.h"
 
 namespace
 {
@@ -583,6 +585,9 @@ namespace CorpseFinder
             entry.anchor.z += 40.0f;  // 默认锚点抬高到尸体中部
             entry.radius = 60.0f;
             entry.distance = dist;
+            LootFilter::Result const loot = LootFilter::evaluate(a_actor);
+            entry.loot_categories = loot.categories;
+            entry.best_item_value = loot.best_item_value;
 
             RE::NiPoint3 b_min, b_max;
             bool const ragdoll = a_actor->IsInRagdollState();
@@ -662,6 +667,15 @@ namespace CorpseFinder
             entry.anchor = a_ref->GetPosition();
             entry.anchor.z += 15.0f;
             entry.radius = 40.0f;
+            // 战利品评估：灰烬堆的物品挂在关联 Actor 上（堆本身是空容器），其余直接评估自身
+            LootFilter::Result loot = LootFilter::evaluate(a_ref);
+            if (is_ash)
+            {
+                if (RE::Actor* owner = find_ash_pile_owner(a_ref))
+                    loot = LootFilter::evaluate(owner);
+            }
+            entry.loot_categories = loot.categories;
+            entry.best_item_value = loot.best_item_value;
             if (const RE::NiAVObject* node = a_ref->Get3D())
             {
                 RE::NiBound const& bound = node->worldBound;
@@ -714,12 +728,26 @@ namespace CorpseFinder
             if (form)
             {
                 if (RE::Actor* actor = form->As<RE::Actor>())
-                    logger::info("Corpse {:08X} ({}) added to list", actor->GetFormID(), actor->GetDisplayFullName());
+                    logger::info(
+                        "Corpse {:08X} ({}) added to list [cats={} best={}]",
+                        actor->GetFormID(),
+                        actor->GetDisplayFullName(),
+                        LootFilter::category_summary(corpse.loot_categories),
+                        corpse.best_item_value);
                 else
-                    logger::info("Corpse {:08X} (non-actor: {}) added to list", corpse.form_id, form->GetFormEditorID());
-            } 
+                    logger::info(
+                        "Corpse {:08X} (non-actor: {}) added to list [cats={} best={}]",
+                        corpse.form_id,
+                        form->GetFormEditorID(),
+                        LootFilter::category_summary(corpse.loot_categories),
+                        corpse.best_item_value);
+            }
             else
-                logger::info("Corpse {:08X} (temp/unresolved) added to list", corpse.form_id);
+                logger::info(
+                    "Corpse {:08X} (temp/unresolved) added to list [cats={} best={}]",
+                    corpse.form_id,
+                    LootFilter::category_summary(corpse.loot_categories),
+                    corpse.best_item_value);
         }
 
         std::size_t ash_count = 0;

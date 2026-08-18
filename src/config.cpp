@@ -52,17 +52,29 @@ namespace Config
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
+        g_settings.loot_filter_enabled = ini.GetBoolValue("LootFilter", "LootFilterEnabled", g_settings.loot_filter_enabled);
+        g_settings.value_quest_items = ini.GetBoolValue("LootFilter", "ValueQuestItems", g_settings.value_quest_items);
+        g_settings.value_keys = ini.GetBoolValue("LootFilter", "ValueKeys", g_settings.value_keys);
+        g_settings.value_enchanted = ini.GetBoolValue("LootFilter", "ValueEnchanted", g_settings.value_enchanted);
+        g_settings.value_high_value = ini.GetBoolValue("LootFilter", "ValueHighValue", g_settings.value_high_value);
+        g_settings.high_value_threshold = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("LootFilter", "HighValueThreshold", g_settings.high_value_threshold)));
+        g_settings.value_books = ini.GetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
+        g_settings.book_filter_mode = std::clamp(static_cast<int>(ini.GetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode))), 0, 2);
+        g_settings.value_consumables = ini.GetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
+        g_settings.soul_gem_filled_only = ini.GetBoolValue("LootFilter", "SoulGemFilledOnly", g_settings.soul_gem_filled_only);
+
         g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
 
         // 写回，保证文件存在且包含全部选项说明
         save();
 
         logger::info(
-            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms",
+            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms, lootFilter={}",
             g_settings.enabled,
             g_settings.hotkey,
             g_settings.max_distance,
-            g_settings.scan_interval_ms);
+            g_settings.scan_interval_ms,
+            g_settings.loot_filter_enabled);
     }
 
     void save() noexcept
@@ -83,6 +95,17 @@ namespace Config
         ini.SetBoolValue("Display", "ShowOutline", g_settings.show_outline);
         ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
         ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
+
+        ini.SetBoolValue("LootFilter", "LootFilterEnabled", g_settings.loot_filter_enabled);
+        ini.SetBoolValue("LootFilter", "ValueQuestItems", g_settings.value_quest_items);
+        ini.SetBoolValue("LootFilter", "ValueKeys", g_settings.value_keys);
+        ini.SetBoolValue("LootFilter", "ValueEnchanted", g_settings.value_enchanted);
+        ini.SetBoolValue("LootFilter", "ValueHighValue", g_settings.value_high_value);
+        ini.SetDoubleValue("LootFilter", "HighValueThreshold", g_settings.high_value_threshold);
+        ini.SetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
+        ini.SetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode));
+        ini.SetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
+        ini.SetBoolValue("LootFilter", "SoulGemFilledOnly", g_settings.soul_gem_filled_only);
 
         SI_Error const save_rc = ini.SaveFile(path.string().c_str());
         if (save_rc < 0)

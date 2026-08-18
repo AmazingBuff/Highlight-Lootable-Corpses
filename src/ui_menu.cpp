@@ -2,6 +2,7 @@
 #include "ui_menu.h"
 #include "config.h"
 #include "corpse_finder.h"
+#include "loot_filter.h"
 
 // SKSE-MCP（header-only）通过 GetProcAddress 动态加载 SKSEMenuFramework.dll，
 // 无链接依赖；头文件自身带多种 /W4 告警（C4996 弃用 codecvt、C5054 跨枚举 |、
@@ -53,6 +54,21 @@ namespace
 
         ImGuiMCP::Separator();
 
+        // 战利品筛选：只显示库存命中以下任一分类的尸体（扫描期评估，过滤即时生效）
+        ImGuiMCP::Checkbox("Filter Valuable Corpses Only", &s.loot_filter_enabled);
+        ImGuiMCP::Checkbox("Quest Items", &s.value_quest_items);
+        ImGuiMCP::Checkbox("Keys", &s.value_keys);
+        ImGuiMCP::Checkbox("Enchanted Gear", &s.value_enchanted);
+        ImGuiMCP::Checkbox("High-Value Items", &s.value_high_value);
+        ImGuiMCP::SliderFloat("High Value Threshold", &s.high_value_threshold, 10.0f, 10000.0f, "%.0f");
+        ImGuiMCP::Checkbox("Books", &s.value_books);
+        static constexpr char const* kBookModes[] = { "All Books", "Spell & Skill Books", "Spell Books Only" };
+        ImGuiMCP::Combo("Book Mode", &s.book_filter_mode, kBookModes, 3);
+        ImGuiMCP::Checkbox("Consumables", &s.value_consumables);
+        ImGuiMCP::Checkbox("Filled Soul Gems Only", &s.soul_gem_filled_only);
+
+        ImGuiMCP::Separator();
+
         // 实时状态：帮助验证距离衰减（fade 只作用于超过 Fade Start 距离的尸体）
         std::vector<CorpseFinder::CorpseEntry> const corpses = CorpseFinder::snapshot();
         float nearest = 0.0f;
@@ -60,6 +76,17 @@ namespace
             nearest = nearest == 0.0f ? corpse.distance : std::min(nearest, corpse.distance);
 
         ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
+        if (s.loot_filter_enabled)
+        {
+            std::uint16_t const mask = LootFilter::enabled_category_mask();
+            int visible = 0;
+            for (auto const& corpse : corpses)
+            {
+                if ((corpse.loot_categories & mask) != 0)
+                    ++visible;
+            }
+            ImGuiMCP::Text("Visible: %d / %d corpses", visible, static_cast<int>(corpses.size()));
+        }
         ImGuiMCP::Text("ESP Toggle Hotkey: 0x%02X (edit in INI)", s.hotkey);
 
         if (ImGuiMCP::Button("Save to INI"))

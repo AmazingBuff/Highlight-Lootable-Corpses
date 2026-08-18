@@ -7,6 +7,7 @@ set(SOURCE_FILES
 	"${SOURCE_DIR}/corpse_finder.cpp"
 	"${SOURCE_DIR}/esp_renderer.cpp"
 	"${SOURCE_DIR}/input.cpp"
+	"${SOURCE_DIR}/loot_filter.cpp"
 	"${SOURCE_DIR}/main.cpp"
 	"${SOURCE_DIR}/ui_menu.cpp"
 )
@@ -16,6 +17,7 @@ set(HEADER_FILES
 	"${SOURCE_DIR}/corpse_finder.h"
 	"${SOURCE_DIR}/esp_renderer.h"
 	"${SOURCE_DIR}/input.h"
+	"${SOURCE_DIR}/loot_filter.h"
 	"${SOURCE_DIR}/pch.h"
 	"${SOURCE_DIR}/ui_menu.h"
 )
