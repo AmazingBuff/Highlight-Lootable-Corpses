@@ -14,7 +14,11 @@
   Soul Ember、灰烬魔等变体），通过 `ExtraAshPileRef` 关联原始 Actor 判断库存
 - 支持**静态尸体**：干尸/裹尸/烧焦尸体等容器物体（`TreasDraugrAmbushCorpse*`、
   `TreasBurntCorpse*`、`defaultGhostCorpse` 等，含 DLC 变体）
-- 纯标记，无文字干扰：只绘制**包围盒描边边框**，边框按距离指数衰减（越远越"虚"）
+- 两种描边模式（`OutlineMode`，INI 与游戏内菜单均可切换）：
+  - **包围盒**（默认）：绘制碰撞盒线框边框；
+  - **模型剪影**：重绘尸体网格到遮罩后做边缘检测，描边贴合模型真实轮廓
+    （蒙皮网格按骨骼实时变换，躺姿/肢解都跟得上）
+- 纯标记，无文字干扰：只绘制描边，边框按距离指数衰减（越远越"虚"）
 - 包围盒取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体，与尸体实际
   碰撞范围一致；有方向碰撞盒时绘制 12 边 3D 线框
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
@@ -56,8 +60,10 @@ ScanIntervalMs=500
 OutlineColor=00FF66
 ; 远处标记最小不透明度
 MinOpacity=0.15
-; 描边线宽（像素）
+; 描边线宽（像素）；剪影模式下为描边像素半径
 OutlineThickness=2.0
+; 描边模式：0 = 包围盒线框，1 = 模型剪影
+OutlineMode=0
 ; 开始淡出的距离（游戏单位，该距离内完全不透明）
 FadeStartDistance=1000.0
 ; 淡出曲线指数（越大衰减越快，1.0 = 线性）
@@ -113,9 +119,16 @@ cpack --config build/CPackConfig.cmake
 - **静态尸体发现**：FormID 匹配干尸/裹尸/烧焦尸体等 CONT 容器（含 DLC 变体），
   判定可搜刮 = 基类容器条目 + 只读运行时容器数据。
 - **渲染**：钩住 `IDXGISwapChain::Present`（vtable 第 8 槽位，与运行时版本
-  无关），在游戏帧渲染完成后用 DirectXTK（`BasicEffect` + `PrimitiveBatch`）
-  向后台缓冲绘制；绘制期间关闭深度测试与背面剔除，开启 Alpha 混合，绘制后
+  无关），在游戏帧渲染完成后用自绘管线（自编译 VS/PS + 动态顶点缓冲）
+  向后台缓冲绘制；绘制期间关闭深度测试与背面剔除，开启预乘 Alpha 混合，绘制后
   恢复游戏的 RenderTarget / Blend / Depth / Rasterizer 状态。
+- **模型剪影**（`OutlineMode=1`）：扫描期在游戏线程采集尸体的网格部件
+  （`BSGeometry` 的 GPU 顶点/索引缓冲 + 蒙皮分区骨骼调色板，一律用 `NiPointer` 保活），
+  渲染期用引擎自己的 `NiCamera::worldToCam` 把网格重绘到 R8 遮罩（不绑深度 → 穿墙），
+  再经"横向 + 纵向 max 膨胀 + 边缘判定"两趟全屏 pass 输出描边；
+  每具尸体的距离衰减直接编码为遮罩值，一趟即可保留各自透明度。
+  采集不到网格的尸体自动退回包围盒描边，资源创建失败则整体退回。
+  详见 `docs/model-silhouette.md`。
 - **投影**：`NiCamera::WorldPtToScreenPt3`（主），失败时兜底
   `BSGraphics::State` 相机数据缓存的 viewProj 矩阵。
 - **线程模型**：扫描经 `SKSE::GetTaskInterface()->AddTask` 派发（可能运行在
@@ -129,5 +142,5 @@ cpack --config build/CPackConfig.cmake
 
 ## 路线图
 
-- [ ] 真·模型剪影描边（渲染管线钩子重绘尸体轮廓，替代包围盒描边）
+- [x] 真·模型剪影描边（`OutlineMode=1`，见 `docs/model-silhouette.md`）
 - [ ] 可选的屏幕边缘方向箭头（屏幕外尸体提示）

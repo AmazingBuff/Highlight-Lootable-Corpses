@@ -48,6 +48,9 @@ namespace
         ImGuiMCP::SliderFloat("Outline Thickness", &s.outline_thickness, 1.0f, 8.0f, "%.1f");
 
         ImGuiMCP::Checkbox("Show Outline", &s.show_outline);
+        // 剪影模式的网格在扫描期采集，切换后最多 ScanIntervalMs 生效
+        static constexpr char const* s_outline_modes[] = { "Bounding Box", "Model Silhouette" };
+        ImGuiMCP::Combo("Outline Mode", &s.outline_mode, s_outline_modes, 2);
 
         ImGuiMCP::SliderFloat("Fade Start Distance", &s.fade_start_distance, 0.0f, s.max_distance, "%.0f");
         ImGuiMCP::SliderFloat("Fade Power", &s.fade_power, 0.1f, 8.0f, "%.1f");
@@ -55,7 +58,7 @@ namespace
         ImGuiMCP::Separator();
 
         // 战利品筛选：只显示库存命中以下任一分类的尸体（扫描期评估，过滤即时生效）
-        ImGuiMCP::Checkbox("Filter Valuable Corpses Only", &s.loot_filter_enabled);
+        ImGuiMCP::Checkbox("Enable Loot Filter", &s.loot_filter_enabled);
         ImGuiMCP::Checkbox("Quest Items", &s.value_quest_items);
         ImGuiMCP::Checkbox("Keys", &s.value_keys);
         ImGuiMCP::Checkbox("Enchanted Gear", &s.value_enchanted);

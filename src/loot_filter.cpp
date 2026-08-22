@@ -9,58 +9,55 @@
 
 namespace
 {
-    // 单件物品价值：金币堆按枚数（每枚 1 金），其余取条目价值（含实例附魔）或基础价值
-    [[nodiscard]] std::int32_t item_value(RE::TESBoundObject* a_object, RE::InventoryEntryData const* a_entry, std::int32_t a_count)
+    // 单件物品价值：金币堆按枚数（每枚 1 金），其余取条目价值（含基底/实例附魔）
+    [[nodiscard]] std::int32_t item_value(RE::InventoryEntryData const& a_entry, std::int32_t a_count)
     {
-        if (!a_object)
+        RE::TESBoundObject* const object = a_entry.object;
+        if (!object)
             return 0;
-        if (a_object->IsGold())
+        if (object->IsGold())
             return a_count;
-        return a_entry ? a_entry->GetValue() : a_object->GetGoldValue();
+        return a_entry.GetValue();
     }
 
     // 单件物品分类：返回命中的分类位（可多类同命中）
     [[nodiscard]] std::uint16_t classify_item(
-        RE::TESBoundObject* a_object,
-        RE::InventoryEntryData const* a_entry,
+        RE::InventoryEntryData const& a_entry,
         std::int32_t a_count,
         Config::Settings const& a_cfg)
     {
         std::uint16_t cats = 0;
-        if (!a_object)
+        // 注意：GetObject() 会被 windows.h 的 GetObject 宏展开（GetObjectA），改用公开成员
+        RE::TESBoundObject* const object = a_entry.object;
+        if (!object)
             return cats;
 
         auto const set = [&](LootFilter::Category a_category) {
             cats |= static_cast<std::uint16_t>(a_category);
         };
 
-        // 任务物品：仅运行时条目带任务别名标记（基础容器条目无从判定）
-        if (a_cfg.value_quest_items && a_entry && a_entry->IsQuestObject())
+        // 任务物品：任务别名"任务对象"标记（基类容器条目无实例数据时恒为 false）
+        if (a_cfg.value_quest_items && a_entry.IsQuestObject())
             set(LootFilter::Category::e_quest);
 
-        RE::FormType const type = a_object->GetFormType();
+        RE::FormType const type = object->GetFormType();
 
         if (a_cfg.value_keys && type == RE::FormType::KeyMaster)
             set(LootFilter::Category::e_key);
 
-        // 附魔：条目判定覆盖基底附魔（TESEnchantableForm）与实例附魔（ExtraEnchantment）
-        if (a_cfg.value_enchanted)
-        {
-            bool const enchanted = a_entry ?
-                                       a_entry->IsEnchanted() :
-                                       (a_object->As<RE::TESEnchantableForm>() && a_object->As<RE::TESEnchantableForm>()->formEnchanting);
-            if (enchanted)
-                set(LootFilter::Category::e_enchanted);
-        }
+        // 附魔：InventoryEntryData::IsEnchanted 同时覆盖基底附魔（TESEnchantableForm）
+        // 与实例附魔（ExtraEnchantment），基类容器条目也适用
+        if (a_cfg.value_enchanted && a_entry.IsEnchanted())
+            set(LootFilter::Category::e_enchanted);
 
         // 高价值：单件价值 >= 阈值
-        if (a_cfg.value_high_value && item_value(a_object, a_entry, a_count) >= static_cast<std::int32_t>(a_cfg.high_value_threshold))
+        if (a_cfg.value_high_value && item_value(a_entry, a_count) >= static_cast<std::int32_t>(a_cfg.high_value_threshold))
             set(LootFilter::Category::e_valuable);
 
         // 书籍：0=全部书籍（含笔记/信件），1=法术+技能书，2=仅法术书
         if (a_cfg.value_books && type == RE::FormType::Book)
         {
-            RE::TESObjectBOOK* const book = a_object->As<RE::TESObjectBOOK>();
+            RE::TESObjectBOOK* const book = object->As<RE::TESObjectBOOK>();
             bool match = true;
             if (a_cfg.book_filter_mode == 1)
                 match = book && (book->TeachesSpell() || book->TeachesSkill());
@@ -83,7 +80,7 @@ namespace
                 consumable = true;
                 break;
             case RE::FormType::SoulGem:
-                consumable = !a_cfg.soul_gem_filled_only || (a_entry && a_entry->GetSoulLevel() != RE::SOUL_LEVEL::kNone);
+                consumable = !a_cfg.soul_gem_filled_only || a_entry.GetSoulLevel() != RE::SOUL_LEVEL::kNone;
                 break;
             default:
                 break;
@@ -106,36 +103,19 @@ namespace LootFilter
 
         Config::Settings const& cfg = Config::get();
 
-        // 运行时库存：死亡 Actor 的随身物品（含灰烬堆关联 Actor）与静态尸体的运行时变更。
-        // a_noInit=true：只读，不创建 InventoryChanges。
-        if (RE::InventoryChanges* changes = a_ref->GetInventoryChanges(true))
+        // 合并库存由引擎侧权威实现给出：基类容器条目（CONT/NPC 默认战利品，含 leveled
+        // 条目去重）+ 运行时 countDelta。a_noInit=true 保证只读、不创建 InventoryChanges。
+        // 被拿走的物品体现为 count <= 0，必须剔除，否则搜刮过的尸体会一直判为有货。
+        for (auto const& [object, data] : a_ref->GetInventory([](RE::TESBoundObject&) { return true; }, true))
         {
-            if (changes->entryList)
-            {
-                for (RE::InventoryEntryData* entry : *changes->entryList)
-                {
-                    // 注意：GetObject() 会被 windows.h 的 GetObject 宏展开（GetObjectA），改用公开成员
-                    if (!entry || !entry->object)
-                        continue;
-                    RE::TESBoundObject* const object = entry->object;
-                    std::int32_t const count = entry->countDelta > 0 ? entry->countDelta : 1;
-                    result.categories |= classify_item(object, entry, count, cfg);
-                    result.best_item_value = std::max(result.best_item_value, item_value(object, entry, count));
-                }
-            }
-        }
+            std::int32_t const count = data.first;
+            RE::InventoryEntryData const* const entry = data.second.get();
+            if (!object || !entry || count <= 0)
+                continue;
 
-        // 基础容器：静态尸体等 CONT 记录的默认战利品（无实例信息）
-        if (RE::TESContainer const* container = a_ref->GetContainer())
-        {
-            container->ForEachContainerObject([&](RE::ContainerObject& a_entry) {
-                RE::TESBoundObject* const object = a_entry.obj;
-                if (!object)
-                    return RE::BSContainer::ForEachResult::kContinue;
-                result.categories |= classify_item(object, nullptr, a_entry.count, cfg);
-                result.best_item_value = std::max(result.best_item_value, item_value(object, nullptr, a_entry.count));
-                return RE::BSContainer::ForEachResult::kContinue;
-            });
+            result.has_items = true;
+            result.categories |= classify_item(*entry, count, cfg);
+            result.best_item_value = std::max(result.best_item_value, item_value(*entry, count));
         }
 
         return result;

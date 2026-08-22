@@ -28,6 +28,25 @@ namespace Config
             uint32_t const value = std::strtoul(a_value, &end, 16);
             return end == a_value ? a_default : value;
         }
+
+        // INI 是本插件唯一的外部信任边界：所有取值在此一次性规范化到有效域，
+        // 之后扫描/渲染/菜单都按这些前置条件工作，不再重复校验。
+        // 关键约束：max_distance <= 0 会让 TES::ForEachReferenceInRange 退化为全量遍历；
+        // min_opacity > 1 会让渲染端 std::clamp 的 lo > hi（未定义行为）。
+        void sanitize(Settings& a_settings) noexcept
+        {
+            a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
+            a_settings.max_distance = std::clamp(a_settings.max_distance, 100.0f, 100000.0f);
+            a_settings.scan_interval_ms = std::clamp(a_settings.scan_interval_ms, 50u, 60000u);
+            a_settings.outline_color &= 0x00FFFFFFu;
+            a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
+            a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, 1.0f, 16.0f);
+            a_settings.outline_mode = std::clamp(a_settings.outline_mode, 0, 1);
+            a_settings.fade_start_distance = std::clamp(a_settings.fade_start_distance, 0.0f, a_settings.max_distance);
+            a_settings.fade_power = std::clamp(a_settings.fade_power, 0.1f, 16.0f);
+            a_settings.high_value_threshold = std::max(0.0f, a_settings.high_value_threshold);
+            a_settings.book_filter_mode = std::clamp(a_settings.book_filter_mode, 0, 2);
+        }
     }
 
     void load() noexcept
@@ -49,6 +68,7 @@ namespace Config
         g_settings.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity", g_settings.min_opacity));
         g_settings.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness));
         g_settings.show_outline = ini.GetBoolValue("Display", "ShowOutline", g_settings.show_outline);
+        g_settings.outline_mode = static_cast<int>(ini.GetLongValue("Display", "OutlineMode", static_cast<long>(g_settings.outline_mode)));
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
@@ -57,23 +77,25 @@ namespace Config
         g_settings.value_keys = ini.GetBoolValue("LootFilter", "ValueKeys", g_settings.value_keys);
         g_settings.value_enchanted = ini.GetBoolValue("LootFilter", "ValueEnchanted", g_settings.value_enchanted);
         g_settings.value_high_value = ini.GetBoolValue("LootFilter", "ValueHighValue", g_settings.value_high_value);
-        g_settings.high_value_threshold = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("LootFilter", "HighValueThreshold", g_settings.high_value_threshold)));
+        g_settings.high_value_threshold = static_cast<float>(ini.GetDoubleValue("LootFilter", "HighValueThreshold", g_settings.high_value_threshold));
         g_settings.value_books = ini.GetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
-        g_settings.book_filter_mode = std::clamp(static_cast<int>(ini.GetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode))), 0, 2);
+        g_settings.book_filter_mode = static_cast<int>(ini.GetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode)));
         g_settings.value_consumables = ini.GetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
         g_settings.soul_gem_filled_only = ini.GetBoolValue("LootFilter", "SoulGemFilledOnly", g_settings.soul_gem_filled_only);
 
+        sanitize(g_settings);
         g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
 
-        // 写回，保证文件存在且包含全部选项说明
+        // 写回，保证文件存在且写出的是规范化后的取值
         save();
 
         logger::info(
-            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms, lootFilter={}",
+            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms, outlineMode={}, lootFilter={}",
             g_settings.enabled,
             g_settings.hotkey,
             g_settings.max_distance,
             g_settings.scan_interval_ms,
+            g_settings.outline_mode,
             g_settings.loot_filter_enabled);
     }
 
@@ -93,6 +115,7 @@ namespace Config
         ini.SetDoubleValue("Display", "MinOpacity", g_settings.min_opacity);
         ini.SetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness);
         ini.SetBoolValue("Display", "ShowOutline", g_settings.show_outline);
+        ini.SetLongValue("Display", "OutlineMode", static_cast<long>(g_settings.outline_mode));
         ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
         ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
 

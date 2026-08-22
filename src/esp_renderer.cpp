@@ -4,6 +4,8 @@
 #include "corpse_finder.h"
 #include "input.h"
 #include "loot_filter.h"
+#include "mesh_outline.h"
+#include "shader_compile.h"
 
 namespace
 {
@@ -113,11 +115,16 @@ namespace
         float r, g, b, a;
     };
 
+    // 顶点缓冲容量：GPU 侧固定大小，CPU 侧提交前必须按此裁剪（否则 memcpy 越界写映射区）
+    constexpr std::size_t Vertex_Buffer_Bytes = 1024 * 1024;
+    constexpr std::size_t Max_Vertices = Vertex_Buffer_Bytes / sizeof(UiVertex);
+
     ID3D11VertexShader* g_ui_vs = nullptr;
     ID3D11PixelShader* g_ui_ps = nullptr;
     ID3D11InputLayout* g_ui_layout = nullptr;
     ID3D11Buffer* g_ui_vb = nullptr;
     bool g_ui_ready = false;
+    bool g_ui_failed = false;          // 创建失败后不再每帧重试（重试会持续泄漏 D3D 对象）
     std::vector<UiVertex> g_ui_verts;  // 渲染线程独占：一帧内累积，flush 统一提交
 
     // 绘制互斥：日志实测 on_present 会被多个线程并发进入（Present hook 触发线程
@@ -125,9 +132,33 @@ namespace
     // 并发下导致绘制错乱/不显示/透明度异常，故整个绘制段串行化。
     std::mutex g_draw_mutex;
 
+    void release_ui_pipeline()
+    {
+        if (g_ui_vb)
+        {
+            g_ui_vb->Release();
+            g_ui_vb = nullptr;
+        }
+        if (g_ui_layout)
+        {
+            g_ui_layout->Release();
+            g_ui_layout = nullptr;
+        }
+        if (g_ui_ps)
+        {
+            g_ui_ps->Release();
+            g_ui_ps = nullptr;
+        }
+        if (g_ui_vs)
+        {
+            g_ui_vs->Release();
+            g_ui_vs = nullptr;
+        }
+    }
+
     void ensure_ui_pipeline(ID3D11Device* a_device)
     {
-        if (g_ui_ready)
+        if (g_ui_ready || g_ui_failed)
             return;
 
         char const* vs_src = R"(
@@ -166,13 +197,16 @@ namespace
             }
         )";
 
-        ID3DBlob* vs_blob = nullptr;
-        ID3DBlob* ps_blob = nullptr;
-        ID3DBlob* err = nullptr;
-        if (FAILED(D3DCompile(vs_src, std::strlen(vs_src), nullptr, nullptr, nullptr, "main", "vs_5_0", 0, 0, &vs_blob, &err)) ||
-            FAILED(D3DCompile(ps_src, std::strlen(ps_src), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &ps_blob, &err)))
+        ID3DBlob* vs_blob = ShaderCompile::compile(vs_src, "vs_5_0", "esp quad");
+        ID3DBlob* ps_blob = ShaderCompile::compile(ps_src, "ps_5_0", "esp quad");
+        if (!vs_blob || !ps_blob)
         {
-            logger::error("UI pipeline shader compile failed");
+            if (vs_blob)
+                vs_blob->Release();
+            if (ps_blob)
+                ps_blob->Release();
+
+            g_ui_failed = true;
             return;
         }
         a_device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_ui_vs);
@@ -200,15 +234,25 @@ namespace
         };
         a_device->CreateInputLayout(Layout_Desc, 2, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_ui_layout);
 
+        vs_blob->Release();
+        ps_blob->Release();
+
         D3D11_BUFFER_DESC bd = {};
         bd.Usage = D3D11_USAGE_DYNAMIC;
-        bd.ByteWidth = 1024 * 1024;  // 1MB：约 36k 顶点，尸体 box 规模下绰绰有余
+        bd.ByteWidth = static_cast<UINT>(Vertex_Buffer_Bytes);  // Max_Vertices 个顶点，提交前按此裁剪
         bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         a_device->CreateBuffer(&bd, nullptr, &g_ui_vb);
 
         g_ui_ready = g_ui_vs && g_ui_ps && g_ui_layout && g_ui_vb;
-        logger::info("UI pipeline ready: {}", g_ui_ready);
+        if (!g_ui_ready)
+        {
+            g_ui_failed = true;
+            release_ui_pipeline();
+            logger::error("UI pipeline creation failed, ESP rendering disabled");
+            return;
+        }
+        logger::info("UI pipeline ready ({} vertices max)", Max_Vertices);
     }
 
     // 累积一个屏幕空间四边形（像素坐标）到本帧顶点列表（TRIANGLELIST：2 三角形 6 顶点）
@@ -268,7 +312,24 @@ namespace
         if (!g_ui_ready || g_ui_verts.empty())
             return;
 
-        std::size_t const count = g_ui_verts.size();
+        // GPU 缓冲容量固定：超出部分整三角形丢弃，绝不能按实际顶点数 memcpy
+        std::size_t count = std::min(g_ui_verts.size(), Max_Vertices);
+        count -= count % 3;
+        if (g_ui_verts.size() > Max_Vertices)
+        {
+            static bool s_overflow_reported = false;
+            if (!s_overflow_reported)
+            {
+                s_overflow_reported = true;
+                logger::warn("UI vertex buffer full: {} of {} vertices dropped this frame", g_ui_verts.size() - count, g_ui_verts.size());
+            }
+        }
+        if (count == 0)
+        {
+            g_ui_verts.clear();
+            return;
+        }
+
         D3D11_MAPPED_SUBRESOURCE mapped = {};
         if (FAILED(a_context->Map(g_ui_vb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         {
@@ -297,11 +358,24 @@ namespace
 
     void draw_rect_outline(float a_x0, float a_y0, float a_x1, float a_y1, float a_thickness, DirectX::XMFLOAT4 const& a_color)
     {
-        float const t = std::max(a_thickness, 1.0f);
+        // 线宽超过盒子半宽/半高时上下左右四条会反转并互相重叠，alpha 被混合两次（显示为实心）
+        float const half_extent = std::min(a_x1 - a_x0, a_y1 - a_y0) * 0.5f;
+        float const t = std::max(std::min(a_thickness, half_extent), 1.0f);
         draw_filled_rect(a_x0, a_y0, a_x1, a_y0 + t, a_color);          // 上
         draw_filled_rect(a_x0, a_y1 - t, a_x1, a_y1, a_color);          // 下
         draw_filled_rect(a_x0, a_y0 + t, a_x0 + t, a_y1 - t, a_color);  // 左
         draw_filled_rect(a_x1 - t, a_y0 + t, a_x1, a_y1 - t, a_color);  // 右
+    }
+
+    // 距离衰减：FadeStartDistance 内完全不透明；超过后按 FadePower 指数衰减，
+    // 到 MaxDistance 处达到 MinOpacity 下限。box 与剪影两种模式共用同一条曲线。
+    // 前置条件：min_opacity ∈ [0,1]、max_distance > 0（Config::load 已规范化）。
+    [[nodiscard]] float corpse_alpha(Config::Settings const& a_cfg, float a_distance)
+    {
+        float const fade_range = std::max(a_cfg.max_distance - a_cfg.fade_start_distance, 1.0f);
+        float const f = a_distance <= a_cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((a_distance - a_cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
+        float const fade = std::pow(f, a_cfg.fade_power);
+        return std::clamp(a_cfg.min_opacity + fade * (1.0f - a_cfg.min_opacity), a_cfg.min_opacity, 1.0f);
     }
 
     // 屏幕空间两点间的粗线段（旋转四边形，用于 3D 线框盒的边）
@@ -479,11 +553,22 @@ namespace ESPRenderer
                     float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                     float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
 
+                    // 模型剪影模式：先开遮罩趟；采集不到网格的尸体逐个退回包围盒描边
+                    bool const silhouette = cfg.outline_mode == 1 && world_cam &&
+                                            MeshOutline::begin_frame(device, context, g_back_w, g_back_h);
+                    std::uint16_t const category_mask = LootFilter::enabled_category_mask();
+
                     for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
                     {
                         // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
-                        if (cfg.loot_filter_enabled && (corpse.loot_categories & LootFilter::enabled_category_mask()) == 0)
+                        if (cfg.loot_filter_enabled && (corpse.loot_categories & category_mask) == 0)
                             continue;
+
+                        if (silhouette && MeshOutline::part_count(corpse.mesh) != 0)
+                        {
+                            MeshOutline::draw(context, corpse.mesh, world_cam->GetRuntimeData().worldToCam, corpse_alpha(cfg, corpse.distance));
+                            continue;
+                        }
 
                         // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
                         // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
@@ -637,13 +722,7 @@ namespace ESPRenderer
                             y1 = sy + half_y;
                         }
 
-                        // 距离衰减：FadeStartDistance 内完全不透明；超过后按
-                        // FadePower 指数衰减，到 MaxDistance 处达到 MinOpacity 下限。
-                        // 远处尸体的 box 边框越来越"虚"，近处保持清晰。
-                        float const fade_range = std::max(cfg.max_distance - cfg.fade_start_distance, 1.0f);
-                        float const f = corpse.distance <= cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((corpse.distance - cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
-                        float const fade = std::pow(f, cfg.fade_power);
-                        float const alpha = std::clamp(cfg.min_opacity + fade * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
+                        float const alpha = corpse_alpha(cfg, corpse.distance);
 
                         // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
                         // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
@@ -672,6 +751,16 @@ namespace ESPRenderer
                             else
                                 draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
                         }
+                    }
+
+                    if (silhouette)
+                    {
+                        // 遮罩 -> 描边（自带状态设置），随后恢复本模块 quad 绘制所需的状态
+                        MeshOutline::resolve(context, g_back_buffer_rtv, cfg.outline_thickness, cr, cg, cb);
+                        context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
+                        context->OMSetBlendState(g_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
+                        context->OMSetDepthStencilState(g_states->DepthNone(), 0);
+                        context->RSSetState(g_states->CullNone());
                     }
                 }
             }

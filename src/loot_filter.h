@@ -28,11 +28,14 @@ namespace LootFilter
     // 扫描期评估结果（游戏线程写入，渲染线程经快照只读）
     struct Result
     {
+        bool has_items{ false };        // 合并后仍有 count > 0 的物品：是否可搜刮的唯一权威判据
         std::uint16_t categories{ 0 };  // Category 位或
         std::int32_t best_item_value{ 0 };
     };
 
-    // 评估一具尸体的可搜刮库存（Actor / 灰烬堆关联 Actor / 静态尸体容器）
+    // 评估一具尸体的可搜刮库存（Actor / 灰烬堆关联 Actor / 静态尸体容器）。
+    // 只读：内部按 a_noInit=true 取"基类容器 + 运行时 countDelta"的合并库存，
+    // 不创建 InventoryChanges；已被拿空的条目（count <= 0）不计入。
     [[nodiscard]] Result evaluate(RE::TESObjectREFR* a_ref);
 
     // 由 Config 分类开关合成的掩码（渲染线程无锁读取，用于过滤与状态统计）

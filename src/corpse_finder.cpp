@@ -24,7 +24,10 @@ namespace
     // - 普通状态（含灰烬堆）：遍历 3D 树上的碰撞对象（bhkCollisionObject）；
     // - ragdoll 尸体：根碰撞体已移出 Havok 世界（变换停在死亡瞬间），改走
     //   Precision 同款路径 —— hkbRagdollDriver → hkaRagdollInstance → rigidBodies，
-    //   取所有 ragdoll 刚体的世界 AABB 并集，这正是躺尸的实际碰撞范围；
+    //   取 ragdoll 刚体的世界 AABB；
+    // - 肢解处理：两条路径的刚体 AABB 都经 largest_cluster_bounds 聚合——
+    //   以体积最大的刚体为种子，只保留与其相邻的连通主体。完整尸体各部位
+    //   彼此相邻（结果与全量并集一致），被肢解后飞散的零碎部位不参与包围盒；
     // - 都没有时：退化为"只取几何节点"的 worldBound 包围球累加。
     // ---------------------------------------------------------------------------
 
@@ -40,8 +43,8 @@ namespace
     // Havok 世界尺度逆：米 → 游戏单位（引擎全局，Precision 同款地址）
     [[nodiscard]] float world_scale_inverse()
     {
-        static REL::Relocation<float*> g_world_scale_inverse{ RELOCATION_ID(230692, 187407) };
-        float* scale = g_world_scale_inverse.get();
+        static REL::Relocation<float*> s_world_scale_inverse{ RELOCATION_ID(230692, 187407) };
+        float* scale = s_world_scale_inverse.get();
         return scale ? *scale : 70.0f;
     }
 
@@ -76,40 +79,94 @@ namespace
     }
 
     // 单个 Havok 刚体的世界 AABB（GetAabbWorldspace，havok 米 → 游戏单位）
-    [[nodiscard]] bool add_rigid_body_aabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    [[nodiscard]] bool rigid_body_aabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (!a_body)
             return false;
-        
+
         RE::hkAabb aabb;
         a_body->GetAabbWorldspace(aabb);
         float const s = world_scale_inverse();
-        RE::NiPoint3 const mn{ hk_x(aabb.min) * s, hk_y(aabb.min) * s, hk_z(aabb.min) * s };
-        RE::NiPoint3 const mx{ hk_x(aabb.max) * s, hk_y(aabb.max) * s, hk_z(aabb.max) * s };
-        if (mn.x > mx.x || mn.y > mx.y || mn.z > mx.z)
+        a_min = { hk_x(aabb.min) * s, hk_y(aabb.min) * s, hk_z(aabb.min) * s };
+        a_max = { hk_x(aabb.max) * s, hk_y(aabb.max) * s, hk_z(aabb.max) * s };
+        return a_min.x <= a_max.x && a_min.y <= a_max.y && a_min.z <= a_max.z;
+    }
+
+    // 单个刚体 AABB（世界坐标，游戏单位）
+    struct BodyBox
+    {
+        RE::NiPoint3 min;
+        RE::NiPoint3 max;
+
+        [[nodiscard]] float volume() const
+        {
+            RE::NiPoint3 const e = max - min;
+            return e.x * e.y * e.z;
+        }
+    };
+
+    // 肢解判定阈值：刚体各轴间隔不超过该值视为同一连通主体。相邻骨骼的碰撞盒
+    // 彼此贴合或重叠（间隔个位数游戏单位），被肢解飞出的部位通常远离主体上百单位。
+    constexpr float kClusterGap = 40.0f;
+
+    // 以体积最大的刚体为种子，把与其邻近（各轴间隔 <= kClusterGap）的刚体迭代聚合
+    // 成连通块，输出该块的 AABB 并集。完整尸体各部位相邻 → 结果与全量并集一致；
+    // 被肢解（骷髅解体/部位被击飞）时只保留最大部位所在的主体，零散部位不参与包围盒。
+    [[nodiscard]] bool largest_cluster_bounds(std::vector<BodyBox> const& a_boxes, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    {
+        if (a_boxes.empty())
             return false;
-        
-        expand_aabb(a_min, a_max, mn);
-        expand_aabb(a_min, a_max, mx);
+
+        std::size_t seed = 0;
+        for (std::size_t i = 1; i < a_boxes.size(); ++i)
+        {
+            if (a_boxes[i].volume() > a_boxes[seed].volume())
+                seed = i;
+        }
+
+        std::vector<bool> in_cluster(a_boxes.size(), false);
+        in_cluster[seed] = true;
+        a_min = a_boxes[seed].min;
+        a_max = a_boxes[seed].max;
+
+        bool grew = true;
+        while (grew)
+        {
+            grew = false;
+            for (std::size_t i = 0; i < a_boxes.size(); ++i)
+            {
+                if (in_cluster[i])
+                    continue;
+                BodyBox const& box = a_boxes[i];
+                bool const near_cluster =
+                    box.min.x - kClusterGap <= a_max.x && box.max.x + kClusterGap >= a_min.x &&
+                    box.min.y - kClusterGap <= a_max.y && box.max.y + kClusterGap >= a_min.y &&
+                    box.min.z - kClusterGap <= a_max.z && box.max.z + kClusterGap >= a_min.z;
+                if (!near_cluster)
+                    continue;
+                in_cluster[i] = true;
+                expand_aabb(a_min, a_max, box.min);
+                expand_aabb(a_min, a_max, box.max);
+                grew = true;
+            }
+        }
         return true;
     }
 
     // 递归遍历 3D 节点树，收集"已加入 Havok 世界"的碰撞对象（普通状态/灰烬堆）：
-    // - 世界 AABB：GetAabbWorldspace 并集；
+    // - 世界 AABB：GetAabbWorldspace 逐刚体收集，随后由 largest_cluster_bounds 聚类；
     // - OBB：体积最大的盒形碰撞体（通常是 Actor 根部碰撞盒）的世界 8 角点，
     //   由形状半边长（米）与身体世界变换算出。
-    void expand_collision_objects(
+    void collect_collision_objects(
         RE::NiAVObject* a_node,
-        RE::NiPoint3& a_min,
-        RE::NiPoint3& a_max,
-        std::size_t& a_count,
+        std::vector<BodyBox>& a_boxes,
         RE::NiPoint3* a_obb_corners,
         bool& a_hasOBB,
         float& a_best_volume)
     {
         if (!a_node)
             return;
-        
+
         if (RE::bhkCollisionObject* col_obj = a_node->GetCollisionObject())
         {
             if (RE::bhkRigidBody* body = col_obj->GetRigidBody())
@@ -117,11 +174,12 @@ namespace
                 if (RE::hkpRigidBody* rb = body->GetRigidBody())
                 {
                     if (rb->world)
-                    {   
+                    {
                         // 在 Havok 世界里 → 变换实时有效
-                        if (add_rigid_body_aabb(body, a_min, a_max))
+                        BodyBox body_box;
+                        if (rigid_body_aabb(body, body_box.min, body_box.max))
                         {
-                            ++a_count;
+                            a_boxes.push_back(body_box);
                             if (a_obb_corners)
                             {
                                 RE::hkpShape const* shape = rb->GetShape();
@@ -156,47 +214,48 @@ namespace
             for (RE::NiPointer<RE::NiAVObject> const& child : node->children)
             {
                 if (child)
-                    expand_collision_objects(child.get(), a_min, a_max, a_count, a_obb_corners, a_hasOBB, a_best_volume);
+                    collect_collision_objects(child.get(), a_boxes, a_obb_corners, a_hasOBB, a_best_volume);
             }
         }
     }
 
-    // ragdoll 尸体：Precision 同款 —— 取动画图里 ragdoll 实例的所有刚体 AABB 并集。
-    // 这些刚体（hkaRagdollInstance::rigidBodies）就是尸体各部位的实际碰撞体，
-    // 与躺姿完全一致。
+    // ragdoll 尸体：Precision 同款 —— 收集动画图里 ragdoll 实例的所有刚体 AABB，
+    // 再经 largest_cluster_bounds 取最大连通主体（肢解后只框最大部位所在主体）。
+    // 这些刚体（hkaRagdollInstance::rigidBodies）就是尸体各部位的实际碰撞体。
     [[nodiscard]] bool compute_ragdoll_bounds(RE::Actor* a_actor, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         RE::BSAnimationGraphManagerPtr anim_graph_manager;
         if (!a_actor->GetAnimationGraphManager(anim_graph_manager))
             return false;
 
-        std::size_t count = 0;
+        std::vector<BodyBox> boxes;
         RE::BSSpinLockGuard lock(anim_graph_manager->GetRuntimeData().updateLock);
         for (RE::BSTSmartPointer<RE::BShkbAnimationGraph> const& graph : anim_graph_manager->graphs)
         {
             if (!graph)
                 continue;
-            
+
             RE::hkRefPtr<RE::hkbRagdollDriver> const& driver = graph->characterInstance.ragdollDriver;
             if (!driver)
                 continue;
-            
+
             RE::hkaRagdollInstance* ragdoll = driver->ragdoll;
             if (!ragdoll)
                 continue;
-            
+
             for (RE::hkpRigidBody const* rb : ragdoll->rigidBodies)
             {
                 if (!rb)
                     continue;
-                
+
                 // hkpRigidBody::userData 指向它的 bhkRigidBody 包装（Precision 同款用法）
                 RE::bhkRigidBody* wrapper = reinterpret_cast<RE::bhkRigidBody*>(rb->userData);
-                if (add_rigid_body_aabb(wrapper, a_min, a_max))
-                    ++count;
+                BodyBox body_box;
+                if (rigid_body_aabb(wrapper, body_box.min, body_box.max))
+                    boxes.push_back(body_box);
             }
         }
-        return count > 0;
+        return largest_cluster_bounds(boxes, a_min, a_max);
     }
 
     // 兜底：只取"几何节点"的 worldBound 包围球累加。
@@ -261,24 +320,20 @@ namespace
                     a_from_collision = true;
                     return true;
                 }
-                mn = RE::NiPoint3{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
-                mx = RE::NiPoint3{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
             }
         } 
         else
         {
-            std::size_t count = 0;
+            std::vector<BodyBox> boxes;
             float best_vol = 0.0f;
-            expand_collision_objects(node, mn, mx, count, a_obb_corners, a_hasOBB, best_vol);
-            if (count > 0 && mn.x <= mx.x && mn.y <= mx.y && mn.z <= mx.z)
+            collect_collision_objects(node, boxes, a_obb_corners, a_hasOBB, best_vol);
+            if (largest_cluster_bounds(boxes, mn, mx))
             {
                 a_min = mn;
                 a_max = mx;
                 a_from_collision = true;
                 return true;
             }
-            mn = RE::NiPoint3{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
-            mx = RE::NiPoint3{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
             a_hasOBB = false;
         }
 
@@ -314,6 +369,10 @@ namespace
                     out.push_back(id);
             }
         }
+        // 结果被 static 缓存一次：为空说明数据未就绪或主文件缺失，对应检测会整体失效
+        if (out.empty())
+            logger::warn("Resolved 0 of {} static form IDs, related corpse detection is disabled", a_forms.size());
+
         return out;
     }
 
@@ -383,20 +442,16 @@ namespace
 
     [[nodiscard]] bool is_ref_form_in(RE::TESObjectREFR const* a_ref, std::vector<RE::FormID> const& a_ids)
     {
-        if (!a_ref)
+        // 表为空（数据未就绪 / 插件缺失）时不得匹配任何 ref
+        if (!a_ref || a_ids.empty())
             return false;
-        
+
         RE::TESBoundObject const* base = a_ref->GetBaseObject();
         if (!base)
             return false;
-        
+
         RE::FormID const id = base->GetFormID();
-        return std::ranges::all_of(a_ids, [&](RE::FormID const& a_form)
-        {
-            if (id == a_form)
-                return true;
-            return false;
-        });
+        return std::ranges::any_of(a_ids, [id](RE::FormID a_form) { return id == a_form; });
     }
 
     [[nodiscard]] bool is_ash_pile_ref(RE::TESObjectREFR* a_ref)
@@ -413,25 +468,25 @@ namespace
     // 避免每 0.5s 刷屏。一次性跳过诊断与灰烬堆状态诊断共用这一个权威实现。
     void log_state_once(RE::FormID a_form_id, std::string_view a_detail)
     {
-        static std::mutex mtx;
-        static std::vector<RE::FormID> seen;
-        static std::vector<std::string> details;
+        static std::mutex s_mutex;
+        static std::vector<RE::FormID> s_seen;
+        static std::vector<std::string> s_details;
         {
-            std::lock_guard lock(mtx);
-            for (std::size_t i = 0; i < seen.size(); ++i)
+            std::lock_guard lock(s_mutex);
+            for (std::size_t i = 0; i < s_seen.size(); ++i)
             {
-                if (seen[i] != a_form_id)
+                if (s_seen[i] != a_form_id)
                     continue;
-                if (details[i] == a_detail)
+                if (s_details[i] == a_detail)
                     return;
-                
-                details[i] = std::string(a_detail);
+
+                s_details[i] = std::string(a_detail);
                 break;
             }
-            if (std::ranges::find(seen, a_form_id) == seen.end())
+            if (std::ranges::find(s_seen, a_form_id) == s_seen.end())
             {
-                seen.push_back(a_form_id);
-                details.emplace_back(a_detail);
+                s_seen.push_back(a_form_id);
+                s_details.emplace_back(a_detail);
             }
         }
         logger::info("{}", a_detail);
@@ -507,25 +562,6 @@ namespace
         return find_in(process_lists->lowActorHandles);
     }
 
-    // 静态尸体容器：基类容器条目（CONT 记录自带战利品）+ 运行时容器数据（只读）。
-    // 与灰烬堆不同，这类物体的仓库规则是普通容器规则，不依赖关联 Actor。
-    [[nodiscard]] bool has_container_loot(RE::TESObjectREFR* a_ref)
-    {
-        if (!a_ref)
-            return false;
-        
-        if (RE::TESContainer* container = a_ref->GetContainer())
-        {
-            if (container->numContainerObjects > 0)
-                return true;
-        }
-        if (RE::InventoryChanges* changes = a_ref->GetInventoryChanges(true))
-        {
-            if (changes->entryList && !changes->entryList->empty())
-                return true;
-        }
-        return false;
-    }
 }
 
 namespace CorpseFinder
@@ -539,6 +575,8 @@ namespace CorpseFinder
 
         Config::Settings const& cfg = Config::get();
         RE::NiPoint3 const player_pos = player->GetPosition();
+        // 剪影模式才采集网格部件：采集要遍历 3D 树并持引用，box 模式下没有意义
+        bool const collect_mesh = cfg.outline_mode == 1;
 
         std::vector<CorpseEntry> found;
         found.reserve(64);
@@ -573,10 +611,10 @@ namespace CorpseFinder
                 return;
             if (!a_actor->Is3DLoaded())
                 return;
-            
 
-            // 只显示仍有余下可搜刮物品的尸体
-            if (a_actor->GetInventory().empty())
+            // 只显示仍有余下可搜刮物品的尸体（合并库存后 count > 0，搜空即消失）
+            LootFilter::Result const loot = LootFilter::evaluate(a_actor);
+            if (!loot.has_items)
                 return;
 
             CorpseEntry entry;
@@ -585,13 +623,13 @@ namespace CorpseFinder
             entry.anchor.z += 40.0f;  // 默认锚点抬高到尸体中部
             entry.radius = 60.0f;
             entry.distance = dist;
-            LootFilter::Result const loot = LootFilter::evaluate(a_actor);
             entry.loot_categories = loot.categories;
             entry.best_item_value = loot.best_item_value;
+            if (collect_mesh)
+                entry.mesh = MeshOutline::collect(a_actor);
 
             RE::NiPoint3 b_min, b_max;
-            bool const ragdoll = a_actor->IsInRagdollState();
-            if (compute_bounds(a_actor, ragdoll, b_min, b_max, entry.obb_corners, entry.has_obb, entry.bounds_from_collision))
+            if (compute_bounds(a_actor, a_actor->IsInRagdollState(), b_min, b_max, entry.obb_corners, entry.has_obb, entry.bounds_from_collision))
             {
                 entry.bound_min = b_min;
                 entry.bound_max = b_max;
@@ -620,46 +658,31 @@ namespace CorpseFinder
             if (!is_ash && !is_corpse_obj)
                 return;
 
-            // 诊断：只读检查容器状态（不创建任何东西）
-            bool const has_extra = a_ref->extraList.HasType<RE::ExtraContainerChanges>();
-            RE::InventoryChanges const* changes = a_ref->GetInventoryChanges(true);
-            uint32_t const entry_count = changes && changes->entryList ? changes->entryList->size() : 0;
-            // 引擎自身视角（地址库重定位，非虚表）：容器 UI 用的条目计数。
-            // 参数变体都试一遍，避免语义/调用方式偏差；任何一个 > 0 都视为可搜刮。
-            int const cnt_view = std::max(a_ref->GetInventoryItemCount(true, false), 0);
-            int const cnt_self = std::max(a_ref->GetInventoryItemCount(false, false), 0);
-            int const cnt_play = std::max(a_ref->GetInventoryItemCount(false, true), 0);
-            uint32_t const ash_link = a_ref->extraList.GetAshPileRef().native_handle();
-            bool const base_loot = is_corpse_obj && has_container_loot(a_ref);
-
-            bool lootable = entry_count > 0 || cnt_view > 0 || cnt_self > 0 || cnt_play > 0 || base_loot;
+            // 可搜刮判据与战利品分类同源：只读合并库存，count > 0 才算有货。
+            // 灰烬堆自身是空容器，物品挂在 ExtraAshPileRef 关联的原始 Actor 上。
+            LootFilter::Result loot = LootFilter::evaluate(a_ref);
             RE::FormID owner_id = 0;
-            if (!lootable)
+            if (!loot.has_items)
             {
-                // 兜底：物品可能挂在 ExtraAshPileRef 关联的 Actor 上
                 if (RE::Actor* owner = find_ash_pile_owner(a_ref))
                 {
                     owner_id = owner->GetFormID();
-                    lootable = !owner->GetInventory().empty();
+                    loot = LootFilter::evaluate(owner);
                 }
             }
             log_ash_pile_state(
                 a_ref,
                 fmt::format(
-                    "{} base_loot={} has_extra={} entries={} cnt_view={} cnt_self={} cnt_play={} ash_link={:08X} owner={:08X} lootable={}",
+                    "{} lootable={} cats={} best={} ash_link={:08X} owner={:08X}",
                     is_ash ? "AshPile" : "CorpseObj",
-                    base_loot,
-                    has_extra,
-                    entry_count,
-                    cnt_view,
-                    cnt_self,
-                    cnt_play,
-                    ash_link,
-                    owner_id,
-                    lootable));
+                    loot.has_items,
+                    LootFilter::category_summary(loot.categories),
+                    loot.best_item_value,
+                    a_ref->extraList.GetAshPileRef().native_handle(),
+                    owner_id));
 
             // 只认还有东西可搜刮的
-            if (!lootable)
+            if (!loot.has_items)
                 return;
 
             CorpseEntry entry;
@@ -667,15 +690,10 @@ namespace CorpseFinder
             entry.anchor = a_ref->GetPosition();
             entry.anchor.z += 15.0f;
             entry.radius = 40.0f;
-            // 战利品评估：灰烬堆的物品挂在关联 Actor 上（堆本身是空容器），其余直接评估自身
-            LootFilter::Result loot = LootFilter::evaluate(a_ref);
-            if (is_ash)
-            {
-                if (RE::Actor* owner = find_ash_pile_owner(a_ref))
-                    loot = LootFilter::evaluate(owner);
-            }
             entry.loot_categories = loot.categories;
             entry.best_item_value = loot.best_item_value;
+            if (collect_mesh)
+                entry.mesh = MeshOutline::collect(a_ref);
             if (const RE::NiAVObject* node = a_ref->Get3D())
             {
                 RE::NiBound const& bound = node->worldBound;
@@ -712,54 +730,51 @@ namespace CorpseFinder
             return RE::BSContainer::ForEachResult::kContinue;
         });
 
+        // 诊断（发布快照前遍历本地结果，避免无锁读取共享状态）：
+        // 逐具尸体只在内容变化时输出，汇总只在数量变化时输出——扫描每 0.5s 一轮，
+        // 且 logger 是 flush_on(info) 同步刷盘，无条件打印会刷屏并拖慢扫描线程。
+        std::size_t ash_count = 0;
+        std::size_t static_count = 0;
+        for (CorpseEntry const& corpse : found)
+        {
+            if (corpse.is_ash_pile)
+                ++ash_count;
+            else if (corpse.is_static_corpse)
+                ++static_count;
+
+            RE::TESForm* const form = RE::TESForm::LookupByID(corpse.form_id);
+            RE::TESObjectREFR* const ref = form ? form->As<RE::TESObjectREFR>() : nullptr;
+            log_state_once(
+                corpse.form_id,
+                fmt::format(
+                    "Corpse {:08X} ({}) listed [cats={} best={} parts={}]",
+                    corpse.form_id,
+                    ref ? ref->GetDisplayFullName() : "unresolved",
+                    LootFilter::category_summary(corpse.loot_categories),
+                    corpse.best_item_value,
+                    MeshOutline::part_count(corpse.mesh)));
+        }
+
+        static std::size_t s_last_total = std::numeric_limits<std::size_t>::max();
+        static std::size_t s_last_ash = 0;
+        static std::size_t s_last_static = 0;
+        if (found.size() != s_last_total || ash_count != s_last_ash || static_count != s_last_static)
+        {
+            s_last_total = found.size();
+            s_last_ash = ash_count;
+            s_last_static = static_count;
+            logger::info("Corpse scan found {} searchable corpses ({} ash piles, {} static corpses)", s_last_total, s_last_ash, s_last_static);
+        }
+
+        // 取回旧表在本线程（游戏线程）析构：CorpseEntry 持有网格部件的 NiPointer，
+        // 让扫描侧的引用释放留在游戏线程，避免引擎对象在渲染线程被删除
+        std::vector<CorpseEntry> previous;
         {
             std::lock_guard lock(g_mutex);
+            previous = std::move(g_corpses);
             g_corpses = std::move(found);
         }
-
-        // 诊断：打印当前列表（LookupForm 传完整 FormID 在 Skyrim.esm 上等价于
-        // 全库查找；临时 ref（FFxxxxxx）查不到时只打 ID）
-        for (CorpseEntry const& corpse : g_corpses)
-        {
-            RE::TESDataHandler* dh = RE::TESDataHandler::GetSingleton();
-            if (!dh)
-                break;
-            RE::TESForm* form = dh->LookupForm(corpse.form_id, SkyrimPlugin);
-            if (form)
-            {
-                if (RE::Actor* actor = form->As<RE::Actor>())
-                    logger::info(
-                        "Corpse {:08X} ({}) added to list [cats={} best={}]",
-                        actor->GetFormID(),
-                        actor->GetDisplayFullName(),
-                        LootFilter::category_summary(corpse.loot_categories),
-                        corpse.best_item_value);
-                else
-                    logger::info(
-                        "Corpse {:08X} (non-actor: {}) added to list [cats={} best={}]",
-                        corpse.form_id,
-                        form->GetFormEditorID(),
-                        LootFilter::category_summary(corpse.loot_categories),
-                        corpse.best_item_value);
-            }
-            else
-                logger::info(
-                    "Corpse {:08X} (temp/unresolved) added to list [cats={} best={}]",
-                    corpse.form_id,
-                    LootFilter::category_summary(corpse.loot_categories),
-                    corpse.best_item_value);
-        }
-
-        std::size_t ash_count = 0;
-        std::size_t corpse_count = 0;
-        for (auto const& e : g_corpses)
-        {
-            if (e.is_ash_pile)
-                ++ash_count;
-            else if (e.is_static_corpse)
-                ++corpse_count;
-        }
-        logger::info("Corpse scan found {} searchable corpses ({} ash piles, {} static corpses)", g_corpses.size(), ash_count, corpse_count);
+        previous.clear();
     }
 
     std::vector<CorpseEntry> snapshot()

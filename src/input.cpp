@@ -23,7 +23,10 @@ namespace Input
             // 控制台消息与 INI 写回放到游戏线程执行
             SKSE::GetTaskInterface()->AddTask([enabled]()
             {
-                RE::ConsoleLog::GetSingleton()->Print("CorpseESP: %s", enabled ? "ON" : "OFF");
+                // 主菜单/控制台未创建时单例为空
+                if (RE::ConsoleLog* console = RE::ConsoleLog::GetSingleton())
+                    console->Print("CorpseESP: %s", enabled ? "ON" : "OFF");
+
                 Config::save_enabled();
             });
         }
