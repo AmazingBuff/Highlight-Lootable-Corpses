@@ -4,6 +4,13 @@
 > 状态：设计 → 实现
 > 目标：把描边从"包围盒线框"扩展为"尸体模型剪影"，两种模式可由 INI / 游戏内菜单切换
 
+> **修复记录（2026/08/22）**：初版把 `NiCamera::worldToCam` 直接当作裁剪矩阵传入遮罩趟。
+> `worldToCam` 是仿射**视图**矩阵（第 3 行 ≈ (0,0,0,1)），不是投影矩阵——直接当裁剪矩阵用
+> 会使 `clip.w ≡ 1`，NDC 退化为世界单位的相机坐标，所有顶点被裁掉，剪影什么都不显示。
+> 现改为渲染前用视锥参数在 CPU 端组合真正的世界→裁剪矩阵 `M = P·V`
+> （`MeshOutline::compose_world_to_clip`），并新增一次性 `[silhouette-probe]` 数值自检，
+> 与引擎 `WorldPtToScreenPt3` 的输出对表验证。下文相关表述已同步更正。
+
 ## 一、需求与约束
 
 | 项 | 结论 |
@@ -26,7 +33,7 @@ SSE 的网格数据在运行时就是 GPU 就绪布局，CommonLibSSE 已暴露�
 | 蒙皮分区 | `NiSkinInstance::skinPartition` → `NiSkinPartition::Partition{ bones, numBones, triangles, vertexDesc, buffData }` |
 | 骨骼世界变换 | `NiSkinInstance::bones[i]->world` |
 | 绑定姿态逆变换 | `NiSkinData::GetBoneDataSkinToBone(i)` |
-| 投影矩阵 | `NiCamera::GetRuntimeData().worldToCam[4][4]`（引擎自身 `WorldPtToScreenPt3` 用的同一份，与现有 box 投影同源） |
+| 裁剪矩阵 | `NiCamera::GetRuntimeData().worldToCam` 只是仿射**视图**矩阵 V；投影部分 P 由 `GetRuntimeData2().viewFrustum` 的透视窗口参数构造，`M = P·V` 在 `MeshOutline::compose_world_to_clip` 中组合（引擎 `WorldPtToScreenPt3` 内部是同一份数学，box 投影与之对表） |
 
 **不需要 CPU 回读顶点数据**：直接把引擎的 `ID3D11Buffer` 绑到我们自己的 IA 上，配自己的 InputLayout 与着色器即可。
 
@@ -45,20 +52,21 @@ SSE 的网格数据在运行时就是 GPU 就绪布局，CommonLibSSE 已暴露�
 - **可分离膨胀**：横向 + 纵向各 `2r+1` 次采样（r ≤ 8），比 8 方向星形采样更快且无缺口。
 - **预乘输出**：OM 用 `CommonStates::AlphaBlend()`（ONE / INV_SRC_ALPHA），与现有 quad 管线的约定一致（见 `docs/esp-renderer-alpha-blend.md`）。
 - **穿墙**：三趟全程不绑 DSV、`DepthNone`，与 box 模式同源。
-- 深度写死为 `z = w * 0.5`：避开近/远裁剪面，同时 `w < 0` 仍能正确裁掉相机背后的几何。
+- 深度写死为 `z = w * 0.5`：避开近/远裁剪面，同时 `w`（前向距离）`<= 0` 仍能正确裁掉相机背后的几何。
 
 ## 四、着色器
 
 | 着色器 | 输入 | 说明 |
 |---|---|---|
-| `mask_rigid_vs` | POSITION | `world_pos = M_world · p`，`clip = worldToCam · world_pos` |
+| `mask_rigid_vs` | POSITION | `world_pos = M_world · p`，`clip = world_to_clip · world_pos` |
 | `mask_skinned_vs` | POSITION / BLENDWEIGHT / BLENDINDICES | `p' = Σ w_i · (palette[idx_i] · p)` 后同上 |
 | `mask_ps` | — | `return alpha`（写 R8 遮罩） |
 | `fullscreen_vs` | `SV_VertexID` | 3 顶点覆盖全屏，无顶点缓冲、无 InputLayout |
 | `dilate_ps` | — | 横向 max 滤波 |
 | `outline_ps` | — | 纵向 max 滤波 + 边缘判定 + 预乘输出 |
 
-常量缓冲（b0，遮罩趟）：`row_major float4x4 world_to_cam` + `float4 params(alpha)` + `float4 bones[80*3]`
+常量缓冲（b0，遮罩趟）：`row_major float4x4`（HLSL 内沿用 `g_world_to_cam` 命名，
+但内容是 CPU 端组合好的**世界→裁剪矩阵** `M = P·V`）+ `float4 params(alpha)` + `float4 bones[80*3]`
 （骨骼矩阵按 3 行 `float4` 存 3×4；刚体部件把世界矩阵放在 `bones[0..2]`）。
 
 InputLayout 组合：位置按 `VF_FULLPREC` 取 `R32G32B32A32_FLOAT` 或 `R16G16B16A16_FLOAT`；

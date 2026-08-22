@@ -190,9 +190,10 @@ namespace
     // ---------------------------------------------------------------------------
     // 着色器（运行时编译，与 esp_renderer 的自绘管线同款约定）
     //
-    // 投影用引擎自己的 NiCamera::worldToCam（与 box 模式的 WorldPtToScreenPt3 同源），
-    // 行主序：clip = worldToCam * p。深度写死 z = w*0.5：既避开近/远裁剪面，
-    // 又保留 w < 0 对相机背后几何的裁剪。
+    // b0 里的矩阵是调用方经 MeshOutline::compose_world_to_clip 组合的世界->裁剪矩阵
+    // M = P·V（worldToCam 只是仿射视图矩阵，直接当裁剪矩阵用会让 clip.w 恒为 1、
+    // 全部顶点被裁掉）。行主序：clip = M * p。深度写死 z = w*0.5：既避开近/远裁剪面，
+    // 又保留 w（前向距离）<= 0 对相机背后几何的裁剪。
     // ---------------------------------------------------------------------------
     constexpr char const* Mask_Common_Hlsl = R"(
         cbuffer MaskCB : register(b0)
@@ -606,7 +607,7 @@ namespace
         a_rows[2][3] = a_transform.translate.z;
     }
 
-    void draw_part(ID3D11DeviceContext* a_context, Part const& a_part, float const a_world_to_cam[4][4], float a_alpha)
+    void draw_part(ID3D11DeviceContext* a_context, Part const& a_part, float const a_world_to_clip[4][4], float a_alpha)
     {
         auto* const vertex_buffer = reinterpret_cast<ID3D11Buffer*>(a_part.buffer->vertexBuffer);
         auto* const index_buffer = reinterpret_cast<ID3D11Buffer*>(a_part.buffer->indexBuffer);
@@ -619,7 +620,7 @@ namespace
             return;
 
         auto* const constants = static_cast<MaskConstants*>(mapped.pData);
-        std::memcpy(constants->world_to_cam, a_world_to_cam, sizeof(constants->world_to_cam));
+        std::memcpy(constants->world_to_cam, a_world_to_clip, sizeof(constants->world_to_cam));
         constants->params[0] = a_alpha;
         constants->params[1] = 0.0f;
         constants->params[2] = 0.0f;
@@ -694,6 +695,31 @@ namespace MeshOutline
         return a_list ? a_list->parts.size() : 0;
     }
 
+    // NetImmerse 相机约定：+X 右、+Y 上、+Z 前向，视锥窗口位于近平面。
+    // P 按该约定构造（y 翻转折进 D 项），w 取前向距离，故相机背后（w <= 0）的几何被裁掉。
+    bool compose_world_to_clip(RE::NiCamera const& a_camera, float a_out[4][4])
+    {
+        RE::NiFrustum const& frustum = a_camera.GetRuntimeData2().viewFrustum;
+        if (frustum.bOrtho || frustum.fNear <= 0.0f || frustum.fLeft == frustum.fRight || frustum.fTop == frustum.fBottom)
+            return false;
+
+        float const (&view)[4][4] = a_camera.GetRuntimeData().worldToCam;
+        float const n = frustum.fNear;
+        float const a = 2.0f * n / (frustum.fRight - frustum.fLeft);
+        float const b = -(frustum.fRight + frustum.fLeft) / (frustum.fRight - frustum.fLeft);
+        float const c = 2.0f * n / (frustum.fTop - frustum.fBottom);
+        float const d = (frustum.fTop + frustum.fBottom) / (frustum.fTop - frustum.fBottom);
+
+        for (std::size_t j = 0; j < 4; ++j)
+        {
+            a_out[0][j] = a * view[0][j] + b * view[2][j];
+            a_out[1][j] = -c * view[1][j] + d * view[2][j];
+            a_out[2][j] = view[2][j];
+            a_out[3][j] = view[2][j];
+        }
+        return true;
+    }
+
     bool begin_frame(ID3D11Device* a_device, ID3D11DeviceContext* a_context, std::uint32_t a_width, std::uint32_t a_height)
     {
         if (g_failed || !a_device || !a_context || a_width == 0 || a_height == 0)
@@ -725,14 +751,14 @@ namespace MeshOutline
         return true;
     }
 
-    void draw(ID3D11DeviceContext* a_context, DrawListPtr const& a_list, float const a_world_to_cam[4][4], float a_alpha)
+    void draw(ID3D11DeviceContext* a_context, DrawListPtr const& a_list, float const a_world_to_clip[4][4], float a_alpha)
     {
         if (!a_context || !a_list || !g_pipeline_ready)
             return;
 
         for (Part const& part : a_list->parts)
         {
-            draw_part(a_context, part, a_world_to_cam, a_alpha);
+            draw_part(a_context, part, a_world_to_clip, a_alpha);
             ++g_draw_count;
         }
     }
