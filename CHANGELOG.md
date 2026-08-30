@@ -8,4 +8,5 @@
 
 ### Fixed
 
-- Fix model-silhouette outlines not rendering because the view matrix was used as a clip matrix.
+- Fix model-silhouette outlines not rendering and causing severe framerate drops in silhouette mode.
+- Prevent per-scan corpse diagnostics from flooding the log with unchanged entries.

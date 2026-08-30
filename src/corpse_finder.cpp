@@ -464,32 +464,37 @@ namespace
         return is_ref_form_in(a_ref, corpse_object_form_ids());
     }
 
-    // 按 FormID 去重的状态日志：同一 form_id 的内容变化时才输出（首次必输出），
-    // 避免每 0.5s 刷屏。一次性跳过诊断与灰烬堆状态诊断共用这一个权威实现。
-    void log_state_once(RE::FormID a_form_id, std::string_view a_detail)
+    // 按 (通道, FormID) 去重的状态日志：同一 (通道, form_id) 的内容变化时才输出（首次必输出），
+    // 避免每 0.5s 刷屏。三个通道（一次性跳过诊断、灰烬堆/静态尸体状态、每轮 listed 诊断）
+    // 各自独立去重——只按 form_id 去重会让不同通道的同一 form_id 互相顶掉内容而反复重打。
+    void log_state_once(RE::FormID a_form_id, std::string_view a_channel, std::string_view a_detail)
     {
         static std::mutex s_mutex;
-        static std::vector<RE::FormID> s_seen;
+        static std::vector<std::pair<RE::FormID, std::string>> s_seen;
         static std::vector<std::string> s_details;
+        bool log_it = false;
         {
             std::lock_guard lock(s_mutex);
             for (std::size_t i = 0; i < s_seen.size(); ++i)
             {
-                if (s_seen[i] != a_form_id)
+                if (s_seen[i].first != a_form_id || s_seen[i].second != a_channel)
                     continue;
                 if (s_details[i] == a_detail)
                     return;
 
                 s_details[i] = std::string(a_detail);
+                log_it = true;
                 break;
             }
-            if (std::ranges::find(s_seen, a_form_id) == s_seen.end())
+            if (!log_it)
             {
-                s_seen.push_back(a_form_id);
+                s_seen.emplace_back(a_form_id, std::string(a_channel));
                 s_details.emplace_back(a_detail);
+                log_it = true;
             }
         }
-        logger::info("{}", a_detail);
+        if (log_it)
+            logger::info("{}", a_detail);
     }
 
     // 一次性诊断：被"看起来还活着"过滤器排除的 Actor（转发到 log_state_once）
@@ -497,6 +502,7 @@ namespace
     {
         log_state_once(
             a_actor->GetFormID(),
+            "skip",
             fmt::format(
                 "Skip non-corpse {:08X} ({}): {}",
                 a_actor->GetFormID(),
@@ -509,6 +515,7 @@ namespace
     {
         log_state_once(
             a_ref->GetFormID(),
+            "ash",
             fmt::format(
                 "Ash Pile {:08X} base {:08X}: {}",
                 a_ref->GetFormID(),
@@ -746,6 +753,7 @@ namespace CorpseFinder
             RE::TESObjectREFR* const ref = form ? form->As<RE::TESObjectREFR>() : nullptr;
             log_state_once(
                 corpse.form_id,
+                "listed",
                 fmt::format(
                     "Corpse {:08X} ({}) listed [cats={} best={} parts={}]",
                     corpse.form_id,

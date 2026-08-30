@@ -55,7 +55,7 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(SKSE::QueryInterface const* a
         return false;
     }
 
-    auto const runtime = a_skse->RuntimeVersion();
+    REL::Version const runtime = a_skse->RuntimeVersion();
     if (runtime < SKSE::RUNTIME_SSE_1_6_629)
     {
         logger::critical("Unsupported runtime version {}"sv, runtime.string());

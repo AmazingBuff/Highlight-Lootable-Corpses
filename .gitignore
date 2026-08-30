@@ -1,6 +1,10 @@
 # Build output
 /build
 
+# Agent
+.dsh/
+.zcode/
+
 # IDE
 /.vs/
 /.vscode/

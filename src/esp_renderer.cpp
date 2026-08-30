@@ -39,6 +39,10 @@ namespace
     // 扫描调度（渲染线程计时，游戏线程执行）
     // ---------------------------------------------------------------------------
     std::chrono::steady_clock::time_point g_last_scan{};
+    // 在途扫描守卫：同一时刻最多一个扫描任务排队或执行中（见派发点）。
+    // 注：SKSE TaskInterface::AddTask(TaskFn) const 返回 void，派发本身不报失败，
+    // 无失败回滚路径；任务入队后必然在游戏线程执行并在此复位。
+    std::atomic<bool> g_scan_in_flight{ false };
 
     // NiRect<T> 成员为 protected，按固定布局（left, right, top, bottom）
     // memcpy 到同布局的本地 POD 读取相机 port，避免修改三方库。
@@ -403,14 +407,14 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // [silhouette-probe] 一次性数值自检：把剪影的投影数学与引擎 WorldPtToScreenPt3 对表。
-    // 会话级一次：在首个出现可绘制尸体的帧里按顺序最多尝试 3 具；引擎调用返回 false、
-    // 锚点在相机背后（camZ <= 0）或视锥/port 数据退化时记 SKIP 并换下一具。
-    // 纯诊断：只读相机数据、只写日志，不触碰任何渲染状态。
+    // [silhouette-probe] 一次性数值自检：把遮罩趟实际收到的裁剪矩阵（NiCamera::worldToCam
+    // 的整份拷贝）与引擎 WorldPtToScreenPt3 对表。会话级一次：在首个出现可绘制尸体的帧里
+    // 按顺序最多尝试 3 具；port 退化、clip.w<=0（锚点在相机背后，着色器会裁掉它）或引擎
+    // 调用返回 false 时记 SKIP 并换下一具。纯诊断：只读相机与矩阵、只写日志，不触碰渲染状态。
     // ---------------------------------------------------------------------------
     constexpr int Max_Probe_Attempts = 3;
 
-    void run_silhouette_probe(RE::NiCamera* a_cam, RE::NiPoint3 const& a_anchor)
+    void run_silhouette_probe(RE::NiCamera* a_cam, RE::NiPoint3 const& a_anchor, float const a_world_to_clip[4][4])
     {
         static bool s_done = false;
         static int s_attempts = 0;
@@ -419,36 +423,32 @@ namespace
 
         ++s_attempts;
 
-        RE::NiFrustum const& frustum = a_cam->GetRuntimeData2().viewFrustum;
         PortRect port{};
         std::memcpy(&port, &a_cam->GetRuntimeData2().port, sizeof(port));
-        float const (&view)[4][4] = a_cam->GetRuntimeData().worldToCam;
-
-        bool const frustum_ok = !frustum.bOrtho && frustum.fNear > 0.0f &&
-                                frustum.fRight > frustum.fLeft && frustum.fTop > frustum.fBottom;
         bool const port_ok = port.right > port.left && port.top > port.bottom;
 
-        // 锚点的相机空间坐标（worldToCam 行主序仿射：p' = R*p + t）
-        float const cam_x = view[0][0] * a_anchor.x + view[0][1] * a_anchor.y + view[0][2] * a_anchor.z + view[0][3];
-        float const cam_y = view[1][0] * a_anchor.x + view[1][1] * a_anchor.y + view[1][2] * a_anchor.z + view[1][3];
-        float const cam_z = view[2][0] * a_anchor.x + view[2][1] * a_anchor.y + view[2][2] * a_anchor.z + view[2][3];
+        // 与 MeshOutline::draw 收到的同一份 world_to_clip 投影锚点：clip = M·p
+        float const clip_x = a_world_to_clip[0][0] * a_anchor.x + a_world_to_clip[0][1] * a_anchor.y + a_world_to_clip[0][2] * a_anchor.z + a_world_to_clip[0][3];
+        float const clip_y = a_world_to_clip[1][0] * a_anchor.x + a_world_to_clip[1][1] * a_anchor.y + a_world_to_clip[1][2] * a_anchor.z + a_world_to_clip[1][3];
+        float const clip_w = a_world_to_clip[3][0] * a_anchor.x + a_world_to_clip[3][1] * a_anchor.y + a_world_to_clip[3][2] * a_anchor.z + a_world_to_clip[3][3];
 
         auto skip = [&](char const* a_reason)
         {
-            logger::info("[silhouette-probe] SKIP attempt {}/{}: {} (cam=({:.2f}, {:.2f}, {:.2f}))",
-                         s_attempts, Max_Probe_Attempts, a_reason, cam_x, cam_y, cam_z);
+            logger::info("[silhouette-probe] SKIP attempt {}/{}: {} (clip.w={:.2e})",
+                         s_attempts, Max_Probe_Attempts, a_reason, clip_w);
             s_done = s_attempts >= Max_Probe_Attempts;
         };
 
-        if (!frustum_ok || !port_ok)
+        if (!port_ok)
         {
-            skip(frustum_ok ? "degenerate port rect" : "degenerate view frustum");
+            skip("degenerate port rect");
             return;
         }
 
-        if (cam_z <= 0.0f)
+        // w 行是前向距离：w <= 0 表示锚点在相机背后（着色器会把它裁掉）
+        if (clip_w <= 1e-5f)
         {
-            skip("anchor behind camera");
+            skip("anchor behind camera (clip.w <= 0)");
             return;
         }
 
@@ -459,10 +459,10 @@ namespace
             return;
         }
 
-        // 引擎输出按 port 归一化（左下原点）；期望值是剪影着色器同一份数学的归一化窗口坐标
-        float const n = frustum.fNear;
-        float const expected_sx = (cam_x * n / cam_z - frustum.fLeft) / (frustum.fRight - frustum.fLeft);
-        float const expected_sy_bl = (cam_y * n / cam_z - frustum.fBottom) / (frustum.fTop - frustum.fBottom);
+        // 期望值：同一份裁剪矩阵的归一化窗口坐标（左下原点，与引擎约定一致）；
+        // 引擎输出也按 port 归一化到左下原点。
+        float const expected_sx = clip_x / clip_w * 0.5f + 0.5f;
+        float const expected_sy_bl = clip_y / clip_w * 0.5f + 0.5f;
         float const engine_sx = (engine_x - port.left) / (port.right - port.left);
         float const engine_sy_bl = (engine_y - port.bottom) / (port.top - port.bottom);
 
@@ -522,12 +522,17 @@ namespace ESPRenderer
 
         Input::poll();
 
-        // 定时派发尸体扫描任务到游戏线程
+        // 定时派发尸体扫描任务到游戏线程；在途守卫保证同一时刻最多一个
+        // 扫描任务排队或执行中，避免扫描堆积（exchange 置位成功才派发）。
         std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
-        if (now - g_last_scan >= std::chrono::milliseconds(Config::get().scan_interval_ms))
+        if (now - g_last_scan >= std::chrono::milliseconds(Config::get().scan_interval_ms) &&
+            !g_scan_in_flight.exchange(true))
         {
             g_last_scan = now;
-            SKSE::GetTaskInterface()->AddTask([] { CorpseFinder::scan(); });
+            SKSE::GetTaskInterface()->AddTask([] {
+                CorpseFinder::scan();
+                g_scan_in_flight.store(false);
+            });
         }
 
         RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
@@ -602,11 +607,14 @@ namespace ESPRenderer
                     // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
                     RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
 
-                    // 剪影投影：worldToCam 只是仿射视图矩阵，须与视锥组合成真正的世界->裁剪
-                    // 矩阵 M = P·V（直接把视图矩阵当裁剪矩阵会让 clip.w 恒为 1，全被裁掉）。
-                    // 组合失败时 silhouette 关闭，全部尸体退回包围盒描边。
+                    // 剪影投影：NiCamera::worldToCam 本身就是引擎的世界->裁剪 view-projection
+                    // 矩阵（行主序，clip = M·p；w 行 = 前向距离，相机背后几何被 w<=0 裁掉；
+                    // 反 Z 的 z 行因着色器写死 z=w*0.5 而无关）。整份字节拷贝给遮罩趟，
+                    // 不再二次组合投影。没有相机时 silhouette 关闭，全部尸体退回包围盒描边。
                     float world_to_clip[4][4]{};
-                    bool const have_clip_matrix = world_cam && MeshOutline::compose_world_to_clip(*world_cam, world_to_clip);
+                    bool const have_clip_matrix = world_cam != nullptr;
+                    if (world_cam)
+                        std::memcpy(world_to_clip, &world_cam->GetRuntimeData().worldToCam, sizeof(world_to_clip));
 
                     // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
                     // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
@@ -646,7 +654,7 @@ namespace ESPRenderer
                         if (silhouette && MeshOutline::part_count(corpse.mesh) != 0)
                         {
                             // 一次性投影数学自检（首帧可绘制尸体，最多尝试 3 具）
-                            run_silhouette_probe(world_cam, corpse.anchor);
+                            run_silhouette_probe(world_cam, corpse.anchor, world_to_clip);
                             MeshOutline::draw(context, corpse.mesh, world_to_clip, corpse_alpha(cfg, corpse.distance));
                             continue;
                         }

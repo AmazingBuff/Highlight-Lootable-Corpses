@@ -4,12 +4,12 @@
 > 状态：设计 → 实现
 > 目标：把描边从"包围盒线框"扩展为"尸体模型剪影"，两种模式可由 INI / 游戏内菜单切换
 
-> **修复记录（2026/08/22）**：初版把 `NiCamera::worldToCam` 直接当作裁剪矩阵传入遮罩趟。
-> `worldToCam` 是仿射**视图**矩阵（第 3 行 ≈ (0,0,0,1)），不是投影矩阵——直接当裁剪矩阵用
-> 会使 `clip.w ≡ 1`，NDC 退化为世界单位的相机坐标，所有顶点被裁掉，剪影什么都不显示。
-> 现改为渲染前用视锥参数在 CPU 端组合真正的世界→裁剪矩阵 `M = P·V`
-> （`MeshOutline::compose_world_to_clip`），并新增一次性 `[silhouette-probe]` 数值自检，
-> 与引擎 `WorldPtToScreenPt3` 的输出对表验证。下文相关表述已同步更正。
+> **修复记录（2026/08/22，2026/08/24 更正）**：初版直接把 `NiCamera::worldToCam` 当裁剪矩阵
+> 传入遮罩趟，剪影什么都不显示；当时误判 `worldToCam` 是仿射**视图**矩阵，改而在 CPU 端用
+> 视锥参数再组合一次 `M = P·V`（`MeshOutline::compose_world_to_clip`）并加了一次性
+> `[silhouette-probe]` 数值自检。2026/08/24 的探针对表证明该诊断本身错了——`worldToCam` 是
+> 完整的世界→裁剪矩阵，二次组合反而让描边在屏幕覆盖尺度上炸裂（见文末修复记录）。
+> `compose_world_to_clip` 已删除，现整份透传 `worldToCam`；下文相关表述已同步更正。
 
 ## 一、需求与约束
 
@@ -33,7 +33,7 @@ SSE 的网格数据在运行时就是 GPU 就绪布局，CommonLibSSE 已暴露�
 | 蒙皮分区 | `NiSkinInstance::skinPartition` → `NiSkinPartition::Partition{ bones, numBones, triangles, vertexDesc, buffData }` |
 | 骨骼世界变换 | `NiSkinInstance::bones[i]->world` |
 | 绑定姿态逆变换 | `NiSkinData::GetBoneDataSkinToBone(i)` |
-| 裁剪矩阵 | `NiCamera::GetRuntimeData().worldToCam` 只是仿射**视图**矩阵 V；投影部分 P 由 `GetRuntimeData2().viewFrustum` 的透视窗口参数构造，`M = P·V` 在 `MeshOutline::compose_world_to_clip` 中组合（引擎 `WorldPtToScreenPt3` 内部是同一份数学，box 投影与之对表） |
+| 裁剪矩阵 | `NiCamera::GetRuntimeData().worldToCam` 本身就是引擎的世界→裁剪 **view-projection** 矩阵（行主序，`clip = M·p`；w 行 = 前向距离，相机背后被 `w <= 0` 裁掉；反 Z 的 z 行因着色器写死 `z = w*0.5` 无关），遮罩趟直接整份字节拷贝使用；引擎 `WorldPtToScreenPt3` 内部是同一份数学（`NDC = (row0·p, row1·p)/(row3·p)`），box 投影与 probe 与之对表 |
 
 **不需要 CPU 回读顶点数据**：直接把引擎的 `ID3D11Buffer` 绑到我们自己的 IA 上，配自己的 InputLayout 与着色器即可。
 
@@ -66,7 +66,8 @@ SSE 的网格数据在运行时就是 GPU 就绪布局，CommonLibSSE 已暴露�
 | `outline_ps` | — | 纵向 max 滤波 + 边缘判定 + 预乘输出 |
 
 常量缓冲（b0，遮罩趟）：`row_major float4x4`（HLSL 内沿用 `g_world_to_cam` 命名，
-但内容是 CPU 端组合好的**世界→裁剪矩阵** `M = P·V`）+ `float4 params(alpha)` + `float4 bones[80*3]`
+内容是 `NiCamera::worldToCam` 的**整份字节拷贝**——引擎的世界→裁剪 view-projection 矩阵，
+不再二次组合投影）+ `float4 params(alpha)` + `float4 bones[80*3]`
 （骨骼矩阵按 3 行 `float4` 存 3×4；刚体部件把世界矩阵放在 `bones[0..2]`）。
 
 InputLayout 组合：位置按 `VF_FULLPREC` 取 `R32G32B32A32_FLOAT` 或 `R16G16B16A16_FLOAT`；
@@ -162,3 +163,33 @@ OutlineMode=0
    （仅当该尸体的 3D 恰好在同一帧被卸载），此时引擎对象会在渲染线程被删除。
    引擎分配器与 D3D11 资源释放本身线程安全，故按可接受风险处理；若要彻底消除，
    需要把待释放列表回传游戏线程（retire queue）。
+
+## 十一、修复记录（2026/08/24）：worldToCam 是完整的世界→裁剪矩阵
+
+**结论**：`RE::NiCamera::GetRuntimeData().worldToCam` 在 SE/AE 上**不是**仿射视图矩阵，
+而是引擎完整的**世界→裁剪 view-projection 矩阵**，行主序存储：
+
+- 第 0/1 行：clip 的 x/y 行（近平面缩放后的裁剪坐标）；
+- 第 2 行：反 Z（reversed-Z）的 clip z 行（量级约近平面、几乎与距离无关）；
+- 第 3 行：w 行 = 前向距离（视线方向上的位移）。
+
+引擎静态函数 `WorldPtToScreenPt3(matrix, port, ...)` 就是按
+`NDC = (row0·p, row1·p) / (row3·p)` 计算再映射到 port 的，与这套语义完全一致；
+TrueDirectionalMovement / Precision 等生产插件也是把这种全局 viewProj 式矩阵喂给同一个函数。
+
+**探针数值**：旧探针（先用"仿射视图 + 近平面公式"算期望）对表得到的失败样例是
+`[silhouette-probe] FAIL expected=(1.0179, 5.7907) engine=(0.5214, 0.6228)`。
+按 `expected − 0.5 = (n/r, n/t) × 33.1`（33.1 = 锚点距离 / 近平面）精确拟合，
+证明旧期望值恰好是"把相机空间坐标直接除以近平面距离再缩放"的结果——即旧代码把
+**视图矩阵当裁剪矩阵**（`clip.w ≡ 1`，NDC 退化为世界/相机坐标），数值在屏幕覆盖尺度。
+
+**修复**：
+
+- 删除 `MeshOutline::compose_world_to_clip`（CPU 端二次组合 `M = P·V` 是错误做法：
+  在已经是 view-projection 的矩阵上再套一次投影，透视除法被破坏、相机背后裁剪失效，
+  尸体网格按屏幕覆盖尺度光栅化——这正是"描边看不见 + 严重掉帧"的根因）。
+- 剪影门控只判 `world_cam != nullptr`，把 `worldToCam` **整份字节拷贝**进遮罩趟的
+  常量缓冲；`to_clip` 着色器本身已实现正确的裁剪矩阵数学，一行未改。
+- `run_silhouette_probe` 改为验证遮罩趟实际收到的同一份矩阵：`clip = M·anchor`，
+  `clip.w <= 0` 记 SKIP，期望值 `(clip.x/clip.w*0.5+0.5, clip.y/clip.w*0.5+0.5)`（左下原点）
+  与按 port 归一化的 `WorldPtToScreenPt3` 输出对表，期望 PASS 且 delta < 1e-2。
