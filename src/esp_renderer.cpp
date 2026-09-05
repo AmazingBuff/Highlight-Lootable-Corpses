@@ -476,8 +476,11 @@ namespace ESPRenderer
             return;
 
         // 防御：同一游戏帧内 Present 若被多次调用，只绘制一次，避免 alpha 叠加。
+        // frameCount 经 GetFrameCount() 读取：AE < 1.7.99 位于 State+0x4C，
+        // 1.7.99+ 被引擎重排进 FRAME_STATE_1799（RUNTIME_DATA 起始 0x60 → 0x70），
+        // 直读成员在新运行时会错位（NG v7.2.0 起不再提供扁平成员）。
         RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
-        std::uint32_t const frame = bs_state ? bs_state->frameCount : 0;
+        std::uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
 
         static std::uint32_t s_last_drawn_frame = std::numeric_limits<std::uint32_t>::max();
         bool const skip_draw = (frame != 0) && (frame == s_last_drawn_frame);
