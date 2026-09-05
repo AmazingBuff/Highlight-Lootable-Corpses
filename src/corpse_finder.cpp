@@ -582,8 +582,6 @@ namespace CorpseFinder
 
         Config::Settings const& cfg = Config::get();
         RE::NiPoint3 const player_pos = player->GetPosition();
-        // 剪影模式才采集网格部件：采集要遍历 3D 树并持引用，box 模式下没有意义
-        bool const collect_mesh = cfg.outline_mode == 1;
 
         std::vector<CorpseEntry> found;
         found.reserve(64);
@@ -632,8 +630,6 @@ namespace CorpseFinder
             entry.distance = dist;
             entry.loot_categories = loot.categories;
             entry.best_item_value = loot.best_item_value;
-            if (collect_mesh)
-                entry.mesh = MeshOutline::collect(a_actor);
 
             RE::NiPoint3 b_min, b_max;
             if (compute_bounds(a_actor, a_actor->IsInRagdollState(), b_min, b_max, entry.obb_corners, entry.has_obb, entry.bounds_from_collision))
@@ -699,8 +695,6 @@ namespace CorpseFinder
             entry.radius = 40.0f;
             entry.loot_categories = loot.categories;
             entry.best_item_value = loot.best_item_value;
-            if (collect_mesh)
-                entry.mesh = MeshOutline::collect(a_ref);
             if (const RE::NiAVObject* node = a_ref->Get3D())
             {
                 RE::NiBound const& bound = node->worldBound;
@@ -755,12 +749,11 @@ namespace CorpseFinder
                 corpse.form_id,
                 "listed",
                 fmt::format(
-                    "Corpse {:08X} ({}) listed [cats={} best={} parts={}]",
+                    "Corpse {:08X} ({}) listed [cats={} best={}]",
                     corpse.form_id,
                     ref ? ref->GetDisplayFullName() : "unresolved",
                     LootFilter::category_summary(corpse.loot_categories),
-                    corpse.best_item_value,
-                    MeshOutline::part_count(corpse.mesh)));
+                    corpse.best_item_value));
         }
 
         static std::size_t s_last_total = std::numeric_limits<std::size_t>::max();
@@ -774,8 +767,8 @@ namespace CorpseFinder
             logger::info("Corpse scan found {} searchable corpses ({} ash piles, {} static corpses)", s_last_total, s_last_ash, s_last_static);
         }
 
-        // 取回旧表在本线程（游戏线程）析构：CorpseEntry 持有网格部件的 NiPointer，
-        // 让扫描侧的引用释放留在游戏线程，避免引擎对象在渲染线程被删除
+        // 取回旧表在本线程（游戏线程）析构，避免渲染线程在快照交换瞬间
+        // 与扫描线程并发触碰同一批 CorpseEntry
         std::vector<CorpseEntry> previous;
         {
             std::lock_guard lock(g_mutex);

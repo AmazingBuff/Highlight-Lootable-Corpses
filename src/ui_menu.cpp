@@ -48,9 +48,6 @@ namespace
         ImGuiMCP::SliderFloat("Outline Thickness", &s.outline_thickness, 1.0f, 8.0f, "%.1f");
 
         ImGuiMCP::Checkbox("Show Outline", &s.show_outline);
-        // 剪影模式的网格在扫描期采集，切换后最多 ScanIntervalMs 生效
-        static constexpr char const* s_outline_modes[] = { "Bounding Box", "Model Silhouette" };
-        ImGuiMCP::Combo("Outline Mode", &s.outline_mode, s_outline_modes, 2);
 
         ImGuiMCP::SliderFloat("Fade Start Distance", &s.fade_start_distance, 0.0f, s.max_distance, "%.0f");
         ImGuiMCP::SliderFloat("Fade Power", &s.fade_power, 0.1f, 8.0f, "%.1f");

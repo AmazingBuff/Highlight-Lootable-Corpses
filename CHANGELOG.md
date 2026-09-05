@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-### Added
+### Removed
 
-- Add model-silhouette outline mode (`OutlineMode=1`) drawn from engine geometry with through-wall visibility.
+- Remove the model-silhouette outline mode (`OutlineMode`) to eliminate its heavy performance cost.
 
 ### Fixed
 
-- Fix model-silhouette outlines not rendering and causing severe framerate drops in silhouette mode.
+- Stop drawing boxes on corpses whose loot has been fully looted by ignoring non-playable items in the searchable check.
 - Prevent per-scan corpse diagnostics from flooding the log with unchanged entries.

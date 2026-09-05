@@ -4,7 +4,6 @@
 #include "corpse_finder.h"
 #include "input.h"
 #include "loot_filter.h"
-#include "mesh_outline.h"
 #include "shader_compile.h"
 
 namespace
@@ -372,7 +371,7 @@ namespace
     }
 
     // 距离衰减：FadeStartDistance 内完全不透明；超过后按 FadePower 指数衰减，
-    // 到 MaxDistance 处达到 MinOpacity 下限。box 与剪影两种模式共用同一条曲线。
+    // 到 MaxDistance 处达到 MinOpacity 下限。
     // 前置条件：min_opacity ∈ [0,1]、max_distance > 0（Config::load 已规范化）。
     [[nodiscard]] float corpse_alpha(Config::Settings const& a_cfg, float a_distance)
     {
@@ -404,75 +403,6 @@ namespace
             a_p1.x - nx, a_p1.y - ny,
             a_p1.x + nx, a_p1.y + ny,
             a_color);
-    }
-
-    // ---------------------------------------------------------------------------
-    // [silhouette-probe] 一次性数值自检：把遮罩趟实际收到的裁剪矩阵（NiCamera::worldToCam
-    // 的整份拷贝）与引擎 WorldPtToScreenPt3 对表。会话级一次：在首个出现可绘制尸体的帧里
-    // 按顺序最多尝试 3 具；port 退化、clip.w<=0（锚点在相机背后，着色器会裁掉它）或引擎
-    // 调用返回 false 时记 SKIP 并换下一具。纯诊断：只读相机与矩阵、只写日志，不触碰渲染状态。
-    // ---------------------------------------------------------------------------
-    constexpr int Max_Probe_Attempts = 3;
-
-    void run_silhouette_probe(RE::NiCamera* a_cam, RE::NiPoint3 const& a_anchor, float const a_world_to_clip[4][4])
-    {
-        static bool s_done = false;
-        static int s_attempts = 0;
-        if (s_done || !a_cam)
-            return;
-
-        ++s_attempts;
-
-        PortRect port{};
-        std::memcpy(&port, &a_cam->GetRuntimeData2().port, sizeof(port));
-        bool const port_ok = port.right > port.left && port.top > port.bottom;
-
-        // 与 MeshOutline::draw 收到的同一份 world_to_clip 投影锚点：clip = M·p
-        float const clip_x = a_world_to_clip[0][0] * a_anchor.x + a_world_to_clip[0][1] * a_anchor.y + a_world_to_clip[0][2] * a_anchor.z + a_world_to_clip[0][3];
-        float const clip_y = a_world_to_clip[1][0] * a_anchor.x + a_world_to_clip[1][1] * a_anchor.y + a_world_to_clip[1][2] * a_anchor.z + a_world_to_clip[1][3];
-        float const clip_w = a_world_to_clip[3][0] * a_anchor.x + a_world_to_clip[3][1] * a_anchor.y + a_world_to_clip[3][2] * a_anchor.z + a_world_to_clip[3][3];
-
-        auto skip = [&](char const* a_reason)
-        {
-            logger::info("[silhouette-probe] SKIP attempt {}/{}: {} (clip.w={:.2e})",
-                         s_attempts, Max_Probe_Attempts, a_reason, clip_w);
-            s_done = s_attempts >= Max_Probe_Attempts;
-        };
-
-        if (!port_ok)
-        {
-            skip("degenerate port rect");
-            return;
-        }
-
-        // w 行是前向距离：w <= 0 表示锚点在相机背后（着色器会把它裁掉）
-        if (clip_w <= 1e-5f)
-        {
-            skip("anchor behind camera (clip.w <= 0)");
-            return;
-        }
-
-        float engine_x = 0.0f, engine_y = 0.0f, engine_z = 0.0f;
-        if (!a_cam->WorldPtToScreenPt3(a_anchor, engine_x, engine_y, engine_z, 1e-5f))
-        {
-            skip("WorldPtToScreenPt3 returned false");
-            return;
-        }
-
-        // 期望值：同一份裁剪矩阵的归一化窗口坐标（左下原点，与引擎约定一致）；
-        // 引擎输出也按 port 归一化到左下原点。
-        float const expected_sx = clip_x / clip_w * 0.5f + 0.5f;
-        float const expected_sy_bl = clip_y / clip_w * 0.5f + 0.5f;
-        float const engine_sx = (engine_x - port.left) / (port.right - port.left);
-        float const engine_sy_bl = (engine_y - port.bottom) / (port.top - port.bottom);
-
-        float const delta_x = std::fabs(expected_sx - engine_sx);
-        float const delta_y = std::fabs(expected_sy_bl - engine_sy_bl);
-        bool const pass = delta_x < 1e-2f && delta_y < 1e-2f;
-
-        logger::info("[silhouette-probe] {} expected=({:.4f}, {:.4f}) engine=({:.4f}, {:.4f}) delta=({:.2e}, {:.2e})",
-                     pass ? "PASS" : "FAIL", expected_sx, expected_sy_bl, engine_sx, engine_sy_bl, delta_x, delta_y);
-        s_done = true;
     }
 }
 
@@ -604,17 +534,8 @@ namespace ESPRenderer
                 Config::Settings const& cfg = Config::get();
                 if (cfg.show_outline)
                 {
-                    // 相机对象：世界根相机（引擎每帧更新其 worldToCam，Present 时仍是本帧数据）
+                    // 相机对象：世界根相机（Present 时仍是本帧数据），用于投影
                     RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
-
-                    // 剪影投影：NiCamera::worldToCam 本身就是引擎的世界->裁剪 view-projection
-                    // 矩阵（行主序，clip = M·p；w 行 = 前向距离，相机背后几何被 w<=0 裁掉；
-                    // 反 Z 的 z 行因着色器写死 z=w*0.5 而无关）。整份字节拷贝给遮罩趟，
-                    // 不再二次组合投影。没有相机时 silhouette 关闭，全部尸体退回包围盒描边。
-                    float world_to_clip[4][4]{};
-                    bool const have_clip_matrix = world_cam != nullptr;
-                    if (world_cam)
-                        std::memcpy(world_to_clip, &world_cam->GetRuntimeData().worldToCam, sizeof(world_to_clip));
 
                     // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
                     // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
@@ -640,9 +561,6 @@ namespace ESPRenderer
                     float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                     float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
 
-                    // 模型剪影模式：先开遮罩趟；采集不到网格的尸体逐个退回包围盒描边
-                    bool const silhouette = cfg.outline_mode == 1 && have_clip_matrix &&
-                                            MeshOutline::begin_frame(device, context, g_back_w, g_back_h);
                     std::uint16_t const category_mask = LootFilter::enabled_category_mask();
 
                     for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
@@ -650,14 +568,6 @@ namespace ESPRenderer
                         // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
                         if (cfg.loot_filter_enabled && (corpse.loot_categories & category_mask) == 0)
                             continue;
-
-                        if (silhouette && MeshOutline::part_count(corpse.mesh) != 0)
-                        {
-                            // 一次性投影数学自检（首帧可绘制尸体，最多尝试 3 具）
-                            run_silhouette_probe(world_cam, corpse.anchor, world_to_clip);
-                            MeshOutline::draw(context, corpse.mesh, world_to_clip, corpse_alpha(cfg, corpse.distance));
-                            continue;
-                        }
 
                         // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
                         // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
@@ -840,16 +750,6 @@ namespace ESPRenderer
                             else
                                 draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
                         }
-                    }
-
-                    if (silhouette)
-                    {
-                        // 遮罩 -> 描边（自带状态设置），随后恢复本模块 quad 绘制所需的状态
-                        MeshOutline::resolve(context, g_back_buffer_rtv, cfg.outline_thickness, cr, cg, cb);
-                        context->OMSetRenderTargets(1, &g_back_buffer_rtv, nullptr);
-                        context->OMSetBlendState(g_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
-                        context->OMSetDepthStencilState(g_states->DepthNone(), 0);
-                        context->RSSetState(g_states->CullNone());
                     }
                 }
             }

@@ -13,9 +13,8 @@ namespace Config
         uint32_t scan_interval_ms{ 500 };    // 尸体扫描间隔
         uint32_t outline_color{ 0x00FF66 };  // 描边颜色 (RGB)
         float min_opacity{ 0.15f };               // 远处标记的最小不透明度
-        float outline_thickness{ 2.0f };          // 描边线宽（像素）；剪影模式下为描边像素半径
+        float outline_thickness{ 2.0f };          // 描边线宽（像素）
         bool show_outline{ true };                // 画描边
-        int outline_mode{ 0 };                    // 0=包围盒线框 1=模型剪影
 
         // 距离衰减：FadeStartDistance 内完全可见，超过后按 FadePower 指数淡出到 MinOpacity
         float fade_start_distance{ 1000.0f };  // 开始淡出的距离（游戏单位）

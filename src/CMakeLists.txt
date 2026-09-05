@@ -9,7 +9,6 @@ set(SOURCE_FILES
 	"${SOURCE_DIR}/input.cpp"
 	"${SOURCE_DIR}/loot_filter.cpp"
 	"${SOURCE_DIR}/main.cpp"
-	"${SOURCE_DIR}/mesh_outline.cpp"
 	"${SOURCE_DIR}/shader_compile.cpp"
 	"${SOURCE_DIR}/ui_menu.cpp"
 )
@@ -20,7 +19,6 @@ set(HEADER_FILES
 	"${SOURCE_DIR}/esp_renderer.h"
 	"${SOURCE_DIR}/input.h"
 	"${SOURCE_DIR}/loot_filter.h"
-	"${SOURCE_DIR}/mesh_outline.h"
 	"${SOURCE_DIR}/pch.h"
 	"${SOURCE_DIR}/shader_compile.h"
 	"${SOURCE_DIR}/ui_menu.h"

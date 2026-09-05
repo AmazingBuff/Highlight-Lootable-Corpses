@@ -3,8 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "mesh_outline.h"
-
 namespace CorpseFinder
 {
     struct CorpseEntry
@@ -27,9 +25,6 @@ namespace CorpseFinder
         // 战利品筛选（扫描期由 LootFilter::evaluate 计算）：命中的价值分类位掩码与最高单件价值
         std::uint16_t loot_categories{ 0 };
         std::int32_t best_item_value{ 0 };
-
-        // 模型剪影用的网格部件（仅 OutlineMode=1 时采集）；为空表示该尸体退回包围盒描边
-        MeshOutline::DrawListPtr mesh;
     };
 
     // 在游戏主线程上执行：扫描已加载的 Actor，找出"已死亡且仍有可搜刮物品"的尸体；

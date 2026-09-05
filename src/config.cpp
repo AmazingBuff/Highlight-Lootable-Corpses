@@ -41,7 +41,6 @@ namespace Config
             a_settings.outline_color &= 0x00FFFFFFu;
             a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
             a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, 1.0f, 16.0f);
-            a_settings.outline_mode = std::clamp(a_settings.outline_mode, 0, 1);
             a_settings.fade_start_distance = std::clamp(a_settings.fade_start_distance, 0.0f, a_settings.max_distance);
             a_settings.fade_power = std::clamp(a_settings.fade_power, 0.1f, 16.0f);
             a_settings.high_value_threshold = std::max(0.0f, a_settings.high_value_threshold);
@@ -68,7 +67,6 @@ namespace Config
         g_settings.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity", g_settings.min_opacity));
         g_settings.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness));
         g_settings.show_outline = ini.GetBoolValue("Display", "ShowOutline", g_settings.show_outline);
-        g_settings.outline_mode = static_cast<int>(ini.GetLongValue("Display", "OutlineMode", static_cast<long>(g_settings.outline_mode)));
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
@@ -90,12 +88,11 @@ namespace Config
         save();
 
         logger::info(
-            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms, outlineMode={}, lootFilter={}",
+            "Config loaded: enabled={}, hotkey=0x{:02X}, max_distance={:.0f}, scanInterval={}ms, lootFilter={}",
             g_settings.enabled,
             g_settings.hotkey,
             g_settings.max_distance,
             g_settings.scan_interval_ms,
-            g_settings.outline_mode,
             g_settings.loot_filter_enabled);
     }
 
@@ -115,7 +112,6 @@ namespace Config
         ini.SetDoubleValue("Display", "MinOpacity", g_settings.min_opacity);
         ini.SetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness);
         ini.SetBoolValue("Display", "ShowOutline", g_settings.show_outline);
-        ini.SetLongValue("Display", "OutlineMode", static_cast<long>(g_settings.outline_mode));
         ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
         ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
 
