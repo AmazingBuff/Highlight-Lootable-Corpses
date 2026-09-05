@@ -1,4 +1,4 @@
-# CorpseESP 代码 Review 待办（2026/08/20）
+# HighlightLootableCorpses（原 CorpseESP）代码 Review 待办（2026/08/20）
 
 > 来源：对 `src/` 全量 review。**P0 与部分 P1 已在 2026/08/20 修复并通过 `/W4 /WX` Release 构建**，
 > 本文档只保留**尚未处理**的条目，供后续按需取用。

@@ -25,7 +25,7 @@ namespace Input
             {
                 // 主菜单/控制台未创建时单例为空
                 if (RE::ConsoleLog* console = RE::ConsoleLog::GetSingleton())
-                    console->Print("CorpseESP: %s", enabled ? "ON" : "OFF");
+                    console->Print("HighlightLootableCorpses: %s", enabled ? "ON" : "OFF");
 
                 Config::save_enabled();
             });

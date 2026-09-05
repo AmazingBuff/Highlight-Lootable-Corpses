@@ -1,4 +1,4 @@
-# CorpseESP
+# Highlight Lootable Corpses（Corpse ESP）
 
 一个用于 Skyrim AE（1.6.x）的 SKSE 插件：**透视显示周围可搜刮的尸体**。
 
@@ -21,24 +21,24 @@
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
 - 热键一键开关（默认 `F7`，可在 INI 中修改）
 - **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
-  的 "CorpseESP > Settings" 页面实时调整并保存到 INI
+  的 "Highlight Lootable Corpses > Settings" 页面实时调整并保存到 INI
 - 全部选项由 INI 配置，首次运行自动生成默认配置文件
 
 ## 安装
 
 1. 安装 [SKSE64](https://skse.silverlock.org/)（AE 版本，与游戏版本匹配）
 2. 安装 [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
-3. 将 `CorpseESP.dll` 放入游戏目录的 `Data\SKSE\Plugins\` 下
+3. 将 `HighlightLootableCorpses.dll` 放入游戏目录的 `Data\SKSE\Plugins\` 下
 4. （可选但推荐）安装 [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352)，
    以获得游戏内设置面板；未安装时插件其余功能不受影响（日志会提示面板禁用）
 5. 启动游戏，进入游戏后插件自动生效
 
-> 日志文件：`Documents\My Games\Skyrim Special Edition\SKSE\CorpseESP.log`
+> 日志文件：`Documents\My Games\Skyrim Special Edition\SKSE\HighlightLootableCorpses.log`
 
 ## 配置文件
 
-首次运行会在 `Data\SKSE\Plugins\CorpseESP.ini` 生成默认配置。
-所有选项也都可以在游戏内 Mod Control Panel 中实时调整（"CorpseESP > Settings"，
+首次运行会在 `Data\SKSE\Plugins\HighlightLootableCorpses.ini` 生成默认配置。
+所有选项也都可以在游戏内 Mod Control Panel 中实时调整（"Highlight Lootable Corpses > Settings"，
 "Save to INI" 按钮写回本文件）：
 
 ```ini
@@ -47,8 +47,8 @@
 Enabled=true
 ; 热键虚拟键码（0x76 = F7）
 Hotkey=118
-; 最大搜索距离（游戏单位，约 114 米）
-MaxDistance=8000.0
+; 最大搜索距离（游戏单位，默认约 17 米）
+MaxDistance=2000.0
 ; 尸体扫描间隔（毫秒）
 ScanIntervalMs=500
 
@@ -87,7 +87,7 @@ cmake --preset Release
 # 方案 B：复用本机已装好的依赖（离线，不经过 vcpkg，本机专用 preset）
 cmake --preset ReleaseLocal        # 定义在 CMakeUserPresets.json（不提交）
 
-# 构建（产物在 build/src/Release/CorpseESP.dll）
+# 构建（产物在 build/src/Release/HighlightLootableCorpses.dll）
 cmake --build build --config Release
 
 # 打 ZIP 包（可选）
@@ -124,7 +124,7 @@ cpack --config build/CPackConfig.cmake
   热键在渲染回调中轮询。
 - **游戏内菜单**：`ui_menu.cpp` 通过 [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
   （header-only）在 `kDataLoaded` 后探测 `SKSEMenuFramework.dll` 并注册
-  "CorpseESP > Settings" 面板；imgui 函数经 `GetProcAddress` 动态调用框架
+  "Highlight Lootable Corpses > Settings" 面板；imgui 函数经 `GetProcAddress` 动态调用框架
   导出（`igXXX`），无链接依赖。面板回调在游戏主线程执行，直接读写
   `Config::get_mutable()`（与渲染线程的无锁读取同现有模式）。
 

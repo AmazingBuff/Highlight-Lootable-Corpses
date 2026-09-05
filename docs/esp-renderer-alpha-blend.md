@@ -1,4 +1,4 @@
-# CorpseESP 边框透明度异常 —— 排查记录与修复
+# HighlightLootableCorpses（原 CorpseESP）边框透明度异常 —— 排查记录与修复
 
 > 记录日期：本次会话
 > 涉及文件：`src/esp_renderer.cpp`

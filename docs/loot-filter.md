@@ -1,4 +1,4 @@
-# CorpseESP「有价值尸体筛选」功能方案与实现记录
+# HighlightLootableCorpses（原 CorpseESP）「有价值尸体筛选」功能方案与实现记录
 
 > 日期：2026/08/18
 > 状态：已实现，Release 构建通过（`/W4 /WX` 无告警）
@@ -122,7 +122,7 @@ scan()（游戏线程，500ms）
 ## 九、验证清单
 
 - [x] `cmake --preset Release` 配置成功（AE）
-- [x] `cmake --build build --config Release` 成功，`/W4 /WX` 无告警；产物 `build/src/Release/CorpseESP.dll`
+- [x] `cmake --build build --config Release` 成功，`/W4 /WX` 无告警；产物 `build/src/Release/HighlightLootableCorpses.dll`
 - [ ] 游戏内开过滤：只有破烂（骨头/布匹/低值杂物）的尸体消失；带附魔武器、钥匙、法术书、金币堆的尸体保留
 - [ ] 日志核对 `cats=` 判定（灰烬堆、干尸各看一次）
 - [ ] 阈值、书籍模式、灵魂石开关各调一次验证即时生效

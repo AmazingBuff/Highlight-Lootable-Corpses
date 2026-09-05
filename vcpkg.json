@@ -1,5 +1,5 @@
 {
-  "name": "corpseesp",
+  "name": "highlightlootablecorpses",
   "version": "1.0.0",
   "dependencies": [
     "fmt",

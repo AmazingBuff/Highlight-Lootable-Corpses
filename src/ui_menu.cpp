@@ -108,11 +108,11 @@ namespace UiMenu
             return;
         }
 
-        SKSEMenuFramework::SetSection("CorpseESP");
+        SKSEMenuFramework::SetSection("Highlight Lootable Corpses");
         SKSEMenuFramework::AddSectionItem("Settings", render_settings);
 
         logger::info(
-            "Registered CorpseESP settings page (SKSE Menu Framework v{:.2f})",
+            "Registered Highlight Lootable Corpses settings page (SKSE Menu Framework v{:.2f})",
             SKSEMenuFramework::GetMenuFrameworkVersion());
     }
 }
