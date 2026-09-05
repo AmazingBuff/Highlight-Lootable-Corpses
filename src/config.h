@@ -9,7 +9,7 @@ namespace Config
     {
         bool enabled{ true };                     // 默认启用
         uint32_t hotkey{ 0x76 };             // F7
-        float max_distance{ 8000.0f };            // 最大搜索距离（游戏单位，约 114 米）
+        float max_distance{ 2000.0f };            // 最大搜索距离（游戏单位，约 114 米）
         uint32_t scan_interval_ms{ 500 };    // 尸体扫描间隔
         uint32_t outline_color{ 0x00FF66 };  // 描边颜色 (RGB)
         float min_opacity{ 0.15f };               // 远处标记的最小不透明度

@@ -25,7 +25,7 @@ namespace
         if (ImGuiMCP::Checkbox("Enabled", &enabled))
             Config::set_enabled(enabled);
 
-        ImGuiMCP::SliderFloat("Max Search Distance", &s.max_distance, 500.0f, 50000.0f, "%.0f");
+        ImGuiMCP::SliderFloat("Max Search Distance", &s.max_distance, 500.0f, 10000.0f, "%.0f");
         int scan_ms = static_cast<int>(s.scan_interval_ms);
         if (ImGuiMCP::SliderInt("Scan Interval (ms)", &scan_ms, 100, 5000))
             s.scan_interval_ms = static_cast<std::uint32_t>(scan_ms);
@@ -60,7 +60,7 @@ namespace
         ImGuiMCP::Checkbox("Keys", &s.value_keys);
         ImGuiMCP::Checkbox("Enchanted Gear", &s.value_enchanted);
         ImGuiMCP::Checkbox("High-Value Items", &s.value_high_value);
-        ImGuiMCP::SliderFloat("High Value Threshold", &s.high_value_threshold, 10.0f, 10000.0f, "%.0f");
+        ImGuiMCP::SliderFloat("High Value Threshold", &s.high_value_threshold, 0.0f, 1000.0f, "%.0f");
         ImGuiMCP::Checkbox("Books", &s.value_books);
         static constexpr char const* kBookModes[] = { "All Books", "Spell & Skill Books", "Spell Books Only" };
         ImGuiMCP::Combo("Book Mode", &s.book_filter_mode, kBookModes, 3);
