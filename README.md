@@ -60,7 +60,7 @@ MinOpacity=0.15
 ; 描边线宽（像素）
 OutlineThickness=2.0
 ; 开始淡出的距离（游戏单位，该距离内完全不透明）
-FadeStartDistance=1000.0
+FadeStartDistance=500.0
 ; 淡出曲线指数（越大衰减越快，1.0 = 线性）
 FadePower=2.0
 ; 是否画包围盒描边

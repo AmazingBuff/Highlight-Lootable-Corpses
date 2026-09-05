@@ -17,7 +17,7 @@ namespace Config
         bool show_outline{ true };                // 画描边
 
         // 距离衰减：FadeStartDistance 内完全可见，超过后按 FadePower 指数淡出到 MinOpacity
-        float fade_start_distance{ 1000.0f };  // 开始淡出的距离（游戏单位）
+        float fade_start_distance{ 500.0f };  // 开始淡出的距离（游戏单位）
         float fade_power{ 2.0f };              // 淡出曲线指数（越大衰减越快）
 
         // 战利品筛选：开启后只显示库存命中以下任一价值分类的尸体边框

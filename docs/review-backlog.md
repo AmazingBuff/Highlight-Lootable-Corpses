@@ -12,7 +12,7 @@
 | `flush_ui_quads` 无上限 `memcpy`（越界写 D3D 映射区） | `esp_renderer.cpp` | 提取 `Vertex_Buffer_Bytes`/`Max_Vertices`，按整三角形裁剪 |
 | 着色器 blob 泄漏 + 失败后每帧重试重建 | `esp_renderer.cpp` | `compile_ui_shader`/`release_ui_pipeline`/`g_ui_failed` |
 | INI 无边界校验（`MinOpacity>1` 触发 `std::clamp` lo>hi UB；`MaxDistance<=0` 退化为全量遍历） | `config.cpp` | 新增 `sanitize()`，唯一校验点 |
-| 搜空的容器/尸体仍判为"有货"（`numContainerObjects`、`countDelta<0` 残留条目） | `corpse_finder.cpp`/`loot_filter.cpp` | 判据统一到 `GetInventory(filter, a_noInit=true)` + `count > 0` |
+| 搜空的容器/尸体仍判为"有货"（`numContainerObjects`、`countDelta<0` 残留条目） | `corpse_finder.cpp`/`loot_filter.cpp` | 判据统一到搜刮界面视角的合并库存（QuickLoot IE 式：引擎初始化 + changes/容器模板/掉落物三段合并）+ `countDelta > 0` |
 | `LootFilter::evaluate` 基类容器与运行时条目双重计数 | `loot_filter.cpp` | 同上，改用引擎合并库存 |
 | `draw_rect_outline` 线宽 > 半宽时矩形反转、alpha 叠加 | `esp_renderer.cpp` | `t` 按盒子半宽/半高夹取 |
 | `ConsoleLog::GetSingleton()` 未判空 | `input.cpp` | 判空后再 `Print` |
@@ -176,9 +176,6 @@
 
 - `README.md` 的 INI 示例带注释，但 `Config::save()` 用 SimpleIni 写出的默认文件**没有任何注释**。
 - `README.md` 的配置段缺 `[LootFilter]` 整节说明。
-- `docs/loot-filter.md` 仍写 `kQuest`/`kKey` 等旧枚举名（代码是 `e_quest`/`e_key`），
-  且"基础容器条目用 `obj->GetGoldValue()`、任务物品仅运行时条目可判"等描述已被
-  "统一走引擎合并库存 + `InventoryEntryData`"的实现取代。
 - `src/loot_filter.cpp`/`src/loot_filter.h` 是 LF 行尾，仓库其余源文件为 CRLF（既有差异，未动）。
 
 ---

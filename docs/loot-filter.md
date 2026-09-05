@@ -25,25 +25,50 @@
 
 ## 三、物品判定规则（精确到 CommonLibSSE API）
 
-`LootFilter::evaluate(ref)` 读取引擎合并库存（基类容器条目 + 运行时 countDelta，
-`ref->GetInventory(filter, a_noInit=true)`，只读、不创建 InventoryChanges），
-`count > 0` 才算有货（被拿走的物品体现为 count <= 0）。
+判定原则：**用与搜刮界面（以及 QuickLoot IE）完全相同的路径取背包内容，再逐项
+判断玩家能否拿取**。不手写模拟等级列表/装备来源，信任引擎。
 
-**LVLI 占位条目**（基类 CNTO 里的升级清单，如 `LootGoldChange`、`LootDraugrWeapon15`）按容器阶段区别对待——这是"搜空尸体仍显示"缺陷的根因修复：
+**取库存**（`fetch_inventory_items`，fork 自 QuickLoot IE
+`src/Items/Inventory.cpp` 的 `LoadContainerInventory`）：
 
-- **已初始化**（`GetInventoryChanges(true) != nullptr`，即容器被打开过 / Actor 出生）：引擎已把 LVLI 解析成具体物品，运行时条目以解析后的具体物品为键，基类 LVLI 条目成为引擎 UI 永不显示、玩家拿不到的占位伪物品 → **跳过**（不计 `has_items`/分类/价值）；
-- **未初始化**（从未打开的静态尸体）：LVLI 条目代表尚未生成的真实战利品 → **计入 `has_items`**，且不经过 `GetPlayable()`（本机虚表分发不可靠，与 `IsDead()` 同类问题）。
+1. `ref->GetInventoryChanges()`（无参 = noInit=false）：容器尚无库存档时触发
+   引擎初始化/掷骰（与首次打开容器等效），outfit 装备、容器模板物品、等级列表
+   由此全部 resolve 成实际物品写入 InventoryChanges——draugr 这类经 TPLT 模板
+   继承装备（"Use Inventory" 标志）的 NPC 也在此路径覆盖；
+2. actor 额外调用引擎函数 `RefreshEnchantedWeapons`（SE 50946 / AE 51823，
+   fork 自 QuickLoot IE）把装备武器的附魔实例数据刷进库存档；
+3. 三路合并到 `unordered_map<TESBoundObject*, InventoryEntryData>`：
+   - **changes 条目**：引擎 resolve 后的实际物品（含 worn 装备、掷骰结果）；
+   - **容器模板**（`GetContainer()->ForEachContainerObject`）：**跳过
+     `TESLevItem`**（引擎尚未 resolve 的占位条目直接忽略，与搜刮界面一致）；
+     与 changes 重叠的条目（非 leveled）count 叠加；
+   - **掉落物**（`ExtraDroppedItemList`）：未删除/未禁用的掉落引用按其 count 计入；
+4. 过滤 `countDelta <= 0`（被拿走的物品体现为负增量）。
 
-其余条目还须通过 `object->GetPlayable()`（不可拾取的残留物不算"还有货"）。
+**逐项判定**（evaluate）：
+
+- form type 为 `LeveledItem`：引擎仍未 resolve 的占位条目 → 跳过（QuickLoot IE
+  同款取舍：宁缺勿错）；
+- `!GetPlayable()`：玩家不可拿取的残留物不算"还有货"；
+- 其余按 `countDelta > 0` 计入 `has_items`，并累计分类/价值。
+
+> **教训**：不要试图手写模拟引擎的库存语义——等级列表解析、outfit 物化
+> （draugr 武器经 TPLT 模板链继承）都有引擎专属时序。手写模拟（noInit 只读合并、
+> 静态展开 LVLI、沿模板链扫装备）每一版都在某类尸体上回归；最终以 QuickLoot IE
+> 的"触发引擎初始化 + 只信引擎结果"方案收口。库存档缺失时
+> `GetInventoryChanges()` 的兜底路径（`ForceInitInventoryChanges`）可能留下
+> 未 resolve 的占位条目，此时跳过它们意味着漏报而非误报——可接受。
+
+**分类/价值**从合并库存评估，供战利品筛选使用。
 
 逐件分类规则（或关系，命中即置位）：
 
-- **kQuest**：`entry->IsQuestObject()`（内部查 `HasQuestObjectAlias`，即任务别名"任务对象"标志，权威）
-- **kKey**：`obj->GetFormType() == RE::FormType::KeyMaster`（`TESKey`）
-- **kEnchanted**：有 entry 用 `entry->IsEnchanted()`（覆盖基底 `TESEnchantableForm::formEnchanting` + 实例附魔）；基础容器条目自己查 `obj->As<TESEnchantableForm>() && formEnchanting`
-- **kValuable**：`value = item_value(...)`：金币堆（`obj->IsGold()`，FormID==0xF）按枚数计，其余 `entry ? entry->GetValue() : obj->GetGoldValue()`；`value >= high_value_threshold` 命中
-- **kBook**：`obj->GetFormType() == RE::FormType::Book`，按 `book_filter_mode`：`TeachesSpell()`（法术书）/ `TeachesSkill()`（技能书）/ 全部；笔记/信件（无 teaches 标志）只在 mode=0 时算
-- **kConsumable**：`formType ∈ {Ammo, Ingredient, AlchemyItem, SoulGem, Scroll}`；灵魂石按 `soul_gem_filled_only` 选项要求 `entry->GetSoulLevel() != SOUL_LEVEL::kNone`（已填充）
+- **e_quest**：`entry->IsQuestObject()`（内部查 `HasQuestObjectAlias`，即任务别名"任务对象"标志，权威）
+- **e_key**：`obj->GetFormType() == RE::FormType::KeyMaster`（`TESKey`）
+- **e_enchanted**：`entry->IsEnchanted()`（覆盖基底 `TESEnchantableForm::formEnchanting` + 实例附魔）
+- **e_valuable**：`value = item_value(...)`：金币堆（`obj->IsGold()`，FormID==0xF）按枚数计，其余 `entry->GetValue()`；`value >= high_value_threshold` 命中
+- **e_book**：`obj->GetFormType() == RE::FormType::Book`，按 `book_filter_mode`：`TeachesSpell()`（法术书）/ `TeachesSkill()`（技能书）/ 全部；笔记/信件（无 teaches 标志）只在 mode=0 时算
+- **e_consumable**：`formType ∈ {Ammo, Ingredient, AlchemyItem, Scroll}`；灵魂石按 `soul_gem_filled_only` 选项要求 `entry->GetSoulLevel() != SOUL_LEVEL::kNone`（已填充）
 
 > 注意：`InventoryEntryData::GetObject()` 会被 windows.h 的 `GetObject` 宏展开成
 > `GetObjectA`，实现中改用公开成员 `entry->object` 访问（曾踩坑，勿改回）。
@@ -97,7 +122,7 @@ scan()（游戏线程，500ms）
 
 | 文件 | 改动 |
 |---|---|
-| `src/loot_filter.h` / `.cpp`（新增） | `Category` 枚举、`Result`、`evaluate()`、`enabled_category_mask()`、`category_summary()`；匿名命名空间内 `item_value()` / `classify_item()` 纯函数 |
+| `src/loot_filter.h` / `.cpp`（新增） | `Category` 枚举、`Result`、`evaluate()`、`enabled_category_mask()`、`category_summary()`；匿名命名空间内 `item_value()` / `classify_item()` 纯函数、`fetch_inventory_items()`（fork 自 QuickLoot IE `LoadContainerInventory`）、`refresh_enchanted_weapons()`（引擎函数重定位 SE 50946 / AE 51823） |
 | `src/corpse_finder.h` | `CorpseEntry` 增加 `loot_categories`、`best_item_value` |
 | `src/corpse_finder.cpp` | 三处候选（actor/ash/static）接入 evaluate；`added to list` 日志追加 `[cats=... best=...]` |
 | `src/config.h` / `.cpp` | 新字段、INI `[LootFilter]` 读写、save/reset 覆盖、load 日志追加 lootFilter 状态 |
@@ -116,8 +141,19 @@ scan()（游戏线程，500ms）
 5. **玩家自身**：已排除，不受影响
 6. **空灵魂石**：默认排除（filled_only 可关）
 7. **基础容器里的灵魂石**：无实例信息，filled_only 开启时无法验证填充态，会被排除（静态尸体场景极少见，可接受）
-8. **LVLI 占位条目**：见第三节——已初始化容器跳过（搜空即消失的关键），未初始化容器视为潜在战利品
-9. **打开后升级清单解析为空的容器**：已初始化 + 无具体条目 → 判空，box 消失（与引擎 UI 一致）
+8. **LVLI 战利品**：引擎库存初始化后以具体物品入档（含 worn 装备、掷骰结果），
+   随合并库存正常计入；容器模板中仍未 resolve 的 `TESLevItem` 占位条目跳过
+   （见第三节）——占位条目 count 恒为基类定义值、永不随拿取递减，计入会导致
+   拿空的尸体永远判有货
+9. **兜底路径的残留占位**：`GetInventoryChanges()` 的兜底初始化
+   （`ForceInitInventoryChanges`）可能留下未 resolve 的占位条目，此时跳过它们
+   意味着漏报而非误报（宁缺勿错，QuickLoot IE 同款取舍）
+10. **Actor 尸体的装备**：手上武器/身上装备在引擎库存初始化后以带 Worn 标记的
+    changes 条目出现，随合并库存正常计入；附魔武器的实例数据由
+    `RefreshEnchantedWeapons` 补齐
+11. **扫描期主动初始化**：进入搜索半径且尚无库存档的尸体会被
+    `GetInventoryChanges()` 初始化（提前掷骰，与首次打开等效，玩家无感知）；
+    未打开过即存档再读，战利品不再重掷（与原版微差，可接受）
 
 ## 九、验证清单
 

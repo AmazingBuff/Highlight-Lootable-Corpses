@@ -91,6 +91,92 @@ namespace
 
         return cats;
     }
+
+
+    // fork from QuickLoot IE src/items/inventory.cpp
+    using func_t = void (*)(RE::Actor*, RE::InventoryChanges*);
+    REL::Relocation<func_t> g_refresh_enchanted_weapons{ RELOCATION_ID(50946, 51823) };
+
+    RE::BSTArray<RE::InventoryEntryData> fetch_inventory_items(RE::TESObjectREFR* a_ref, const std::function<bool(RE::TESBoundObject&)>& filter)
+    {
+        RE::InventoryChanges* const changes = a_ref->GetInventoryChanges();
+
+		if (RE::Actor* const actor = skyrim_cast<RE::Actor*>(a_ref))
+		{
+		    if (changes)
+		        g_refresh_enchanted_weapons(actor, changes);
+		}
+
+		std::unordered_map<RE::TESBoundObject*, RE::InventoryEntryData> lookup;
+
+		// Changed items
+		if (changes && changes->entryList)
+		{
+			for (const RE::InventoryEntryData* entry : *changes->entryList)
+			{
+			    if (entry && entry->object && filter(*entry->object))
+			    {
+			        lookup.emplace(entry->object, *entry);
+			    }
+			}
+		}
+
+		// Base container items
+		if (RE::TESContainer const* const container = a_ref->GetContainer())
+		{
+			container->ForEachContainerObject([&](RE::ContainerObject& entry)
+			{
+			    RE::TESBoundObject* const object = entry.obj;
+                if (object && filter(*object) && !skyrim_cast<RE::TESLevItem*>(object))
+                {
+                    if (auto const it = lookup.find(object); it == lookup.end())
+                        lookup.emplace(object, RE::InventoryEntryData{object, entry.count});
+                    else
+                    {
+                        RE::InventoryEntryData& inventory_entry = it->second;
+                        if (!inventory_entry.IsLeveled())
+                            inventory_entry.countDelta += entry.count;
+                    }
+                }
+			    return RE::BSContainer::ForEachResult::kContinue;
+			});
+		}
+
+		// Dropped items always appear as separate item stacks because we need to attach the drop ref to them.
+		if (RE::ExtraDroppedItemList* const extra_drops = a_ref->extraList.GetByType<RE::ExtraDroppedItemList>())
+		{
+			for (const RE::ObjectRefHandle& drop_ref_handle : extra_drops->droppedItemList) {
+				const RE::NiPointer<RE::TESObjectREFR> reference = drop_ref_handle.get();
+
+			    if (reference && !reference->IsDeleted() && !reference->IsDisabled())
+			    {
+			        RE::TESBoundObject* const object = reference->GetObjectReference();
+			        if (object && filter(*object))
+			        {
+			            const int32_t count = reference->extraList.GetCount();
+			            if (auto const it = lookup.find(object); it == lookup.end())
+			                lookup.emplace(object, RE::InventoryEntryData{object, count});
+			            else
+			            {
+			                RE::InventoryEntryData& inventory_entry = it->second;
+			                if (!inventory_entry.IsLeveled())
+			                    inventory_entry.countDelta += count;
+			            }
+			        }
+			    }
+			}
+		}
+
+        RE::BSTArray<RE::InventoryEntryData> inventory;
+        for (auto const& entry : lookup | std::views::values)
+        {
+            if (entry.countDelta > 0)
+                inventory.emplace_back(entry);
+        }
+
+		return inventory;
+    }
+
 }
 
 namespace LootFilter
@@ -103,42 +189,21 @@ namespace LootFilter
 
         Config::Settings const& cfg = Config::get();
 
-        // 合并库存由引擎侧权威实现给出：基类容器条目（CONT/NPC 默认战利品，含 leveled
-        // 条目去重）+ 运行时 countDelta。a_noInit=true 保证只读、不创建 InventoryChanges。
-        // 被拿走的物品体现为 count <= 0，必须剔除，否则搜刮过的尸体会一直判为有货；
-        // 只统计玩家可拿取（GetPlayable）的条目，不可拾取的残留物不算"还有货"。
-        //
-        // 基类 CNTO 里的升级清单（LVLI）条目按容器阶段区别对待（实测：TreasDraugr
-        // 系静态尸体的基类容器全是 LVLI，搜空后 count=1 占位条目仍判有货）：
-        // - 引擎初始化库存时（打开容器 / Actor 出生）把 LVLI 解析成具体物品，运行时
-        //   条目以解析后的具体物品为键——基类 LVLI 条目从此是引擎 UI 永不显示、玩家
-        //   拿不到的占位伪物品。已初始化的 ref 必须跳过它们，否则搜空尸体永远判有货。
-        // - 未初始化的 ref（从未打开的静态尸体）LVLI 条目代表尚未生成的真实战利品，
-        //   保留计数视为有货。该分支不经过 GetPlayable：LVLI 记录 flags=0 时基类实现
-        //   应返回 false，但本机虚表分发不可靠（与 IsDead() 同类问题），不可依赖。
-        bool const initialized = a_ref->GetInventoryChanges(true) != nullptr;
-
-        for (auto const& [object, data] : a_ref->GetInventory([](RE::TESBoundObject&) { return true; }, true))
+        for (RE::InventoryEntryData const& entry : fetch_inventory_items(a_ref, RE::TESObjectREFR::DEFAULT_INVENTORY_FILTER))
         {
-            std::int32_t const count = data.first;
-            RE::InventoryEntryData const* const entry = data.second.get();
-            if (!object || !entry || count <= 0)
+            RE::TESBoundObject const* const object = entry.object;
+            if (!object)
                 continue;
 
             if (object->GetFormType() == RE::FormType::LeveledItem)
-            {
-                // LVLI 无价值/分类贡献可言，两个分支都不进 classify_item
-                if (!initialized)
-                    result.has_items = true;
-                continue;
-            }
+                continue;  // 引擎仍未 resolve 的等级条目：跳过（QuickLoot IE 同款取舍）
 
             if (!object->GetPlayable())
-                continue;
+                continue;  // 玩家不可拿取的残留物不算"还有货"
 
             result.has_items = true;
-            result.categories |= classify_item(*entry, count, cfg);
-            result.best_item_value = std::max(result.best_item_value, item_value(*entry, count));
+            result.categories |= classify_item(entry, entry.countDelta, cfg);
+            result.best_item_value = std::max(result.best_item_value, item_value(entry, entry.countDelta));
         }
 
         return result;

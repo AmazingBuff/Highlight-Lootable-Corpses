@@ -34,8 +34,6 @@ namespace LootFilter
     };
 
     // 评估一具尸体的可搜刮库存（Actor / 灰烬堆关联 Actor / 静态尸体容器）。
-    // 只读：内部按 a_noInit=true 取"基类容器 + 运行时 countDelta"的合并库存，
-    // 不创建 InventoryChanges；已被拿空的条目（count <= 0）不计入。
     [[nodiscard]] Result evaluate(RE::TESObjectREFR* a_ref);
 
     // 由 Config 分类开关合成的掩码（渲染线程无锁读取，用于过滤与状态统计）

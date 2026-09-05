@@ -56,7 +56,7 @@ ScanIntervalMs=500          ; corpse scan interval in milliseconds
 OutlineColor=00FF66         ; outline color (RGB hex)
 MinOpacity=0.15             ; minimum opacity at max distance
 OutlineThickness=2.0        ; outline thickness in pixels
-FadeStartDistance=1000.0    ; distance where fading begins (fully opaque below)
+FadeStartDistance=500.0    ; distance where fading begins (fully opaque below)
 FadePower=2.0               ; fade curve exponent (higher = faster fade)
 ShowOutline=true            ; draw outlines at all
 
