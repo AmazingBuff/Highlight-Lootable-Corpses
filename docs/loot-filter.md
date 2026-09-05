@@ -25,14 +25,18 @@
 
 ## 三、物品判定规则（精确到 CommonLibSSE API）
 
-`LootFilter::evaluate(ref)` 遍历两类库存来源，逐件判定：
+`LootFilter::evaluate(ref)` 读取引擎合并库存（基类容器条目 + 运行时 countDelta，
+`ref->GetInventory(filter, a_noInit=true)`，只读、不创建 InventoryChanges），
+`count > 0` 才算有货（被拿走的物品体现为 count <= 0）。
 
-| 来源 | 获取方式 | 能判断的信息 |
-|---|---|---|
-| 运行时库存 | `ref->GetInventoryChanges(true)->entryList`（`BSSimpleList<InventoryEntryData*>`，`a_noInit=true` 只读） | 完整：任务标志/实例附魔/灵魂等级/实例价值 |
-| 基础容器 | `ref->GetContainer()->ForEachContainerObject`（静态尸体才有） | 仅基础表单 |
+**LVLI 占位条目**（基类 CNTO 里的升级清单，如 `LootGoldChange`、`LootDraugrWeapon15`）按容器阶段区别对待——这是"搜空尸体仍显示"缺陷的根因修复：
 
-逐件规则（或关系，命中即置位）：
+- **已初始化**（`GetInventoryChanges(true) != nullptr`，即容器被打开过 / Actor 出生）：引擎已把 LVLI 解析成具体物品，运行时条目以解析后的具体物品为键，基类 LVLI 条目成为引擎 UI 永不显示、玩家拿不到的占位伪物品 → **跳过**（不计 `has_items`/分类/价值）；
+- **未初始化**（从未打开的静态尸体）：LVLI 条目代表尚未生成的真实战利品 → **计入 `has_items`**，且不经过 `GetPlayable()`（本机虚表分发不可靠，与 `IsDead()` 同类问题）。
+
+其余条目还须通过 `object->GetPlayable()`（不可拾取的残留物不算"还有货"）。
+
+逐件分类规则（或关系，命中即置位）：
 
 - **kQuest**：`entry->IsQuestObject()`（内部查 `HasQuestObjectAlias`，即任务别名"任务对象"标志，权威）
 - **kKey**：`obj->GetFormType() == RE::FormType::KeyMaster`（`TESKey`）
@@ -112,6 +116,8 @@ scan()（游戏线程，500ms）
 5. **玩家自身**：已排除，不受影响
 6. **空灵魂石**：默认排除（filled_only 可关）
 7. **基础容器里的灵魂石**：无实例信息，filled_only 开启时无法验证填充态，会被排除（静态尸体场景极少见，可接受）
+8. **LVLI 占位条目**：见第三节——已初始化容器跳过（搜空即消失的关键），未初始化容器视为潜在战利品
+9. **打开后升级清单解析为空的容器**：已初始化 + 无具体条目 → 判空，box 消失（与引擎 UI 一致）
 
 ## 九、验证清单
 

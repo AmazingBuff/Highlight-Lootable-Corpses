@@ -105,12 +105,35 @@ namespace LootFilter
 
         // 合并库存由引擎侧权威实现给出：基类容器条目（CONT/NPC 默认战利品，含 leveled
         // 条目去重）+ 运行时 countDelta。a_noInit=true 保证只读、不创建 InventoryChanges。
-        // 被拿走的物品体现为 count <= 0，必须剔除，否则搜刮过的尸体会一直判为有货。
+        // 被拿走的物品体现为 count <= 0，必须剔除，否则搜刮过的尸体会一直判为有货；
+        // 只统计玩家可拿取（GetPlayable）的条目，不可拾取的残留物不算"还有货"。
+        //
+        // 基类 CNTO 里的升级清单（LVLI）条目按容器阶段区别对待（实测：TreasDraugr
+        // 系静态尸体的基类容器全是 LVLI，搜空后 count=1 占位条目仍判有货）：
+        // - 引擎初始化库存时（打开容器 / Actor 出生）把 LVLI 解析成具体物品，运行时
+        //   条目以解析后的具体物品为键——基类 LVLI 条目从此是引擎 UI 永不显示、玩家
+        //   拿不到的占位伪物品。已初始化的 ref 必须跳过它们，否则搜空尸体永远判有货。
+        // - 未初始化的 ref（从未打开的静态尸体）LVLI 条目代表尚未生成的真实战利品，
+        //   保留计数视为有货。该分支不经过 GetPlayable：LVLI 记录 flags=0 时基类实现
+        //   应返回 false，但本机虚表分发不可靠（与 IsDead() 同类问题），不可依赖。
+        bool const initialized = a_ref->GetInventoryChanges(true) != nullptr;
+
         for (auto const& [object, data] : a_ref->GetInventory([](RE::TESBoundObject&) { return true; }, true))
         {
             std::int32_t const count = data.first;
             RE::InventoryEntryData const* const entry = data.second.get();
             if (!object || !entry || count <= 0)
+                continue;
+
+            if (object->GetFormType() == RE::FormType::LeveledItem)
+            {
+                // LVLI 无价值/分类贡献可言，两个分支都不进 classify_item
+                if (!initialized)
+                    result.has_items = true;
+                continue;
+            }
+
+            if (!object->GetPlayable())
                 continue;
 
             result.has_items = true;
