@@ -68,7 +68,7 @@
 - **e_enchanted**：`entry->IsEnchanted()`（覆盖基底 `TESEnchantableForm::formEnchanting` + 实例附魔）
 - **e_valuable**：`value = item_value(...)`：金币堆（`obj->IsGold()`，FormID==0xF）按枚数计，其余 `entry->GetValue()`；`value >= high_value_threshold` 命中
 - **e_book**：`obj->GetFormType() == RE::FormType::Book`，按 `book_filter_mode`：`TeachesSpell()`（法术书）/ `TeachesSkill()`（技能书）/ 全部；笔记/信件（无 teaches 标志）只在 mode=0 时算
-- **e_consumable**：`formType ∈ {Ammo, Ingredient, AlchemyItem, Scroll}`；灵魂石按 `soul_gem_filled_only` 选项要求 `entry->GetSoulLevel() != SOUL_LEVEL::kNone`（已填充）
+- **e_consumable**：`formType ∈ {Ammo, Ingredient, AlchemyItem, SoulGem, Scroll}`（灵魂石无条件计入）
 
 > 注意：`InventoryEntryData::GetObject()` 会被 windows.h 的 `GetObject` 宏展开成
 > `GetObjectA`，实现中改用公开成员 `entry->object` 访问（曾踩坑，勿改回）。
@@ -77,10 +77,10 @@
 
 ```
 scan()（游戏线程，500ms）
-  └─ 对每个候选尸体（actor/灰烬堆/静态尸体）:
-       actor      → LootFilter::evaluate(actor)
-       灰烬堆     → evaluate(find_ash_pile_owner(pile))   // 战利品在关联 Actor 上
-       静态尸体   → evaluate(ref)                          // 基础容器 + 运行时
+  └─ TES::ForEachReferenceInRange(玩家, max_distance)
+       actor      → cached_evaluate(actor)      // 命中缓存则跳过评估
+       灰烬堆     → cached_evaluate(关联 Actor)  // 战利品在关联 Actor 上
+       静态尸体   → cached_evaluate(ref)
   └─ 结果写入 CorpseEntry.loot_categories / best_item_value
        ↓ snapshot（互斥拷贝）
 渲染 on_present（渲染线程）
@@ -90,6 +90,13 @@ scan()（游戏线程，500ms）
 ```
 
 - **评估放扫描期**：游戏线程、每 0.5s 一次、线性遍历无分配，性能无虞；渲染线程零成本只做位与。
+- **评估结果缓存**：FormID → Result（`g_loot_cache`，附评估时的配置快照戳），
+  两条失效路径——`TESContainerChangedEvent` 失效对应尸体（玩家拿/放物品、脚本
+  AddItem/RemoveItem、respawn 填充库存都走引擎容器变化路径）；loot filter 参数
+  修改（阈值/分类开关等）使快照戳失配，下轮扫描全部重评（分类/价值依赖配置，
+  改参数后必须重新归类）；读档/新游戏时整体清空。范围内遍历每轮照跑（发现新
+  尸体、刷新 ragdoll 包围盒），但已评估尸体的库存合并与分类不再重复执行。scan
+  与事件分发同在游戏线程，无需加锁。
 - **过滤放渲染期**：配置改动即时生效；MCP 状态行显示"可见 X / 总数 Y"。
 
 ## 五、配置项（INI `[LootFilter]` 段）
@@ -97,15 +104,14 @@ scan()（游戏线程，500ms）
 | INI 键 | 字段 | 默认 | 说明 |
 |---|---|---|---|
 | LootFilterEnabled | `loot_filter_enabled` | false | 总开关（默认关 = 现状行为） |
-| ValueQuestItems | `value_quest_items` | true | 任务物品 |
-| ValueKeys | `value_keys` | true | 钥匙 |
-| ValueEnchanted | `value_enchanted` | true | 附魔装备 |
-| ValueHighValue | `value_high_value` | true | 高价值 |
+| ValueQuestItems | `value_quest_items` | false | 任务物品 |
+| ValueKeys | `value_keys` | false | 钥匙 |
+| ValueEnchanted | `value_enchanted` | false | 附魔装备 |
+| ValueHighValue | `value_high_value` | false | 高价值 |
 | HighValueThreshold | `high_value_threshold` | 100.0 | 单件金币价值阈值（load 时 clamp >= 0） |
-| ValueBooks | `value_books` | true | 书籍 |
+| ValueBooks | `value_books` | false | 书籍 |
 | BookFilterMode | `book_filter_mode` | 1 | 0=全部书籍 1=法术+技能书 2=仅法术书（load 时 clamp 0..2） |
-| ValueConsumables | `value_consumables` | true | 消耗品 |
-| SoulGemFilledOnly | `soul_gem_filled_only` | true | 灵魂石仅算已填充 |
+| ValueConsumables | `value_consumables` | false | 消耗品 |
 
 配套 `LootFilter::enabled_category_mask()`：由各开关合成掩码（渲染线程无锁读取）。
 
@@ -113,9 +119,9 @@ scan()（游戏线程，500ms）
 
 - `Checkbox("Filter Valuable Corpses Only")` — 总开关
 - `Checkbox` × 6：Quest Items / Keys / Enchanted Gear / High-Value Items / Books / Consumables
+  （总开关关闭时由 `BeginDisabled`/`EndDisabled` 灰显禁用，仅在总开关开启时可改）
 - `SliderFloat("High Value Threshold", 10~10000)`
 - `Combo("Book Mode")`：全部书籍 / 法术+技能书 / 仅法术书
-- `Checkbox("Filled Soul Gems Only")`
 - 状态行：`Visible: X / Y corpses`（总开关开启时显示）
 
 ## 七、文件改动清单
@@ -139,21 +145,22 @@ scan()（游戏线程，500ms）
 3. **不可拿取的任务物品**（`kCantTake`/任务别名）：仍算有价值——玩家需要知道它在哪
 4. **已装备物品**（`IsWorn`）：不排除，可搜刮
 5. **玩家自身**：已排除，不受影响
-6. **空灵魂石**：默认排除（filled_only 可关）
-7. **基础容器里的灵魂石**：无实例信息，filled_only 开启时无法验证填充态，会被排除（静态尸体场景极少见，可接受）
-8. **LVLI 战利品**：引擎库存初始化后以具体物品入档（含 worn 装备、掷骰结果），
+6. **LVLI 战利品**：引擎库存初始化后以具体物品入档（含 worn 装备、掷骰结果），
    随合并库存正常计入；容器模板中仍未 resolve 的 `TESLevItem` 占位条目跳过
    （见第三节）——占位条目 count 恒为基类定义值、永不随拿取递减，计入会导致
    拿空的尸体永远判有货
-9. **兜底路径的残留占位**：`GetInventoryChanges()` 的兜底初始化
+7. **兜底路径的残留占位**：`GetInventoryChanges()` 的兜底初始化
    （`ForceInitInventoryChanges`）可能留下未 resolve 的占位条目，此时跳过它们
    意味着漏报而非误报（宁缺勿错，QuickLoot IE 同款取舍）
-10. **Actor 尸体的装备**：手上武器/身上装备在引擎库存初始化后以带 Worn 标记的
-    changes 条目出现，随合并库存正常计入；附魔武器的实例数据由
-    `RefreshEnchantedWeapons` 补齐
-11. **扫描期主动初始化**：进入搜索半径且尚无库存档的尸体会被
-    `GetInventoryChanges()` 初始化（提前掷骰，与首次打开等效，玩家无感知）；
-    未打开过即存档再读，战利品不再重掷（与原版微差，可接受）
+8. **Actor 尸体的装备**：手上武器/身上装备在引擎库存初始化后以带 Worn 标记的
+   changes 条目出现，随合并库存正常计入；附魔武器的实例数据由
+   `RefreshEnchantedWeapons` 补齐
+9. **扫描期主动初始化**：进入搜索半径且尚无库存档的尸体会被
+   `GetInventoryChanges()` 初始化（提前掷骰，与首次打开等效，玩家无感知）；
+   未打开过即存档再读，战利品不再重掷（与原版微差，可接受）
+10. **评估缓存**：评估结果按 FormID 缓存，容器变化事件 + 配置快照戳双重失效
+    （见第四节）；缓存条目只增不减，单条仅几十字节、量级为"评估过的尸体数"，
+    内存可忽略
 
 ## 九、验证清单
 

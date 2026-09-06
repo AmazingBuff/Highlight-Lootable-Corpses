@@ -8,29 +8,28 @@ namespace Config
     struct Settings
     {
         bool enabled{ true };                     // 默认启用
-        uint32_t hotkey{ 0x76 };             // F7
+        uint32_t hotkey{ 0 };                // 切换开关的热键（Windows VK 码）；0 = 未绑定（默认禁用热键）
         float max_distance{ 2000.0f };            // 最大搜索距离（游戏单位，约 114 米）
         uint32_t scan_interval_ms{ 500 };    // 尸体扫描间隔
         uint32_t outline_color{ 0x00FF66 };  // 描边颜色 (RGB)
         float min_opacity{ 0.15f };               // 远处标记的最小不透明度
         float outline_thickness{ 2.0f };          // 描边线宽（像素）
-        bool show_outline{ true };                // 画描边
 
         // 距离衰减：FadeStartDistance 内完全可见，超过后按 FadePower 指数淡出到 MinOpacity
         float fade_start_distance{ 500.0f };  // 开始淡出的距离（游戏单位）
         float fade_power{ 2.0f };              // 淡出曲线指数（越大衰减越快）
 
-        // 战利品筛选：开启后只显示库存命中以下任一价值分类的尸体边框
+        // 战利品筛选：开启后只显示库存命中以下任一价值分类的尸体边框。
+        // 分类开关默认全关——用户开启筛选后按需勾选关心的分类
         bool loot_filter_enabled{ false };
-        bool value_quest_items{ true };        // 任务物品（任务别名标记）
-        bool value_keys{ true };               // 钥匙
-        bool value_enchanted{ true };          // 附魔装备
-        bool value_high_value{ true };         // 单件价值 >= HighValueThreshold
+        bool value_quest_items{ false };       // 任务物品（任务别名标记）
+        bool value_keys{ false };              // 钥匙
+        bool value_enchanted{ false };         // 附魔装备
+        bool value_high_value{ false };        // 单件价值 >= HighValueThreshold
         float high_value_threshold{ 100.0f };  // 高价值单件阈值（金币；金币堆按枚数计）
-        bool value_books{ true };              // 书籍
+        bool value_books{ false };             // 书籍
         int book_filter_mode{ 1 };             // 0=全部书籍 1=法术+技能书 2=仅法术书
-        bool value_consumables{ true };        // 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
-        bool soul_gem_filled_only{ true };     // 灵魂石仅算已填充（需实例条目带灵魂等级）
+        bool value_consumables{ false };       // 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
     };
 
     [[nodiscard]] Settings const& get() noexcept;

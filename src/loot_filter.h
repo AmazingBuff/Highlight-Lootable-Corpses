@@ -12,6 +12,11 @@ namespace RE
     class TESObjectREFR;
 }
 
+namespace Config
+{
+    struct Settings;
+}
+
 namespace LootFilter
 {
     // 战利品价值分类（位掩码：一具尸体可同时命中多类）
@@ -35,6 +40,11 @@ namespace LootFilter
 
     // 评估一具尸体的可搜刮库存（Actor / 灰烬堆关联 Actor / 静态尸体容器）。
     [[nodiscard]] Result evaluate(RE::TESObjectREFR* a_ref);
+
+    // 评估结果所依赖的全部配置字段（分类开关、高价值阈值、书籍模式）编码为一个
+    // 64 位快照戳：任一字段变化都会使旧评估结果失效——
+    // 缓存层据此在 loot filter 参数修改后对所有尸体重新评估
+    [[nodiscard]] std::uint64_t config_stamp(Config::Settings const& a_cfg);
 
     // 由 Config 分类开关合成的掩码（渲染线程无锁读取，用于过滤与状态统计）
     [[nodiscard]] std::uint16_t enabled_category_mask();

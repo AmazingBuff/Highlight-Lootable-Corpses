@@ -13,7 +13,7 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 - **Optional loot filter** — show only corpses whose inventory contains quest items, keys, enchanted gear, high-value items, books, consumables (arrows, potions, scrolls, ingredients, soul gems — filled-only option available)
 - **Distance fade** — outlines are fully opaque up close and fade smoothly with distance
 - **Accurate boxes** — outlines come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint (12-edge 3D wireframe when an oriented collision box is available)
-- **Hotkey toggle** — turn the overlay on/off with a single key (F7 by default; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
+- **Hotkey toggle** — optionally turn the overlay on/off with a single key (unbound by default; bind one via the "Hotkey" button in the MCP menu or the `Hotkey` INI key; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
 - **In-game settings menu** — every option can be adjusted live in the Mod Control Panel ("Highlight Lootable Corpses > Settings") and saved to the INI
 - **Lightweight** — bounding-box wireframe rendering only, with a throttled scan loop; negligible frame-time impact
 
@@ -48,7 +48,7 @@ All options live in `Data\SKSE\Plugins\HighlightLootableCorpses.ini` (auto-gener
 ```ini
 [General]
 Enabled=true                ; mod enabled on startup
-Hotkey=118                  ; toggle key virtual-key code (118 = F7, 0 = disabled)
+Hotkey=0                    ; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
 MaxDistance=2000.0          ; search radius in game units (~17 m default)
 ScanIntervalMs=500          ; corpse scan interval in milliseconds
 
@@ -58,19 +58,17 @@ MinOpacity=0.15             ; minimum opacity at max distance
 OutlineThickness=2.0        ; outline thickness in pixels
 FadeStartDistance=500.0    ; distance where fading begins (fully opaque below)
 FadePower=2.0               ; fade curve exponent (higher = faster fade)
-ShowOutline=true            ; draw outlines at all
 
 [LootFilter]
 LootFilterEnabled=false     ; only outline corpses matching the categories below
-ValueQuestItems=true        ; quest items
-ValueKeys=true              ; keys
-ValueEnchanted=true         ; enchanted equipment
-ValueHighValue=true         ; items worth >= HighValueThreshold gold
+ValueQuestItems=false       ; quest items
+ValueKeys=false             ; keys
+ValueEnchanted=false        ; enchanted equipment
+ValueHighValue=false        ; items worth >= HighValueThreshold gold
 HighValueThreshold=100.0    ; high-value threshold (gold piles count by amount)
-ValueBooks=true             ; books
+ValueBooks=false            ; books
 BookFilterMode=1            ; 0 = all books, 1 = spell & skill books, 2 = spell books only
-ValueConsumables=true       ; arrows, ingredients, potions, scrolls, soul gems
-SoulGemFilledOnly=true      ; soul gems count only when filled
+ValueConsumables=false      ; arrows, ingredients, potions, scrolls, soul gems
 ```
 
 ## Compatibility

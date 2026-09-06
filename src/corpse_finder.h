@@ -34,4 +34,9 @@ namespace CorpseFinder
 
     // 任意线程安全调用：取回最近一次扫描的快照
     [[nodiscard]] std::vector<CorpseEntry> snapshot();
+
+    // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保库存评估缓存的失效监听
+    // （TESContainerChangedEvent sink）已注册（幂等），并清空评估缓存——
+    // 读档/新游戏后旧评估全部作废
+    void reset_loot_cache();
 }

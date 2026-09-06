@@ -66,7 +66,6 @@ namespace Config
         g_settings.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor", "00FF66"), 0x00FF66);
         g_settings.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity", g_settings.min_opacity));
         g_settings.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness));
-        g_settings.show_outline = ini.GetBoolValue("Display", "ShowOutline", g_settings.show_outline);
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
@@ -79,7 +78,6 @@ namespace Config
         g_settings.value_books = ini.GetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
         g_settings.book_filter_mode = static_cast<int>(ini.GetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode)));
         g_settings.value_consumables = ini.GetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
-        g_settings.soul_gem_filled_only = ini.GetBoolValue("LootFilter", "SoulGemFilledOnly", g_settings.soul_gem_filled_only);
 
         sanitize(g_settings);
         g_enabled.store(g_settings.enabled, std::memory_order_relaxed);
@@ -111,7 +109,6 @@ namespace Config
         ini.SetValue("Display", "OutlineColor", fmt::format("{:06X}", g_settings.outline_color).c_str());
         ini.SetDoubleValue("Display", "MinOpacity", g_settings.min_opacity);
         ini.SetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness);
-        ini.SetBoolValue("Display", "ShowOutline", g_settings.show_outline);
         ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
         ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
 
@@ -124,7 +121,6 @@ namespace Config
         ini.SetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
         ini.SetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode));
         ini.SetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
-        ini.SetBoolValue("LootFilter", "SoulGemFilledOnly", g_settings.soul_gem_filled_only);
 
         SI_Error const save_rc = ini.SaveFile(path.string().c_str());
         if (save_rc < 0)

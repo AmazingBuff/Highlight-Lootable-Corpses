@@ -19,7 +19,7 @@
 - 包围盒取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体，与尸体实际
   碰撞范围一致；有方向碰撞盒时绘制 12 边 3D 线框
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
-- 热键一键开关（默认 `F7`，可在 INI 中修改）
+- 热键一键开关（默认未绑定；可在 MCP 菜单中重绑定，或通过 INI 的 `Hotkey` 键配置）
 - **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
   的 "Highlight Lootable Corpses > Settings" 页面实时调整并保存到 INI
 - 全部选项由 INI 配置，首次运行自动生成默认配置文件
@@ -45,8 +45,8 @@
 [General]
 ; 是否默认启用
 Enabled=true
-; 热键虚拟键码（0x76 = F7）
-Hotkey=118
+; 热键虚拟键码（Windows VK 码，0 = 未绑定，默认禁用热键；在 MCP 菜单中可重绑定）
+Hotkey=0
 ; 最大搜索距离（游戏单位，默认约 17 米）
 MaxDistance=2000.0
 ; 尸体扫描间隔（毫秒）
@@ -63,8 +63,21 @@ OutlineThickness=2.0
 FadeStartDistance=500.0
 ; 淡出曲线指数（越大衰减越快，1.0 = 线性）
 FadePower=2.0
-; 是否画包围盒描边
-ShowOutline=true
+
+[LootFilter]
+; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体边框
+LootFilterEnabled=false
+; 各分类开关（默认全关，按需勾选；在 MCP 菜单中亦可实时修改）
+ValueQuestItems=false
+ValueKeys=false
+ValueEnchanted=false
+ValueHighValue=false
+; 高价值单件阈值（金币；金币堆按枚数计）
+HighValueThreshold=100.0
+; 书籍分类范围（0=全部书籍 1=法术+技能书 2=仅法术书）
+BookFilterMode=1
+; 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
+ValueConsumables=false
 ```
 
 ## 构建

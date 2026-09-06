@@ -36,6 +36,8 @@ namespace
             ESPRenderer::install();
             // 所有插件已加载完毕：注册 MCP 参数面板（探测 SKSEMenuFramework.dll）
             UiMenu::register_menus();
+            // 注册库存评估缓存的失效监听（幂等），并清空缓存（读档/新游戏旧评估作废）
+            CorpseFinder::reset_loot_cache();
             break;
         default:
             break;

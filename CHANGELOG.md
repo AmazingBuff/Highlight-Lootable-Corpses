@@ -5,10 +5,14 @@
 ### Changed
 
 - **BREAKING:** Rename the plugin to `HighlightLootableCorpses`. The DLL, INI, and log files are renamed. Migration: rename your `CorpseESP.ini` to `HighlightLootableCorpses.ini` to keep your settings, and replace the old DLL.
+- The toggle hotkey is now unbound by default. Bind one via the new "Hotkey" button in the MCP menu (press any key; ESC cancels) or the `Hotkey` INI key. Hotkey toggles stay in sync with the menu's Enabled checkbox.
+- Loot filter category switches now default to **false** (opt-in per category), and their controls are greyed out in the MCP menu while the loot filter is off.
 
 ### Removed
 
 - Remove the model-silhouette outline mode (`OutlineMode`) to eliminate its heavy performance cost.
+- Remove the `SoulGemFilledOnly` loot filter option; soul gems always count as consumables.
+- Remove the redundant `ShowOutline` option; the plugin toggle (`Enabled`) already covers it.
 
 ### Fixed
 

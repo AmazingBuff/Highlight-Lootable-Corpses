@@ -67,7 +67,7 @@ namespace
                 set(LootFilter::Category::e_book);
         }
 
-        // 消耗品：箭矢/炼金材料/药水/卷轴；灵魂石按"仅已填充"选项（需条目带灵魂等级）
+        // 消耗品：箭矢/炼金材料/药水/卷轴/灵魂石
         if (a_cfg.value_consumables)
         {
             bool consumable = false;
@@ -77,10 +77,8 @@ namespace
             case RE::FormType::Ingredient:
             case RE::FormType::AlchemyItem:
             case RE::FormType::Scroll:
-                consumable = true;
-                break;
             case RE::FormType::SoulGem:
-                consumable = !a_cfg.soul_gem_filled_only || a_entry.GetSoulLevel() != RE::SOUL_LEVEL::kNone;
+                consumable = true;
                 break;
             default:
                 break;
@@ -250,5 +248,28 @@ namespace LootFilter
         if (a_categories & static_cast<std::uint16_t>(Category::e_consumable))
             append("consumable");
         return out;
+    }
+
+    std::uint64_t config_stamp(Config::Settings const& a_cfg)
+    {
+        std::uint64_t stamp = 0;
+        auto const bit = [&](bool a_value, std::uint64_t a_shift) {
+            if (a_value)
+                stamp |= std::uint64_t{ 1 } << a_shift;
+        };
+        bit(a_cfg.value_quest_items, 0);
+        bit(a_cfg.value_keys, 1);
+        bit(a_cfg.value_enchanted, 2);
+        bit(a_cfg.value_high_value, 3);
+        bit(a_cfg.value_books, 4);
+        bit(a_cfg.value_consumables, 5);
+        stamp |= static_cast<std::uint64_t>(static_cast<std::uint32_t>(a_cfg.book_filter_mode) & 0x3) << 8;
+
+        // 高价值阈值按 IEEE 位模式编码（任何位模式都可可靠比较）
+        std::uint32_t threshold_bits = 0;
+        static_assert(sizeof(threshold_bits) == sizeof(a_cfg.high_value_threshold));
+        std::memcpy(&threshold_bits, &a_cfg.high_value_threshold, sizeof(threshold_bits));
+        stamp |= static_cast<std::uint64_t>(threshold_bits) << 32;
+        return stamp;
     }
 }

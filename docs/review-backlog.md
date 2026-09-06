@@ -146,7 +146,6 @@
 ### 15. 死代码 / 无效条目
 
 - `src/esp_renderer.cpp:633-634`、`650-651`：`depth_sum`/`depth_count` 累加后从未使用。
-- `src/esp_renderer.cpp:539` 与 `738`：`cfg.show_outline` 判断了两次（外层已判，内层重复）。
 - `src/corpse_finder.h:22`：`bounds_from_collision` 只写不读。
 - `src/main.cpp:46`：post-AE 下 SKSE 走 `SKSEPlugin_Version` 路径，**不会调用** `SKSEPlugin_Query`，
   其中 `< 1.6.629` 的版本门形同虚设。
@@ -175,7 +174,6 @@
 ### 18. 文档与实现漂移
 
 - `README.md` 的 INI 示例带注释，但 `Config::save()` 用 SimpleIni 写出的默认文件**没有任何注释**。
-- `README.md` 的配置段缺 `[LootFilter]` 整节说明。
 - `src/loot_filter.cpp`/`src/loot_filter.h` 是 LF 行尾，仓库其余源文件为 CRLF（既有差异，未动）。
 
 ---

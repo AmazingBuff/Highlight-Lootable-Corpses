@@ -568,11 +568,82 @@ namespace
             return actor;
         return find_in(process_lists->lowActorHandles);
     }
+    // 库存评估结果缓存：FormID → 最近一次 LootFilter::evaluate 的结果（附评估时
+    // 的配置快照戳）。两条失效路径：
+    //   1. 物品进出容器（玩家拿/放、脚本 AddItem/RemoveItem、respawn 填充库存都走
+    //      引擎容器变化路径）→ TESContainerChangedEvent 失效对应 FormID；
+    //   2. loot filter 参数修改（阈值/分类开关等）→ 配置快照戳失配，下轮扫描
+    //      全部重评——分类/价值依赖配置，改参数后必须重新归类；
+    // 读档/新游戏时整体清空。避免每轮扫描（500ms）对范围内每具尸体重复执行引擎
+    // 库存初始化与三段合并。scan 与事件分发都在游戏线程 → 无需加锁。
+    struct CachedLoot
+    {
+        std::uint64_t config_stamp{ 0 };  // 评估时的 loot filter 配置快照戳
+        LootFilter::Result result;
+    };
+    std::unordered_map<RE::FormID, CachedLoot> g_loot_cache;
+
+    class ContainerChangeHandler final : public RE::BSTEventSink<RE::TESContainerChangedEvent>
+    {
+    public:
+        static ContainerChangeHandler* get_singleton()
+        {
+            static ContainerChangeHandler instance;
+            return &instance;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(
+            RE::TESContainerChangedEvent const* a_event,
+            [[maybe_unused]] RE::BSTEventSource<RE::TESContainerChangedEvent>* a_source) override
+        {
+            if (a_event)
+            {
+                // 事件涉及的两侧容器缓存一并失效（0 = 无容器，erase 无害）
+                g_loot_cache.erase(a_event->oldContainer);
+                g_loot_cache.erase(a_event->newContainer);
+            }
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
+
+    // 先查缓存（库存失效事件 + 配置快照戳双重校验），未命中才真正评估并入缓存
+    // （evaluate 首次调用含引擎库存初始化副作用，缓存命中路径完全免评估）
+    [[nodiscard]] LootFilter::Result cached_evaluate(RE::TESObjectREFR* a_ref)
+    {
+        RE::FormID const id = a_ref->GetFormID();
+        std::uint64_t const stamp = LootFilter::config_stamp(Config::get());
+        if (auto const it = g_loot_cache.find(id);
+            it != g_loot_cache.end() && it->second.config_stamp == stamp)
+        {
+            return it->second.result;
+        }
+
+        LootFilter::Result const result = LootFilter::evaluate(a_ref);
+        g_loot_cache.insert_or_assign(id, CachedLoot{ stamp, result });
+        return result;
+    }
 
 }
 
 namespace CorpseFinder
 {
+    // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保容器变化监听已注册（幂等），
+    // 并清空评估缓存——读档/新游戏后旧评估全部作废
+    void reset_loot_cache()
+    {
+        static bool installed = false;
+        if (!installed)
+        {
+            if (auto* holder = RE::ScriptEventSourceHolder::GetSingleton())
+            {
+                holder->AddEventSink(ContainerChangeHandler::get_singleton());
+                installed = true;
+                logger::info("Installed TESContainerChangedEvent sink (loot cache invalidation)"sv);
+            }
+        }
+        g_loot_cache.clear();
+    }
+
     void scan()
     {
         RE::TES* tes = RE::TES::GetSingleton();
@@ -618,7 +689,7 @@ namespace CorpseFinder
                 return;
 
             // 只显示仍有余下可搜刮物品的尸体（合并库存后 count > 0，搜空即消失）
-            LootFilter::Result const loot = LootFilter::evaluate(a_actor);
+            LootFilter::Result const loot = cached_evaluate(a_actor);
             if (!loot.has_items)
                 return;
 
@@ -663,14 +734,14 @@ namespace CorpseFinder
 
             // 可搜刮判据与战利品分类同源：只读合并库存，count > 0 才算有货。
             // 灰烬堆自身是空容器，物品挂在 ExtraAshPileRef 关联的原始 Actor 上。
-            LootFilter::Result loot = LootFilter::evaluate(a_ref);
+            LootFilter::Result loot = cached_evaluate(a_ref);
             RE::FormID owner_id = 0;
             if (!loot.has_items)
             {
                 if (RE::Actor* owner = find_ash_pile_owner(a_ref))
                 {
                     owner_id = owner->GetFormID();
-                    loot = LootFilter::evaluate(owner);
+                    loot = cached_evaluate(owner);
                 }
             }
             log_ash_pile_state(

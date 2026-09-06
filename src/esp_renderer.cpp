@@ -535,225 +535,219 @@ namespace ESPRenderer
             if (Config::is_enabled())
             {
                 Config::Settings const& cfg = Config::get();
-                if (cfg.show_outline)
+                // 相机对象：世界根相机（Present 时仍是本帧数据），用于投影
+                RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
+
+                // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
+                // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
+                RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton();
+                RE::BSGraphics::ViewData const* view_data = nullptr;
+                if (state)
                 {
-                    // 相机对象：世界根相机（Present 时仍是本帧数据），用于投影
-                    RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
-
-                    // 备选：BSGraphics::State 相机缓存里的 viewProj 矩阵
-                    // （实测在 AE 上该矩阵读出的是坏值：_22=0、_43=0，故仅作兜底保留）
-                    RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton();
-                    RE::BSGraphics::ViewData const* view_data = nullptr;
-                    if (state)
+                    RE::BSGraphics::State::RUNTIME_DATA& state_rt = state->GetRuntimeData();
+                    for (RE::BSGraphics::CameraStateData const& cam_data : state_rt.cameraDataCacheA)
                     {
-                        RE::BSGraphics::State::RUNTIME_DATA& state_rt = state->GetRuntimeData();
-                        for (RE::BSGraphics::CameraStateData const& cam_data : state_rt.cameraDataCacheA)
+                        if (cam_data.referenceCamera == world_cam)
                         {
-                            if (cam_data.referenceCamera == world_cam)
-                            {
-                                view_data = std::addressof(cam_data.GetCameraStateRuntimeData().camViewData);
-                                break;
-                            }
-                        }
-                        if (!view_data && !state_rt.cameraDataCacheA.empty())
-                            view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
-                    }
-
-                    uint32_t const rgb = cfg.outline_color;
-                    float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
-                    float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
-                    float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
-
-                    std::uint16_t const category_mask = LootFilter::enabled_category_mask();
-
-                    for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
-                    {
-                        // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
-                        if (cfg.loot_filter_enabled && (corpse.loot_categories & category_mask) == 0)
-                            continue;
-
-                        // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
-                        // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
-                        // 失败时兜底用 State 的 viewProj 矩阵。
-                        auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool
-                        {
-                            bool ok = false;
-                            if (world_cam && world_cam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f))
-                            {
-                                // 相机 port 若是像素单位，先把输出归一化到 0..1
-                                RE::NiRect<float> const& port = world_cam->GetRuntimeData2().port;
-                                PortRect pr{};
-                                std::memcpy(&pr, &port, sizeof(pr));
-                                float const port_l = pr.left;
-                                float const port_t = pr.top;
-                                float const port_w = pr.right - pr.left;
-                                float const port_h = pr.bottom - pr.top;
-                                float nx = a_px, ny = a_py;
-                                if (port_w > 10.0f)
-                                    nx = (a_px - port_l) / port_w;
-
-                                if (port_h > 10.0f)
-                                    ny = (a_py - port_t) / port_h;
-
-                                // 引擎函数输出为“左下原点”归一化坐标（TrueDirectionalMovement 同样处理），翻转为左上原点
-                                a_px = nx * w;
-                                a_py = (1.0f - ny) * h;
-                                ok = a_depth > 0.0f;
-                            }
-                            else if (view_data && (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
-                            {
-                                Matrix const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
-                                DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f), viewProj);
-                                float const clip_w = DirectX::XMVectorGetW(clip);
-                                if (std::fabs(clip_w) >= 1e-5f)
-                                {
-                                    DirectX::XMVECTOR const ndc = DirectX::XMVectorDivide(clip, DirectX::XMVectorReplicate(clip_w));
-                                    float const ndc_x = DirectX::XMVectorGetX(ndc);
-                                    float const ndc_y = DirectX::XMVectorGetY(ndc);
-                                    float const ndc_z = DirectX::XMVectorGetZ(ndc);
-                                    if (ndc_x >= -1.0f && ndc_x <= 1.0f && ndc_y >= -1.0f && ndc_y <= 1.0f && ndc_z >= 0.0f && ndc_z <= 1.0f)
-                                    {
-                                        a_px = (ndc_x * 0.5f + 0.5f) * w;
-                                        a_py = (1.0f - ndc_y) * 0.5f * h;
-                                        a_depth = ndc_z;
-                                        ok = true;
-                                    }
-                                }
-                            }
-                            return ok;
-                        };
-
-                        // 尸体世界 AABB 是否有效
-                        bool const hasAABB =
-                            corpse.bound_min.x <= corpse.bound_max.x &&
-                            corpse.bound_min.y <= corpse.bound_max.y &&
-                            corpse.bound_min.z <= corpse.bound_max.z;
-
-                        // 把一批世界点投影到屏幕，取屏幕包围矩形
-                        float min_x = 1e30f, max_x = -1e30f, min_y = 1e30f, max_y = -1e30f;
-                        float depth_sum = 0.0f;
-                        int depth_count = 0;
-                        bool has_rect = false;
-
-                        // OBB 线框盒：记录 8 个角各自的屏幕坐标
-                        float proj_x[8]{}, proj_y[8]{};
-                        bool obb_ok[8]{};
-
-                        auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1)
-                        {
-                            float px = 0.0f, py = 0.0f, d = 0.0f;
-                            if (project_to_screen(a_pt, px, py, d))
-                            {
-                                min_x = std::min(min_x, px);
-                                max_x = std::max(max_x, px);
-                                min_y = std::min(min_y, py);
-                                max_y = std::max(max_y, py);
-                                depth_sum += d;
-                                ++depth_count;
-                                has_rect = true;
-                                if (a_idx >= 0 && a_idx < 8)
-                                {
-                                    proj_x[a_idx] = px;
-                                    proj_y[a_idx] = py;
-                                    obb_ok[a_idx] = true;
-                                }
-                            }
-                        };
-
-                        bool obb_all_ok = true;
-                        if (corpse.has_obb)
-                        {
-                            // 投影碰撞盒（OBB）的 8 个世界角点：屏幕矩形贴合碰撞盒的屏幕足迹
-                            for (int i = 0; i < 8; ++i)
-                                add_projected(corpse.obb_corners[i], i);
-
-                            for (bool ok : obb_ok)
-                                obb_all_ok = obb_all_ok && ok;
-                        }
-                        else if (hasAABB)
-                        {
-                            // 投影 AABB 的 8 个角，得到贴合尸体包围盒的屏幕矩形
-                            RE::NiPoint3 const corners[8] = {
-                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
-                                { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_min.z },
-                                { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_min.z },
-                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_min.z },
-                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_max.z },
-                                { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_max.z },
-                                { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_max.z },
-                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z },
-                            };
-                            for (RE::NiPoint3 const& corner : corners)
-                                add_projected(corner);
-                        }
-                        else
-                        {
-                            // 兜底：没有 AABB 时用锚点 + 世界半径投影上下左右
-                            RE::NiPoint3 camRight{ 1.0f, 0.0f, 0.0f };
-                            RE::NiPoint3 camUp{ 0.0f, 1.0f, 0.0f };
-                            if (world_cam)
-                            {
-                                camRight = world_cam->world.rotate.GetVectorX();
-                                camUp = world_cam->world.rotate.GetVectorY();
-                            }
-                            add_projected(corpse.anchor);
-                            add_projected(corpse.anchor + camRight * corpse.radius);
-                            add_projected(corpse.anchor - camRight * corpse.radius);
-                            add_projected(corpse.anchor + camUp * corpse.radius);
-                            add_projected(corpse.anchor - camUp * corpse.radius);
-                        }
-
-                        if (!has_rect)
-                            continue;
-
-                        // 矩形与中心
-                        float const sx = (min_x + max_x) * 0.5f;
-                        float const sy = (min_y + max_y) * 0.5f;
-                        float const box_w = max_x - min_x;
-                        float const box_h = max_y - min_y;
-                        // 保证最小可见尺寸（太远时不会缩成一个点）
-                        constexpr float kMinBox = 5.0f;
-                        float x0 = min_x, y0 = min_y, x1 = max_x, y1 = max_y;
-                        if (box_w < kMinBox || box_h < kMinBox)
-                        {
-                            float const half_x = std::max(box_w * 0.5f, kMinBox * 0.5f);
-                            float const half_y = std::max(box_h * 0.5f, kMinBox * 0.5f);
-                            x0 = sx - half_x;
-                            x1 = sx + half_x;
-                            y0 = sy - half_y;
-                            y1 = sy + half_y;
-                        }
-
-                        float const alpha = corpse_alpha(cfg, corpse.distance);
-
-                        // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
-                        // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
-                        bool const use_wireframe = corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
-
-                        if (cfg.show_outline)
-                        {
-                            DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
-
-                            if (use_wireframe)
-                            {
-                                static constexpr std::int32_t kEdges[12][2] = {
-                                    { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },  // 底面
-                                    { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
-                                    { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
-                                };
-                                for (auto const& [e0, e1] : kEdges)
-                                {
-                                    draw_thick_line(
-                                        DirectX::XMFLOAT2{ proj_x[e0], proj_y[e0] },
-                                        DirectX::XMFLOAT2{ proj_x[e1], proj_y[e1] },
-                                        cfg.outline_thickness,
-                                        color);
-                                }
-                            }
-                            else
-                                draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
+                            view_data = std::addressof(cam_data.GetCameraStateRuntimeData().camViewData);
+                            break;
                         }
                     }
+                    if (!view_data && !state_rt.cameraDataCacheA.empty())
+                        view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
+                }
+
+                uint32_t const rgb = cfg.outline_color;
+                float const cr = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f;
+                float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
+                float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
+
+                std::uint16_t const category_mask = LootFilter::enabled_category_mask();
+
+                for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
+                {
+                    // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
+                    if (cfg.loot_filter_enabled && (corpse.loot_categories & category_mask) == 0)
+                        continue;
+
+                    // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
+                    // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
+                    // 失败时兜底用 State 的 viewProj 矩阵。
+                    auto project_to_screen = [&](RE::NiPoint3 const& a_pt, float& a_px, float& a_py, float& a_depth) -> bool
+                    {
+                        bool ok = false;
+                        if (world_cam && world_cam->WorldPtToScreenPt3(a_pt, a_px, a_py, a_depth, 1e-5f))
+                        {
+                            // 相机 port 若是像素单位，先把输出归一化到 0..1
+                            RE::NiRect<float> const& port = world_cam->GetRuntimeData2().port;
+                            PortRect pr{};
+                            std::memcpy(&pr, &port, sizeof(pr));
+                            float const port_l = pr.left;
+                            float const port_t = pr.top;
+                            float const port_w = pr.right - pr.left;
+                            float const port_h = pr.bottom - pr.top;
+                            float nx = a_px, ny = a_py;
+                            if (port_w > 10.0f)
+                                nx = (a_px - port_l) / port_w;
+
+                            if (port_h > 10.0f)
+                                ny = (a_py - port_t) / port_h;
+
+                            // 引擎函数输出为“左下原点”归一化坐标（TrueDirectionalMovement 同样处理），翻转为左上原点
+                            a_px = nx * w;
+                            a_py = (1.0f - ny) * h;
+                            ok = a_depth > 0.0f;
+                        }
+                        else if (view_data && (view_data->viewProjMatrixUnjittered._11 != 0.0f || view_data->viewProjMat._11 != 0.0f))
+                        {
+                            Matrix const& viewProj = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
+                            DirectX::XMVECTOR const clip = DirectX::XMVector4Transform(DirectX::XMVectorSet(a_pt.x, a_pt.y, a_pt.z, 1.0f), viewProj);
+                            float const clip_w = DirectX::XMVectorGetW(clip);
+                            if (std::fabs(clip_w) >= 1e-5f)
+                            {
+                                DirectX::XMVECTOR const ndc = DirectX::XMVectorDivide(clip, DirectX::XMVectorReplicate(clip_w));
+                                float const ndc_x = DirectX::XMVectorGetX(ndc);
+                                float const ndc_y = DirectX::XMVectorGetY(ndc);
+                                float const ndc_z = DirectX::XMVectorGetZ(ndc);
+                                if (ndc_x >= -1.0f && ndc_x <= 1.0f && ndc_y >= -1.0f && ndc_y <= 1.0f && ndc_z >= 0.0f && ndc_z <= 1.0f)
+                                {
+                                    a_px = (ndc_x * 0.5f + 0.5f) * w;
+                                    a_py = (1.0f - ndc_y) * 0.5f * h;
+                                    a_depth = ndc_z;
+                                    ok = true;
+                                }
+                            }
+                        }
+                        return ok;
+                    };
+
+                    // 尸体世界 AABB 是否有效
+                    bool const hasAABB =
+                        corpse.bound_min.x <= corpse.bound_max.x &&
+                        corpse.bound_min.y <= corpse.bound_max.y &&
+                        corpse.bound_min.z <= corpse.bound_max.z;
+
+                    // 把一批世界点投影到屏幕，取屏幕包围矩形
+                    float min_x = 1e30f, max_x = -1e30f, min_y = 1e30f, max_y = -1e30f;
+                    float depth_sum = 0.0f;
+                    int depth_count = 0;
+                    bool has_rect = false;
+
+                    // OBB 线框盒：记录 8 个角各自的屏幕坐标
+                    float proj_x[8]{}, proj_y[8]{};
+                    bool obb_ok[8]{};
+
+                    auto add_projected = [&](RE::NiPoint3 const& a_pt, int a_idx = -1)
+                    {
+                        float px = 0.0f, py = 0.0f, d = 0.0f;
+                        if (project_to_screen(a_pt, px, py, d))
+                        {
+                            min_x = std::min(min_x, px);
+                            max_x = std::max(max_x, px);
+                            min_y = std::min(min_y, py);
+                            max_y = std::max(max_y, py);
+                            depth_sum += d;
+                            ++depth_count;
+                            has_rect = true;
+                            if (a_idx >= 0 && a_idx < 8)
+                            {
+                                proj_x[a_idx] = px;
+                                proj_y[a_idx] = py;
+                                obb_ok[a_idx] = true;
+                            }
+                        }
+                    };
+
+                    bool obb_all_ok = true;
+                    if (corpse.has_obb)
+                    {
+                        // 投影碰撞盒（OBB）的 8 个世界角点：屏幕矩形贴合碰撞盒的屏幕足迹
+                        for (int i = 0; i < 8; ++i)
+                            add_projected(corpse.obb_corners[i], i);
+
+                        for (bool ok : obb_ok)
+                            obb_all_ok = obb_all_ok && ok;
+                    }
+                    else if (hasAABB)
+                    {
+                        // 投影 AABB 的 8 个角，得到贴合尸体包围盒的屏幕矩形
+                        RE::NiPoint3 const corners[8] = {
+                            { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
+                            { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_min.z },
+                            { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_min.z },
+                            { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_min.z },
+                            { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_max.z },
+                            { corpse.bound_max.x, corpse.bound_min.y, corpse.bound_max.z },
+                            { corpse.bound_min.x, corpse.bound_max.y, corpse.bound_max.z },
+                            { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z },
+                        };
+                        for (RE::NiPoint3 const& corner : corners)
+                            add_projected(corner);
+                    }
+                    else
+                    {
+                        // 兜底：没有 AABB 时用锚点 + 世界半径投影上下左右
+                        RE::NiPoint3 camRight{ 1.0f, 0.0f, 0.0f };
+                        RE::NiPoint3 camUp{ 0.0f, 1.0f, 0.0f };
+                        if (world_cam)
+                        {
+                            camRight = world_cam->world.rotate.GetVectorX();
+                            camUp = world_cam->world.rotate.GetVectorY();
+                        }
+                        add_projected(corpse.anchor);
+                        add_projected(corpse.anchor + camRight * corpse.radius);
+                        add_projected(corpse.anchor - camRight * corpse.radius);
+                        add_projected(corpse.anchor + camUp * corpse.radius);
+                        add_projected(corpse.anchor - camUp * corpse.radius);
+                    }
+
+                    if (!has_rect)
+                        continue;
+
+                    // 矩形与中心
+                    float const sx = (min_x + max_x) * 0.5f;
+                    float const sy = (min_y + max_y) * 0.5f;
+                    float const box_w = max_x - min_x;
+                    float const box_h = max_y - min_y;
+                    // 保证最小可见尺寸（太远时不会缩成一个点）
+                    constexpr float kMinBox = 5.0f;
+                    float x0 = min_x, y0 = min_y, x1 = max_x, y1 = max_y;
+                    if (box_w < kMinBox || box_h < kMinBox)
+                    {
+                        float const half_x = std::max(box_w * 0.5f, kMinBox * 0.5f);
+                        float const half_y = std::max(box_h * 0.5f, kMinBox * 0.5f);
+                        x0 = sx - half_x;
+                        x1 = sx + half_x;
+                        y0 = sy - half_y;
+                        y1 = sy + half_y;
+                    }
+
+                    float const alpha = corpse_alpha(cfg, corpse.distance);
+
+                    // 有方向碰撞盒（OBB）且屏幕尺寸足够大时，画 12 条边的 3D 线框盒，
+                    // 与尸体碰撞盒逐边重合；否则退化为 AABB 屏幕矩形。
+                    bool const use_wireframe = corpse.has_obb && obb_all_ok && box_w >= kMinBox && box_h >= kMinBox;
+
+                    DirectX::XMFLOAT4 const color = {cr, cg, cb, alpha};
+
+                    if (use_wireframe)
+                    {
+                        static constexpr std::int32_t kEdges[12][2] = {
+                            { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },  // 底面
+                            { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },  // 顶面
+                            { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },  // 竖边
+                        };
+                        for (auto const& [e0, e1] : kEdges)
+                        {
+                            draw_thick_line(
+                                DirectX::XMFLOAT2{ proj_x[e0], proj_y[e0] },
+                                DirectX::XMFLOAT2{ proj_x[e1], proj_y[e1] },
+                                cfg.outline_thickness,
+                                color);
+                        }
+                    }
+                    else
+                        draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
                 }
             }
 
