@@ -28,7 +28,7 @@ namespace Config
         bool value_high_value{ false };        // 单件价值 >= HighValueThreshold
         float high_value_threshold{ 100.0f };  // 高价值单件阈值（金币；金币堆按枚数计）
         bool value_books{ false };             // 书籍
-        int book_filter_mode{ 1 };             // 0=全部书籍 1=法术+技能书 2=仅法术书
+        int book_filter_mode{ 0 };             // 0=全部书籍 1=法术+技能书 2=仅法术书
         bool value_consumables{ false };       // 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
     };
 

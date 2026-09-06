@@ -67,7 +67,7 @@ ValueEnchanted=false        ; enchanted equipment
 ValueHighValue=false        ; items worth >= HighValueThreshold gold
 HighValueThreshold=100.0    ; high-value threshold (gold piles count by amount)
 ValueBooks=false            ; books
-BookFilterMode=1            ; 0 = all books, 1 = spell & skill books, 2 = spell books only
+BookFilterMode=0            ; 0 = all books, 1 = spell & skill books, 2 = spell books only
 ValueConsumables=false      ; arrows, ingredients, potions, scrolls, soul gems
 ```
 

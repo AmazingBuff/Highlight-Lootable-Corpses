@@ -21,6 +21,15 @@ namespace
         if (a_vk == 0)
             return "None";
 
+        switch (a_vk)
+        {
+        case 0x01: return "LMB";
+        case 0x02: return "RMB";
+        case 0x04: return "MMB";
+        case 0x05: return "Mouse 4";
+        case 0x06: return "Mouse 5";
+        }
+
         static const char* const kNames[] = {
             "Backspace", "Tab", nullptr, nullptr, nullptr, "Enter", nullptr, nullptr,   // 0x08-0x0F
             "Shift", "Ctrl", "Alt", "Pause", "Caps", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "Esc", nullptr, nullptr, nullptr, nullptr,   // 0x10-0x1F
@@ -54,9 +63,11 @@ namespace
         if (ImGuiMCP::Checkbox("Enabled", &enabled))
             Config::set_enabled(enabled);
 
-        // 热键：点击进入捕获态，此后按下的第一个键即绑定为切换热键（ESC 取消）。
-        // 热键切换 enabled 走 set_enabled 同步 g_enabled，本菜单的 Enabled 复选框
-        // 每帧从 g_settings 读值——热键与 UI 状态自动双向同步，无需额外处理。
+        // 热键：点击进入捕获态，此后按下的第一个键（键盘或鼠标）即绑定为切换
+        // 热键——全量绑定，ESC/F1 等会触发面板开合的键也可绑定（面板可能被
+        // 关闭，绑定仍生效）；再次点击按钮取消，5 秒无按键自动取消。热键切换
+        // enabled 走 set_enabled 同步 g_enabled，本菜单的 Enabled 复选框每帧从
+        // g_settings 读值——热键与 UI 状态自动双向同步。
         static bool s_rebinding = false;
         std::uint32_t rebind_vk = 0;
         if (s_rebinding && Input::take_rebind_result(rebind_vk))
@@ -68,14 +79,17 @@ namespace
                 Config::save();  // 全量写回 INI
             }
         }
-        if (s_rebinding)
+        std::string const label = s_rebinding
+            ? std::string("Press any key...")
+            : fmt::format("Hotkey: {}", hotkey_name(s.hotkey));
+        if (ImGuiMCP::Button(label.c_str()))
         {
-            ImGuiMCP::Text("Press any key to bind (ESC to cancel)");
-        }
-        else
-        {
-            std::string const label = fmt::format("Hotkey: {}", hotkey_name(s.hotkey));
-            if (ImGuiMCP::Button(label.c_str()))
+            if (s_rebinding)
+            {
+                Input::cancel_rebind();
+                s_rebinding = false;
+            }
+            else
             {
                 Input::begin_rebind();
                 s_rebinding = true;
@@ -156,6 +170,11 @@ namespace
 
 namespace UiMenu
 {
+    bool is_menu_open()
+    {
+        return SKSEMenuFramework::IsInstalled() && SKSEMenuFramework::IsAnyBlockingWindowOpened();
+    }
+
     void register_menus()
     {
         // kDataLoaded/kNewGame/kPostLoadGame 都会走到这里，只注册一次

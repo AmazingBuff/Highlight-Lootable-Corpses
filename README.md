@@ -75,7 +75,7 @@ ValueHighValue=false
 ; 高价值单件阈值（金币；金币堆按枚数计）
 HighValueThreshold=100.0
 ; 书籍分类范围（0=全部书籍 1=法术+技能书 2=仅法术书）
-BookFilterMode=1
+BookFilterMode=0
 ; 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
 ValueConsumables=false
 ```
