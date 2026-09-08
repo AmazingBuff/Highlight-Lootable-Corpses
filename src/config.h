@@ -30,6 +30,8 @@ namespace Config
         bool value_books{ false };             // 书籍
         int book_filter_mode{ 0 };             // 0=全部书籍 1=法术+技能书 2=仅法术书
         bool value_consumables{ false };       // 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
+
+        bool operator==(Settings const&) const = default;  // 帧首/帧末对比检测 UI 改动
     };
 
     [[nodiscard]] Settings const& get() noexcept;
@@ -41,7 +43,16 @@ namespace Config
     void save_enabled() noexcept;
 
     void load() noexcept;
-    void save() noexcept;            // 全量写回 INI（含全部选项说明）
+    void save() noexcept;            // 全量写回 INI（注释置于选项上一行，与 README_EN 的 INI 示例同款式）
     void reset_defaults() noexcept;  // 恢复默认值并写回
+
+    // MCP 菜单改动标记：置位后由 SKSE kSaveGame 消息（玩家存档时）触发落盘
+    // （未改动则不重写文件，保留用户手改的 INI）；save()/手动保存/热键绑定
+    // 落盘均会清位
+    void mark_dirty() noexcept;
+
+    // 仅当 MCP 菜单改动过设置（脏标记置位）时 save()；否则不动文件。
+    // 在 SKSE kSaveGame 消息中调用（玩家存档时固化 UI 改动）
+    void save_if_dirty() noexcept;
     [[nodiscard]] std::filesystem::path get_ini_path() noexcept;
 }

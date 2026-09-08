@@ -1,10 +1,13 @@
 #include "pch.h"
 #include "config.h"
 
+#include <fstream>
+
 namespace
 {
     Config::Settings g_settings;
     std::atomic<bool> g_enabled{ true };
+    bool g_dirty = false;  // MCP 菜单改动标记（游戏线程读写：菜单回调与 kSaveGame 消息都在游戏线程）
 }
 
 namespace Config
@@ -96,35 +99,73 @@ namespace Config
 
     void save() noexcept
     {
-        CSimpleIniA ini;
-        ini.SetUnicode();
+        // 手写模板写出（SimpleIni 不支持写注释）。每个选项的注释置于其上一行
+        // （行尾注释在 INI 里难以对齐排版），款式与 README_EN.md 的
+        // "Configuration reference" INI 示例一致，两处必须同步修改。
+        // 写出后清除 MCP 菜单改动标记。
         std::filesystem::path const path = get_ini_path();
-        if (ini.LoadFile(path.string().c_str()) < 0)
-            logger::info("INI not found at {}, writing defaults", path.string());
 
-        ini.SetBoolValue("General", "Enabled", g_settings.enabled);
-        ini.SetLongValue("General", "Hotkey", static_cast<long>(g_settings.hotkey));
-        ini.SetDoubleValue("General", "MaxDistance", g_settings.max_distance);
-        ini.SetLongValue("General", "ScanIntervalMs", static_cast<long>(g_settings.scan_interval_ms));
-        ini.SetValue("Display", "OutlineColor", fmt::format("{:06X}", g_settings.outline_color).c_str());
-        ini.SetDoubleValue("Display", "MinOpacity", g_settings.min_opacity);
-        ini.SetDoubleValue("Display", "OutlineThickness", g_settings.outline_thickness);
-        ini.SetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance);
-        ini.SetDoubleValue("Display", "FadePower", g_settings.fade_power);
+        auto const section = [&](std::string_view a_name) {
+            return fmt::format("[{}]\n", a_name);
+        };
+        auto const option = [](std::string_view a_comment, std::string_view a_kv) {
+            return fmt::format("; {}\n{}\n", a_comment, a_kv);
+        };
 
-        ini.SetBoolValue("LootFilter", "LootFilterEnabled", g_settings.loot_filter_enabled);
-        ini.SetBoolValue("LootFilter", "ValueQuestItems", g_settings.value_quest_items);
-        ini.SetBoolValue("LootFilter", "ValueKeys", g_settings.value_keys);
-        ini.SetBoolValue("LootFilter", "ValueEnchanted", g_settings.value_enchanted);
-        ini.SetBoolValue("LootFilter", "ValueHighValue", g_settings.value_high_value);
-        ini.SetDoubleValue("LootFilter", "HighValueThreshold", g_settings.high_value_threshold);
-        ini.SetBoolValue("LootFilter", "ValueBooks", g_settings.value_books);
-        ini.SetLongValue("LootFilter", "BookFilterMode", static_cast<long>(g_settings.book_filter_mode));
-        ini.SetBoolValue("LootFilter", "ValueConsumables", g_settings.value_consumables);
+        std::string body;
+        body += section("General");
+        body += option("mod enabled on startup", fmt::format("Enabled={}", g_settings.enabled ? "true" : "false"));
+        body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", g_settings.hotkey));
+        body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_settings.max_distance));
+        body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_settings.scan_interval_ms));
+        body += section("Display");
+        body += option("outline color (RGB hex)", fmt::format("OutlineColor={:06X}", g_settings.outline_color));
+        body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_settings.min_opacity));
+        body += option("outline thickness in pixels", fmt::format("OutlineThickness={:.1f}", g_settings.outline_thickness));
+        body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", g_settings.fade_start_distance));
+        body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", g_settings.fade_power));
+        body += section("LootFilter");
+        body += option("only outline corpses matching the categories below", fmt::format("LootFilterEnabled={}", g_settings.loot_filter_enabled ? "true" : "false"));
+        body += option("quest items", fmt::format("ValueQuestItems={}", g_settings.value_quest_items ? "true" : "false"));
+        body += option("keys", fmt::format("ValueKeys={}", g_settings.value_keys ? "true" : "false"));
+        body += option("enchanted equipment", fmt::format("ValueEnchanted={}", g_settings.value_enchanted ? "true" : "false"));
+        body += option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", g_settings.value_high_value ? "true" : "false"));
+        body += option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={:.1f}", g_settings.high_value_threshold));
+        body += option("books", fmt::format("ValueBooks={}", g_settings.value_books ? "true" : "false"));
+        body += option("0 = all books, 1 = spell & skill books, 2 = spell books only", fmt::format("BookFilterMode={}", g_settings.book_filter_mode));
+        body += option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", g_settings.value_consumables ? "true" : "false"));
 
-        SI_Error const save_rc = ini.SaveFile(path.string().c_str());
-        if (save_rc < 0)
+        std::ofstream file(path, std::ios::binary);
+        if (!file)
+        {
             logger::warn("Failed to write INI at {}", path.string());
+            return;
+        }
+        file.write(body.c_str(), static_cast<std::streamsize>(body.size()));
+
+        if (!file)
+        {
+            logger::warn("Failed to write INI at {}", path.string());
+            return;
+        }
+        g_dirty = false;
+    }
+
+    void mark_dirty() noexcept
+    {
+        g_dirty = true;
+    }
+
+    void save_if_dirty() noexcept
+    {
+        // 仅在 MCP 菜单改动过设置时落盘（免手动 "Save to INI"）；未改动则
+        // 不重写文件，保留用户手改的 INI。由 SKSE kSaveGame 消息触发——
+        // 玩家存档时引擎状态健康，且是设置固化的自然时机
+        if (!g_dirty)
+            return;
+
+        save();
+        logger::info("Config saved on game save (menu changes pending)");
     }
 
     void reset_defaults() noexcept
@@ -158,15 +199,8 @@ namespace Config
 
     void save_enabled() noexcept
     {
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        std::filesystem::path const path = get_ini_path();
-        if (ini.LoadFile(path.string().c_str()) >= 0)
-        {
-            ini.SetBoolValue("General", "Enabled", is_enabled());
-            SI_Error const save_rc = ini.SaveFile(path.string().c_str());
-            if (save_rc < 0)
-                logger::warn("Failed to save enabled state to INI at {}", path.string());
-        }
+        // 热键切换后落盘。直接 save()（带注释模板写全量）而非读改写：
+        // 读改写会经由 SimpleIni 输出，抹掉 save() 写入的注释
+        save();
     }
 }

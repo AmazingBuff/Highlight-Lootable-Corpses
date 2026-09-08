@@ -58,6 +58,10 @@ namespace
     {
         Config::Settings& s = Config::get_mutable();
 
+        // 改动检测：帧首快照 vs 帧末对比，任何控件造成的变化都置脏标记
+        // （退出时自动保存的依据）；自动覆盖全部控件，未来新增控件不漏
+        Config::Settings const frame_start = s;
+
         // 总开关：必须经 set_enabled 同步 g_enabled（渲染线程读它），直接改字段无效
         bool enabled = s.enabled;
         if (ImGuiMCP::Checkbox("Enabled", &enabled))
@@ -165,6 +169,11 @@ namespace
         ImGuiMCP::SameLine();
         if (ImGuiMCP::Button("Reset to Defaults"))
             Config::reset_defaults();
+
+        // 帧末对比：本帧有任何设置变化（含热键绑定/Reset）即标记"退出时需保存"。
+        // 注意在 save()/reset 之后对比——它们已落盘并清脏，等价改动不再置脏
+        if (!(s == frame_start))
+            Config::mark_dirty();
     }
 }
 

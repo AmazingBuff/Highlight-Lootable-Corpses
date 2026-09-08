@@ -173,7 +173,6 @@
 
 ### 18. 文档与实现漂移
 
-- `README.md` 的 INI 示例带注释，但 `Config::save()` 用 SimpleIni 写出的默认文件**没有任何注释**。
 - `src/loot_filter.cpp`/`src/loot_filter.h` 是 LF 行尾，仓库其余源文件为 CRLF（既有差异，未动）。
 
 ---

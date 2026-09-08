@@ -39,6 +39,11 @@ namespace
             // 注册库存评估缓存的失效监听（幂等），并清空缓存（读档/新游戏旧评估作废）
             CorpseFinder::reset_loot_cache();
             break;
+        case SKSE::MessagingInterface::kSaveGame:
+            // 玩家存档时落盘 MCP 菜单的未保存改动（SKSE 无 shutdown 消息，
+            // 不用 atexit——CRT 退出阶段引擎状态已拆解，时机不安全）
+            Config::save_if_dirty();
+            break;
         default:
             break;
         }

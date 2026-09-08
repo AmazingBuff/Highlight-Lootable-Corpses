@@ -1,6 +1,6 @@
 # Highlight Lootable Corpses
 
-A corpse-detection ESP overlay for **Skyrim Special Edition / Anniversary Edition**. It draws a glowing, see-through outline around every **lootable corpse** near you — so you never lose sight of a kill behind tall grass, bushes, rocks, or terrain again.
+A corpse-detection overlay for **Skyrim Special Edition / Anniversary Edition**. It draws a glowing, see-through outline around every **lootable corpse** near you — so you never lose sight of a kill behind tall grass, bushes, rocks, or terrain again.
 
 Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, and static corpse containers (draugr corpses, burnt corpses, wrapped corpses, and more). Corpses disappear from the overlay as soon as they are fully looted — no more chasing boxes that have nothing left to take.
 
@@ -19,7 +19,7 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 
 ## Requirements
 
-- [Skyrim Special Edition / AE](https://store.steampowered.com/app/489830/) **1.6.629 or newer** (1.6.1170 and 1.7.99+ are supported). Not compatible with SE 1.5.97 or Skyrim VR.
+- [Skyrim Special Edition / AE](https://store.steampowered.com/app/489830/) **1.6.629 or newer** (1.6.1170 and 1.7.99+ are supported). SE 1.5.97 and Skyrim VR are supported theoretically.
 - [SKSE64](https://skse.silverlock.org/) matching your game version
 - [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444) (All in one)
 - Optional (recommended): [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) — enables the in-game settings panel. Without it, the mod works normally and is configured through the INI file.
@@ -31,8 +31,6 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 3. Launch the game. A default configuration file is created automatically at `Data\SKSE\Plugins\HighlightLootableCorpses.ini` on first run.
 
 > Log file (for troubleshooting): `Documents\My Games\Skyrim Special Edition\SKSE\HighlightLootableCorpses.log`
-
-**Upgrading from the old `CorpseESP` builds:** the DLL and INI were renamed. Delete the old `CorpseESP.dll` / `CorpseESP.ini` and rename your INI to `HighlightLootableCorpses.ini` to keep your settings.
 
 ## Usage
 
@@ -47,28 +45,46 @@ All options live in `Data\SKSE\Plugins\HighlightLootableCorpses.ini` (auto-gener
 
 ```ini
 [General]
-Enabled=true                ; mod enabled on startup
-Hotkey=0                    ; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
-MaxDistance=2000.0          ; search radius in game units (~17 m default)
-ScanIntervalMs=500          ; corpse scan interval in milliseconds
+; mod enabled on startup
+Enabled=true
+; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
+Hotkey=0
+; search radius in game units (~17 m default)
+MaxDistance=2000.0
+; corpse scan interval in milliseconds
+ScanIntervalMs=500
 
 [Display]
-OutlineColor=00FF66         ; outline color (RGB hex)
-MinOpacity=0.15             ; minimum opacity at max distance
-OutlineThickness=2.0        ; outline thickness in pixels
-FadeStartDistance=500.0    ; distance where fading begins (fully opaque below)
-FadePower=2.0               ; fade curve exponent (higher = faster fade)
+; outline color (RGB hex)
+OutlineColor=00FF66
+; minimum opacity at max distance
+MinOpacity=0.15
+; outline thickness in pixels
+OutlineThickness=2.0
+; distance where fading begins (fully opaque below)
+FadeStartDistance=500.0
+; fade curve exponent (higher = faster fade)
+FadePower=2.0
 
 [LootFilter]
-LootFilterEnabled=false     ; only outline corpses matching the categories below
-ValueQuestItems=false       ; quest items
-ValueKeys=false             ; keys
-ValueEnchanted=false        ; enchanted equipment
-ValueHighValue=false        ; items worth >= HighValueThreshold gold
-HighValueThreshold=100.0    ; high-value threshold (gold piles count by amount)
-ValueBooks=false            ; books
-BookFilterMode=0            ; 0 = all books, 1 = spell & skill books, 2 = spell books only
-ValueConsumables=false      ; arrows, ingredients, potions, scrolls, soul gems
+; only outline corpses matching the categories below
+LootFilterEnabled=false
+; quest items
+ValueQuestItems=false
+; keys
+ValueKeys=false
+; enchanted equipment
+ValueEnchanted=false
+; single item worth >= HighValueThreshold gold
+ValueHighValue=false
+; high-value threshold (gold piles count by amount)
+HighValueThreshold=100.0
+; books
+ValueBooks=false
+; 0 = all books, 1 = spell & skill books, 2 = spell books only
+BookFilterMode=0
+; arrows, ingredients, potions, scrolls, soul gems
+ValueConsumables=false
 ```
 
 ## Compatibility
@@ -88,5 +104,4 @@ ValueConsumables=false      ; arrows, ingredients, potions, scrolls, soul gems
 
 - [CommonLibSSE-NG](https://github.com/alandtse/CommonLibSSE-NG) by alandtse & contributors
 - [SKSE](https://skse.silverlock.org/) by the SKSE team
-- [SKSE Menu Framework](https://github.com/Adhy-S/SKSE-Menu-Framework) & [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
-- [DirectXTK](https://github.com/microsoft/DirectXTK), [SimpleIni](https://github.com/brofield/simpleini), [spdlog](https://github.com/gabime/spdlog), [fmt](https://github.com/fmtlib/fmt)
+- [SKSE Menu Framework](https://github.com/QTR-Modding/SKSE-Menu-Framework-3) & [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
