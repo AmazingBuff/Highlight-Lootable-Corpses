@@ -37,6 +37,7 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 - Press **F7** (default) in game to toggle the overlay.
 - Walk around: every lootable corpse within **Max Distance** (default 2000 units, ≈ 17 m) gets an outline.
 - Take everything from a corpse and its outline vanishes by the next scan — including ash piles and static corpse containers.
+- Optionally hide corpses you have searched (activated) at least once — even if you took nothing, they stay hidden across sessions: the marks persist per save game in the SKSE co-save and are cleaned up automatically (toggled via `HideSearchedEnabled` or the "Hide Searched Corpses" menu checkbox).
 - Open **Mod Control Panel → Highlight Lootable Corpses → Settings** to tune everything live (color, distance, fade, loot filter, scan interval). Use *Save to INI* to persist changes.
 
 ## Configuration reference
@@ -67,8 +68,10 @@ FadeStartDistance=500.0
 FadePower=2.0
 
 [LootFilter]
+; stop outlining corpses the player has searched (activated) at least once, even if nothing was taken
+HideSearchedEnabled=false
 ; only outline corpses matching the categories below
-LootFilterEnabled=false
+ValueFilterEnabled=false
 ; quest items
 ValueQuestItems=false
 ; keys

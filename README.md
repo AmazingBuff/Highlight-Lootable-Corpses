@@ -66,7 +66,7 @@ FadePower=2.0
 
 [LootFilter]
 ; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体边框
-LootFilterEnabled=false
+ValueFilterEnabled=false
 ; 各分类开关（默认全关，按需勾选；在 MCP 菜单中亦可实时修改）
 ValueQuestItems=false
 ValueKeys=false

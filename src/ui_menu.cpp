@@ -127,10 +127,13 @@ namespace
 
         ImGuiMCP::Separator();
 
-        // 战利品筛选：只显示库存命中以下任一分类的尸体（扫描期评估，过滤即时生效）。
+        // 已搜索尸体标记：激活过（搜索）的尸体即使一件未拿也不再显示（会话内有效；
+        // 激活始终记录，开启本项后此前搜索过的尸体同样消失）
+        ImGuiMCP::Checkbox("Hide Searched Corpses", &s.hide_searched_enabled);
+        // 价值筛选：只显示库存命中以下任一分类的尸体（扫描期评估，过滤即时生效）。
         // 总开关关闭时其下参数在 UI 中灰显禁用（改总开关才有意义）
-        ImGuiMCP::Checkbox("Enable Loot Filter", &s.loot_filter_enabled);
-        ImGuiMCP::BeginDisabled(!s.loot_filter_enabled);
+        ImGuiMCP::Checkbox("Enable Value Filter", &s.value_filter_enabled);
+        ImGuiMCP::BeginDisabled(!s.value_filter_enabled);
         ImGuiMCP::Checkbox("Quest Items", &s.value_quest_items);
         ImGuiMCP::Checkbox("Keys", &s.value_keys);
         ImGuiMCP::Checkbox("Enchanted Gear", &s.value_enchanted);
@@ -151,7 +154,7 @@ namespace
             nearest = nearest == 0.0f ? corpse.distance : std::min(nearest, corpse.distance);
 
         ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
-        if (s.loot_filter_enabled)
+        if (s.value_filter_enabled)
         {
             std::uint16_t const mask = LootFilter::enabled_category_mask();
             int visible = 0;

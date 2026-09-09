@@ -19,9 +19,12 @@ namespace Config
         float fade_start_distance{ 500.0f };  // 开始淡出的距离（游戏单位）
         float fade_power{ 2.0f };              // 淡出曲线指数（越大衰减越快）
 
+        // 已搜索尸体标记：玩家激活（搜索）过的尸体即使一件未拿也不再显示 box
+        bool hide_searched_enabled{ false };
+
         // 战利品筛选：开启后只显示库存命中以下任一价值分类的尸体边框。
         // 分类开关默认全关——用户开启筛选后按需勾选关心的分类
-        bool loot_filter_enabled{ false };
+        bool value_filter_enabled{ false };
         bool value_quest_items{ false };       // 任务物品（任务别名标记）
         bool value_keys{ false };              // 钥匙
         bool value_enchanted{ false };         // 附魔装备

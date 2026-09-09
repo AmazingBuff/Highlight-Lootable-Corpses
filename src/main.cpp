@@ -2,6 +2,7 @@
 #include "config.h"
 #include "corpse_finder.h"
 #include "esp_renderer.h"
+#include "searched_corpses.h"
 #include "ui_menu.h"
 
 namespace
@@ -97,6 +98,8 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(SKSE::LoadInterface const* a_s
     SKSE::Init(a_skse);
 
     Config::load();
+    // 注册已搜索尸体的 co-save 序列化回调（Save/Load/Revert/FormDelete）
+    SearchedCorpses::register_serialization_callbacks();
 
     SKSE::GetMessagingInterface()->RegisterListener(message_handler);
 

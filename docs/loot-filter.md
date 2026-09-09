@@ -103,7 +103,7 @@ scan()（游戏线程，500ms）
 
 | INI 键 | 字段 | 默认 | 说明 |
 |---|---|---|---|
-| LootFilterEnabled | `loot_filter_enabled` | false | 总开关（默认关 = 现状行为） |
+| ValueFilterEnabled | `loot_filter_enabled` | false | 总开关（默认关 = 现状行为） |
 | ValueQuestItems | `value_quest_items` | false | 任务物品 |
 | ValueKeys | `value_keys` | false | 钥匙 |
 | ValueEnchanted | `value_enchanted` | false | 附魔装备 |
@@ -115,7 +115,7 @@ scan()（游戏线程，500ms）
 
 配套 `LootFilter::enabled_category_mask()`：由各开关合成掩码（渲染线程无锁读取）。
 
-## 六、MCP 菜单（ui_menu.cpp "Loot Filter" 小节）
+## 六、MCP 菜单（ui_menu.cpp "Value Filter" 小节）
 
 - `Checkbox("Filter Valuable Corpses Only")` — 总开关
 - `Checkbox` × 6：Quest Items / Keys / Enchanted Gear / High-Value Items / Books / Consumables
@@ -133,7 +133,7 @@ scan()（游戏线程，500ms）
 | `src/corpse_finder.cpp` | 三处候选（actor/ash/static）接入 evaluate；`added to list` 日志追加 `[cats=... best=...]` |
 | `src/config.h` / `.cpp` | 新字段、INI `[LootFilter]` 读写、save/reset 覆盖、load 日志追加 lootFilter 状态 |
 | `src/esp_renderer.cpp` | 尸体循环首行过滤 continue（约 3 行） |
-| `src/ui_menu.cpp` | Loot Filter 控件组 + 可见/总数状态行 |
+| `src/ui_menu.cpp` | Value Filter 控件组 + 可见/总数状态行 |
 | `src/CMakeLists.txt` | 登记 `loot_filter.cpp/h`（显式 sources） |
 
 依赖方向：`loot_filter`（功能层）→ `config`（核心层）；`corpse_finder`/`esp_renderer`/`ui_menu` 调用 `LootFilter`，无循环依赖，`config.h` 未引入新依赖。
@@ -161,6 +161,12 @@ scan()（游戏线程，500ms）
 10. **评估缓存**：评估结果按 FormID 缓存，容器变化事件 + 配置快照戳双重失效
     （见第四节）；缓存条目只增不减，单条仅几十字节、量级为"评估过的尸体数"，
     内存可忽略
+11. **已搜索尸体标记**（`searched_corpses` 模块）：玩家激活过的尸体 FormID 集合，
+    灰烬堆双向关联（堆/Actor 任一命中即算）。标记忠实于激活事实——拿空/塞回
+    物品都不改写，box 显示由 `has_items && !已搜索` 共同决定；标记只随"引用不
+    存在"清除（引擎 FormDelete 回调 + 读档 ResolveFormID 失败丢弃），并经 SKSE
+    co-save（record `HLCS`）按存档持久化。激活始终记录，`HideSearchedEnabled`
+    开关只控制 scan() 是否应用
 
 ## 九、验证清单
 

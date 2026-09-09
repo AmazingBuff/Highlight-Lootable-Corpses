@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "loot_filter.h"
+#include "searched_corpses.h"
 
 namespace
 {
@@ -13,6 +14,32 @@ namespace
     // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
     std::mutex g_mutex;
     std::vector<CorpseFinder::CorpseEntry> g_corpses;
+
+    class ActivateHandler final : public RE::BSTEventSink<RE::TESActivateEvent>
+    {
+    public:
+        static ActivateHandler* get_singleton()
+        {
+            static ActivateHandler instance;
+            return &instance;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(
+            RE::TESActivateEvent const* a_event,
+            [[maybe_unused]] RE::BSTEventSource<RE::TESActivateEvent>* a_source) override
+        {
+            if (a_event && a_event->objectActivated)
+            {
+                // actionRef = 激活者：仅玩家搜索才算（NPC 拾尸/脚本激活不算）。
+                // 标记始终记录（与 HideSearchedEnabled 开关无关）——开关只控制
+                // scan() 是否应用标记，先搜索后开参数的尸体同样会消失
+                auto const* action = a_event->actionRef ? a_event->actionRef->As<RE::Actor>() : nullptr;
+                if (action && action->IsPlayerRef())
+                    SearchedCorpses::mark_activated(a_event->objectActivated.get());
+            }
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
 
     // ---------------------------------------------------------------------------
     // 包围盒计算（参考 Precision 的碰撞体方案）
@@ -523,51 +550,6 @@ namespace
                 a_detail));
     }
 
-    // 查找与灰烬堆关联的 Actor（原始尸体）。
-    // 原版机制：Actor 化为灰烬时，灰烬堆自身带 ExtraAshPileRef（kAshPileRef, 0x85）
-    // 指向原始 Actor 的句柄（日志里 ash_link 字段）；原始 Actor 的 ExtraDataList 上
-    // 也有反向链接。物品挂在原始 Actor 的仓库上——打开灰烬堆时引擎展示的就是它，
-    // 这正是"堆本身读不到库存但能搜刮到东西"的原因。
-    [[nodiscard]] RE::Actor* find_ash_pile_owner(RE::TESObjectREFR* a_pile)
-    {
-        if (!a_pile)
-            return nullptr;
-        
-        // 优先：灰烬堆自己的 ExtraAshPileRef → 原始 Actor
-        RE::ObjectRefHandle const pile_link = a_pile->extraList.GetAshPileRef();
-        if (pile_link)
-        {
-            if (RE::NiPointer<RE::TESObjectREFR> const ref = pile_link.get())
-            {
-                if (RE::Actor* actor = ref->As<RE::Actor>())
-                    return actor;
-            }
-        }
-        // 兜底：过程列表里 ExtraAshPileRef == 本堆句柄 的 Actor
-        uint32_t const pile_handle = a_pile->GetHandle().native_handle();
-        RE::ProcessLists* process_lists = RE::ProcessLists::GetSingleton();
-        if (!process_lists)
-            return nullptr;
-        
-        auto const find_in = [&](RE::BSTArray<RE::ActorHandle> const& a_list) -> RE::Actor* 
-        {
-            for (RE::ActorHandle const& handle : a_list)
-            {
-                const RE::NiPointer<RE::Actor> actor = handle.get();
-                if (actor && actor->extraList.GetAshPileRef().native_handle() == pile_handle)
-                    return actor.get();
-            }
-            return nullptr;
-        };
-        
-        if (RE::Actor* actor = find_in(process_lists->highActorHandles))
-            return actor;
-        if (RE::Actor* actor = find_in(process_lists->middleHighActorHandles))
-            return actor;
-        if (RE::Actor* actor = find_in(process_lists->middleLowActorHandles))
-            return actor;
-        return find_in(process_lists->lowActorHandles);
-    }
     // 库存评估结果缓存：FormID → 最近一次 LootFilter::evaluate 的结果（附评估时
     // 的配置快照戳）。两条失效路径：
     //   1. 物品进出容器（玩家拿/放、脚本 AddItem/RemoveItem、respawn 填充库存都走
@@ -627,8 +609,56 @@ namespace
 
 namespace CorpseFinder
 {
+    // 查找与灰烬堆关联的 Actor（原始尸体）。
+    // 原版机制：Actor 化为灰烬时，灰烬堆自身带 ExtraAshPileRef（kAshPileRef, 0x85）
+    // 指向原始 Actor 的句柄（日志里 ash_link 字段）；原始 Actor 的 ExtraDataList 上
+    // 也有反向链接。物品挂在原始 Actor 的仓库上——打开灰烬堆时引擎展示的就是它，
+    // 这正是"堆本身读不到库存但能搜刮到东西"的原因。（定义在 CorpseFinder
+    // 命名空间，见 corpse_finder.h：searched_corpses 模块跨翻译单元使用）
+    RE::Actor* CorpseFinder::find_ash_pile_owner(RE::TESObjectREFR* a_pile)
+    {
+        if (!a_pile)
+            return nullptr;
+        
+        // 优先：灰烬堆自己的 ExtraAshPileRef → 原始 Actor
+        RE::ObjectRefHandle const pile_link = a_pile->extraList.GetAshPileRef();
+        if (pile_link)
+        {
+            if (RE::NiPointer<RE::TESObjectREFR> const ref = pile_link.get())
+            {
+                if (RE::Actor* actor = ref->As<RE::Actor>())
+                    return actor;
+            }
+        }
+        // 兜底：过程列表里 ExtraAshPileRef == 本堆句柄 的 Actor
+        uint32_t const pile_handle = a_pile->GetHandle().native_handle();
+        RE::ProcessLists* process_lists = RE::ProcessLists::GetSingleton();
+        if (!process_lists)
+            return nullptr;
+        
+        auto const find_in = [&](RE::BSTArray<RE::ActorHandle> const& a_list) -> RE::Actor* 
+        {
+            for (RE::ActorHandle const& handle : a_list)
+            {
+                const RE::NiPointer<RE::Actor> actor = handle.get();
+                if (actor && actor->extraList.GetAshPileRef().native_handle() == pile_handle)
+                    return actor.get();
+            }
+            return nullptr;
+        };
+        
+        if (RE::Actor* actor = find_in(process_lists->highActorHandles))
+            return actor;
+        if (RE::Actor* actor = find_in(process_lists->middleHighActorHandles))
+            return actor;
+        if (RE::Actor* actor = find_in(process_lists->middleLowActorHandles))
+            return actor;
+        return find_in(process_lists->lowActorHandles);
+    }
     // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保容器变化监听已注册（幂等），
-    // 并清空评估缓存——读档/新游戏后旧评估全部作废
+    // 并清空评估缓存——读档/新游戏后旧评估全部作废。
+    // 同时注册激活事件监听（已搜索尸体标记）并清空标记：标记仅会话内有效，
+    // 读档/新游戏后重新开始记录
     void reset_loot_cache()
     {
         static bool installed = false;
@@ -637,11 +667,14 @@ namespace CorpseFinder
             if (auto* holder = RE::ScriptEventSourceHolder::GetSingleton())
             {
                 holder->AddEventSink(ContainerChangeHandler::get_singleton());
+                holder->AddEventSink(ActivateHandler::get_singleton());
                 installed = true;
-                logger::info("Installed TESContainerChangedEvent sink (loot cache invalidation)"sv);
+                logger::info("Installed TESContainerChangedEvent + TESActivateEvent sinks"sv);
             }
         }
         g_loot_cache.clear();
+        // 已搜索标记的清空由 searched_corpses 的 Revert 回调负责（读档/回主菜单
+        // 时 SKSE 调用），此处无需重复处理
     }
 
     void scan()
@@ -657,12 +690,14 @@ namespace CorpseFinder
         std::vector<CorpseEntry> found;
         found.reserve(64);
         
-        auto const consider = [&](RE::Actor* a_actor) 
+        auto const consider = [&](RE::Actor* a_actor)
         {
             if (!a_actor || a_actor == player)
                 return;
             if (a_actor->IsDisabled() || a_actor->IsDeleted())
                 return;
+            if (Config::get().hide_searched_enabled && SearchedCorpses::contains(a_actor))
+                return;  // 玩家搜索过（即使没拿东西）：不再显示
 
             // 距离已由 ForEachReferenceInRange 保证在 max_distance 内；这里只算距离用于淡出
             RE::NiPoint3 const pos = a_actor->GetPosition();
@@ -727,6 +762,9 @@ namespace CorpseFinder
 
         auto const consider_object = [&](RE::TESObjectREFR* a_ref)
         {
+            if (Config::get().hide_searched_enabled && SearchedCorpses::contains(a_ref))
+                return;  // 玩家搜索过（即使没拿东西）：不再显示
+
             bool const is_ash = is_ash_pile_ref(a_ref);
             bool const is_corpse_obj = is_ash ? false : is_corpse_object_ref(a_ref);
             if (!is_ash && !is_corpse_obj)
@@ -738,7 +776,7 @@ namespace CorpseFinder
             RE::FormID owner_id = 0;
             if (!loot.has_items)
             {
-                if (RE::Actor* owner = find_ash_pile_owner(a_ref))
+                if (RE::Actor* owner = CorpseFinder::find_ash_pile_owner(a_ref))
                 {
                     owner_id = owner->GetFormID();
                     loot = cached_evaluate(owner);

@@ -567,7 +567,7 @@ namespace ESPRenderer
                 for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
                 {
                     // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
-                    if (cfg.loot_filter_enabled && (corpse.loot_categories & category_mask) == 0)
+                    if (cfg.value_filter_enabled && (corpse.loot_categories & category_mask) == 0)
                         continue;
 
                     // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----

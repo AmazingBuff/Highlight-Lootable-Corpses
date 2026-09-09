@@ -9,6 +9,11 @@
 - The INI is now written with a comment above each option (same style as the configuration reference in the README) and is saved automatically whenever the player makes a save game after changing settings in the MCP menu — pressing "Save to INI" is no longer required (that button still saves immediately).
 - Loot filter category switches now default to **false** (opt-in per category), and their controls are greyed out in the MCP menu while the loot filter is off.
 
+### Added
+
+- Add an optional "hide searched corpses" mode (`HideSearchedEnabled`, off by default): once the player activates (searches) a corpse, it stops being outlined — even if nothing was taken. Activation is always recorded (so corpses searched before enabling the option are hidden too once it is turned on).
+- Searched-corpses marks persist per save game via the SKSE co-save (record `HLCS`): form IDs are re-resolved on load (stale marks are dropped), marks are removed when the engine deletes a form, and loading a save without marks (or removing the plugin) leaves saves fully intact.
+
 ### Removed
 
 - Remove the model-silhouette outline mode (`OutlineMode`) to eliminate its heavy performance cost.

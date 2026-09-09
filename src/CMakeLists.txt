@@ -9,6 +9,7 @@ set(SOURCE_FILES
 	"${SOURCE_DIR}/input.cpp"
 	"${SOURCE_DIR}/loot_filter.cpp"
 	"${SOURCE_DIR}/main.cpp"
+	"${SOURCE_DIR}/searched_corpses.cpp"
 	"${SOURCE_DIR}/shader_compile.cpp"
 	"${SOURCE_DIR}/ui_menu.cpp"
 )
@@ -20,6 +21,7 @@ set(HEADER_FILES
 	"${SOURCE_DIR}/input.h"
 	"${SOURCE_DIR}/loot_filter.h"
 	"${SOURCE_DIR}/pch.h"
+	"${SOURCE_DIR}/searched_corpses.h"
 	"${SOURCE_DIR}/shader_compile.h"
 	"${SOURCE_DIR}/ui_menu.h"
 )

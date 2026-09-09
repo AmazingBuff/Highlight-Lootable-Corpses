@@ -72,7 +72,8 @@ namespace Config
         g_settings.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance", g_settings.fade_start_distance));
         g_settings.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower", g_settings.fade_power));
 
-        g_settings.loot_filter_enabled = ini.GetBoolValue("LootFilter", "LootFilterEnabled", g_settings.loot_filter_enabled);
+        g_settings.hide_searched_enabled = ini.GetBoolValue("LootFilter", "HideSearchedEnabled", g_settings.hide_searched_enabled);
+        g_settings.value_filter_enabled = ini.GetBoolValue("LootFilter", "ValueFilterEnabled", g_settings.value_filter_enabled);
         g_settings.value_quest_items = ini.GetBoolValue("LootFilter", "ValueQuestItems", g_settings.value_quest_items);
         g_settings.value_keys = ini.GetBoolValue("LootFilter", "ValueKeys", g_settings.value_keys);
         g_settings.value_enchanted = ini.GetBoolValue("LootFilter", "ValueEnchanted", g_settings.value_enchanted);
@@ -94,7 +95,7 @@ namespace Config
             g_settings.hotkey,
             g_settings.max_distance,
             g_settings.scan_interval_ms,
-            g_settings.loot_filter_enabled);
+            g_settings.value_filter_enabled);
     }
 
     void save() noexcept
@@ -125,7 +126,8 @@ namespace Config
         body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", g_settings.fade_start_distance));
         body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", g_settings.fade_power));
         body += section("LootFilter");
-        body += option("only outline corpses matching the categories below", fmt::format("LootFilterEnabled={}", g_settings.loot_filter_enabled ? "true" : "false"));
+        body += option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", g_settings.hide_searched_enabled ? "true" : "false"));
+        body += option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", g_settings.value_filter_enabled ? "true" : "false"));
         body += option("quest items", fmt::format("ValueQuestItems={}", g_settings.value_quest_items ? "true" : "false"));
         body += option("keys", fmt::format("ValueKeys={}", g_settings.value_keys ? "true" : "false"));
         body += option("enchanted equipment", fmt::format("ValueEnchanted={}", g_settings.value_enchanted ? "true" : "false"));

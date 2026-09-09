@@ -3,6 +3,11 @@
 #include <cstdint>
 #include <vector>
 
+namespace RE
+{
+    class TESObjectREFR;
+}
+
 namespace CorpseFinder
 {
     struct CorpseEntry
@@ -34,6 +39,11 @@ namespace CorpseFinder
 
     // 任意线程安全调用：取回最近一次扫描的快照
     [[nodiscard]] std::vector<CorpseEntry> snapshot();
+
+    // 灰烬堆 → 原始 Actor：堆自身带 ExtraAshPileRef 指向原始 Actor（优先），
+    // 兜底查过程列表中 ExtraAshPileRef 指向本堆的 Actor。
+    // searched_corpses 模块跨翻译单元使用（标记/查询的灰烬堆双向关联）
+    [[nodiscard]] RE::Actor* find_ash_pile_owner(RE::TESObjectREFR* a_pile);
 
     // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保库存评估缓存的失效监听
     // （TESContainerChangedEvent sink）已注册（幂等），并清空评估缓存——
