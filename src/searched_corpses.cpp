@@ -130,7 +130,8 @@ namespace SearchedCorpses
         });
 
         serialization->SetRevertCallback([]([[maybe_unused]] SKSE::SerializationInterface* a_intfc) {
-            // 回主菜单/读档前：清空旧存档标记（与 kDataLoaded 路径的 clear 互为兜底）
+            // 回主菜单/读档前：清空旧存档标记。co-save 的 Load 回调在其后运行
+            // 并重建集合，此处清空保证无 co-save 数据时不残留旧标记
             g_searched_corpses.clear();
         });
 
@@ -141,10 +142,5 @@ namespace SearchedCorpses
         });
 
         logger::info("Registered searched-corpses serialization callbacks"sv);
-    }
-
-    void clear()
-    {
-        g_searched_corpses.clear();
     }
 }

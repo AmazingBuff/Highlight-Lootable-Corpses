@@ -5,6 +5,7 @@
 
 namespace RE
 {
+    class Actor;
     class TESObjectREFR;
 }
 
@@ -44,6 +45,14 @@ namespace CorpseFinder
     // 兜底查过程列表中 ExtraAshPileRef 指向本堆的 Actor。
     // searched_corpses 模块跨翻译单元使用（标记/查询的灰烬堆双向关联）
     [[nodiscard]] RE::Actor* find_ash_pile_owner(RE::TESObjectREFR* a_pile);
+
+    // 尸体类引用判定（scan 与 searched_corpses 标记侧共用，口径必须一致）：
+    //   is_dead_corpse_actor：生命状态为 kDead 的 Actor（不含 kDying，见 scan 内注释）
+    //   is_ash_pile_ref：灰烬堆激活体（DefaultAshPile 系列等）
+    //   is_corpse_object_ref：静态尸体容器（干尸/裹尸 CONT 系列）
+    [[nodiscard]] bool is_dead_corpse_actor(RE::Actor* a_actor);
+    [[nodiscard]] bool is_ash_pile_ref(RE::TESObjectREFR* a_ref);
+    [[nodiscard]] bool is_corpse_object_ref(RE::TESObjectREFR* a_ref);
 
     // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保库存评估缓存的失效监听
     // （TESContainerChangedEvent sink）已注册（幂等），并清空评估缓存——

@@ -84,7 +84,7 @@ scan()（游戏线程，500ms）
   └─ 结果写入 CorpseEntry.loot_categories / best_item_value
        ↓ snapshot（互斥拷贝）
 渲染 on_present（渲染线程）
-  └─ if (cfg.loot_filter_enabled &&
+  └─ if (cfg.value_filter_enabled &&
          (corpse.loot_categories & LootFilter::enabled_category_mask()) == 0)
          continue;   // 不画该尸体
 ```
@@ -103,7 +103,7 @@ scan()（游戏线程，500ms）
 
 | INI 键 | 字段 | 默认 | 说明 |
 |---|---|---|---|
-| ValueFilterEnabled | `loot_filter_enabled` | false | 总开关（默认关 = 现状行为） |
+| ValueFilterEnabled | `value_filter_enabled` | false | 总开关（默认关 = 现状行为） |
 | ValueQuestItems | `value_quest_items` | false | 任务物品 |
 | ValueKeys | `value_keys` | false | 钥匙 |
 | ValueEnchanted | `value_enchanted` | false | 附魔装备 |

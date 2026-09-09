@@ -31,11 +31,23 @@ namespace
             if (a_event && a_event->objectActivated)
             {
                 // actionRef = 激活者：仅玩家搜索才算（NPC 拾尸/脚本激活不算）。
+                // 只标记尸体类引用（与 scan 的候选口径一致：死亡 Actor/灰烬堆/静态
+                // 尸体）——玩家激活的门/拉杆/宝箱等普通引用不进集合，否则 co-save
+                // 里的已搜索集合会随常规玩法无上限增长。
                 // 标记始终记录（与 HideSearchedEnabled 开关无关）——开关只控制
                 // scan() 是否应用标记，先搜索后开参数的尸体同样会消失
                 auto const* action = a_event->actionRef ? a_event->actionRef->As<RE::Actor>() : nullptr;
                 if (action && action->IsPlayerRef())
-                    SearchedCorpses::mark_activated(a_event->objectActivated.get());
+                {
+                    RE::TESObjectREFR* const object = a_event->objectActivated.get();
+                    bool is_corpse = false;
+                    if (RE::Actor* const actor = object->As<RE::Actor>())
+                        is_corpse = CorpseFinder::is_dead_corpse_actor(actor);
+                    else
+                        is_corpse = CorpseFinder::is_ash_pile_ref(object) || CorpseFinder::is_corpse_object_ref(object);
+                    if (is_corpse)
+                        SearchedCorpses::mark_activated(object);
+                }
             }
             return RE::BSEventNotifyControl::kContinue;
         }
@@ -481,16 +493,6 @@ namespace
         return std::ranges::any_of(a_ids, [id](RE::FormID a_form) { return id == a_form; });
     }
 
-    [[nodiscard]] bool is_ash_pile_ref(RE::TESObjectREFR* a_ref)
-    {
-        return is_ref_form_in(a_ref, ash_pile_form_ids());
-    }
-
-    [[nodiscard]] bool is_corpse_object_ref(RE::TESObjectREFR* a_ref)
-    {
-        return is_ref_form_in(a_ref, corpse_object_form_ids());
-    }
-
     // 按 (通道, FormID) 去重的状态日志：同一 (通道, form_id) 的内容变化时才输出（首次必输出），
     // 避免每 0.5s 刷屏。三个通道（一次性跳过诊断、灰烬堆/静态尸体状态、每轮 listed 诊断）
     // 各自独立去重——只按 form_id 去重会让不同通道的同一 form_id 互相顶掉内容而反复重打。
@@ -654,6 +656,26 @@ namespace CorpseFinder
         if (RE::Actor* actor = find_in(process_lists->middleLowActorHandles))
             return actor;
         return find_in(process_lists->lowActorHandles);
+    }
+    // 尸体类引用判定（定义于 CorpseFinder 命名空间，见 corpse_finder.h：
+    // scan 与 searched_corpses 标记侧共用，口径必须一致——标记非尸体引用会让
+    // co-save 里的已搜索集合随常规玩法无上限增长）
+    bool CorpseFinder::is_dead_corpse_actor(RE::Actor* a_actor)
+    {
+        // 与 scan 内 consider 的死亡判定同口径：直接读 life_state 位域
+        // （IsDead() 虚表分发在本机 AE 不可信，见 scan 内注释），
+        // kDying 不算——倒地濒死的还会爬起来，激活活物不构成"搜索尸体"
+        return a_actor && a_actor->AsActorState()->GetLifeState() == RE::ACTOR_LIFE_STATE::kDead;
+    }
+
+    bool CorpseFinder::is_ash_pile_ref(RE::TESObjectREFR* a_ref)
+    {
+        return is_ref_form_in(a_ref, ash_pile_form_ids());
+    }
+
+    bool CorpseFinder::is_corpse_object_ref(RE::TESObjectREFR* a_ref)
+    {
+        return is_ref_form_in(a_ref, corpse_object_form_ids());
     }
     // kDataLoaded/kNewGame/kPostLoadGame 时调用：确保容器变化监听已注册（幂等），
     // 并清空评估缓存——读档/新游戏后旧评估全部作废。

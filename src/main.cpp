@@ -31,6 +31,12 @@ namespace
     {
         switch (a_msg->type)
         {
+        case SKSE::MessagingInterface::kPostLoad:
+            // 所有插件的 SKSEPlugin_Load 均已返回（比 kDataLoaded 早）：此刻
+            // 探测 QuickLootIE.dll 才有效——SKSE 按字母序逐个加载，本插件 Load
+            // 时 Q 在后面、尚未进进程。install 内部幂等
+            (void)QuickLootCompat::install();
+            break;
         case SKSE::MessagingInterface::kDataLoaded:
         case SKSE::MessagingInterface::kNewGame:
         case SKSE::MessagingInterface::kPostLoadGame:
@@ -101,9 +107,6 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(SKSE::LoadInterface const* a_s
     Config::load();
     // 注册已搜索尸体的 co-save 序列化回调（Save/Load/Revert/FormDelete）
     SearchedCorpses::register_serialization_callbacks();
-    // QuickLoot IE 兼容（可选依赖）：拿取路径不产生激活事件，改经其公开 API
-    // 把"打开战利品菜单"计入已搜索标记；未安装时静默降级
-    (void)QuickLootCompat::install();
 
     SKSE::GetMessagingInterface()->RegisterListener(message_handler);
 
