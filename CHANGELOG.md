@@ -11,7 +11,7 @@
 
 ### Added
 
-- Add an optional "hide searched corpses" mode (`HideSearchedEnabled`, off by default): once the player activates (searches) a corpse, it stops being outlined — even if nothing was taken. Activation is always recorded (so corpses searched before enabling the option are hidden too once it is turned on).
+- Add an optional "hide searched corpses" mode (`HideSearchedEnabled`, off by default): once the player searches a corpse, it stops being outlined — even if nothing was taken. Searching is always recorded (so corpses searched before enabling the option are hidden too once it is turned on). QuickLoot IE users are covered via its public API (opening the loot menu marks the corpse as searched); QuickLoot IE is an optional dependency and its absence falls back to vanilla activation events only.
 - Searched-corpses marks persist per save game via the SKSE co-save (record `HLCS`): form IDs are re-resolved on load (stale marks are dropped), marks are removed when the engine deletes a form, and loading a save without marks (or removing the plugin) leaves saves fully intact.
 
 ### Removed

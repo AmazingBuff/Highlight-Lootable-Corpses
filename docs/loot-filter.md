@@ -161,12 +161,15 @@ scan()（游戏线程，500ms）
 10. **评估缓存**：评估结果按 FormID 缓存，容器变化事件 + 配置快照戳双重失效
     （见第四节）；缓存条目只增不减，单条仅几十字节、量级为"评估过的尸体数"，
     内存可忽略
-11. **已搜索尸体标记**（`searched_corpses` 模块）：玩家激活过的尸体 FormID 集合，
-    灰烬堆双向关联（堆/Actor 任一命中即算）。标记忠实于激活事实——拿空/塞回
+11. **已搜索尸体标记**（`searched_corpses` 模块）：玩家搜索过的尸体 FormID 集合，
+    灰烬堆双向关联（堆/Actor 任一命中即算）。标记忠实于搜索事实——拿空/塞回
     物品都不改写，box 显示由 `has_items && !已搜索` 共同决定；标记只随"引用不
     存在"清除（引擎 FormDelete 回调 + 读档 ResolveFormID 失败丢弃），并经 SKSE
-    co-save（record `HLCS`）按存档持久化。激活始终记录，`HideSearchedEnabled`
-    开关只控制 scan() 是否应用
+    co-save（record `HLCS`）按存档持久化。搜索始终记录，`HideSearchedEnabled`
+    开关只控制 scan() 是否应用。搜索来源两路：原版激活（TESActivateEvent，
+    仅玩家）与 QuickLoot IE 打开战利品菜单（`quickloot_compat` 经其公开 API
+    的 OpeningLootMenuEvent，QLIE 拿取走 RemoveItem 不发激活事件；QLIE 未安装
+    时自动降级为纯激活路径，可选依赖零影响）
 
 ## 九、验证清单
 

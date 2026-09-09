@@ -2,6 +2,7 @@
 #include "config.h"
 #include "corpse_finder.h"
 #include "esp_renderer.h"
+#include "quickloot_compat/quickloot_compat.h"
 #include "searched_corpses.h"
 #include "ui_menu.h"
 
@@ -100,6 +101,9 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(SKSE::LoadInterface const* a_s
     Config::load();
     // 注册已搜索尸体的 co-save 序列化回调（Save/Load/Revert/FormDelete）
     SearchedCorpses::register_serialization_callbacks();
+    // QuickLoot IE 兼容（可选依赖）：拿取路径不产生激活事件，改经其公开 API
+    // 把"打开战利品菜单"计入已搜索标记；未安装时静默降级
+    (void)QuickLootCompat::install();
 
     SKSE::GetMessagingInterface()->RegisterListener(message_handler);
 
