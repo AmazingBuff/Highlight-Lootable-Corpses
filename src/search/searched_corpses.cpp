@@ -3,9 +3,6 @@
 //
 
 #include "searched_corpses.h"
-
-#include "corpse_finder.h"
-
 #include "base/util.h"
 
 PLUGIN_NAMESPACE_BEGIN

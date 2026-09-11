@@ -1,17 +1,12 @@
-#include "esp_renderer.h"
-#include "filter/loot_filter.h"
+#include "renderer.h"
 #include "config/config.h"
 #include "search/corpse_finder.h"
 
-// Direct3D / DirectXTK
-#pragma warning(push)
-#pragma warning(disable: 4324)  // structure was padded due to alignment specifier
 #include <d3d11.h>
 #include <dxgi.h>
 #include <DirectXMath.h>
 #include <CommonStates.h>
 #include <d3dcompiler.h>
-#pragma warning(pop)
 
 PLUGIN_NAMESPACE_BEGIN
 

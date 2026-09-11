@@ -1,6 +1,5 @@
 #include "corpse_finder.h"
 #include "searched_corpses.h"
-
 #include "config/config.h"
 #include "base/util.h"
 

@@ -1,9 +1,6 @@
 #include "ui_menu.h"
-#include "filter/loot_filter.h"
 #include "config/config.h"
 #include "search/corpse_finder.h"
-#include "input/input.h"
-
 
 #pragma warning(push)
 #pragma warning(disable: 4996 5054 4099 4267 4244 4061 4062)

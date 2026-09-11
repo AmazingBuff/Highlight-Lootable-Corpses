@@ -1,8 +1,5 @@
 #pragma once
 
-#include <cstdint>
-#include <vector>
-
 #include "filter/loot_filter.h"
 
 PLUGIN_NAMESPACE_BEGIN

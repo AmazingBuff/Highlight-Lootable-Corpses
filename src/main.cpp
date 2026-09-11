@@ -1,6 +1,6 @@
 #include "config/config.h"
 #include "quickloot_compat/quickloot_compat.h"
-#include "render/esp_renderer.h"
+#include "render/renderer.h"
 #include "search/searched_corpses.h"
 #include "ui/ui_menu.h"
 

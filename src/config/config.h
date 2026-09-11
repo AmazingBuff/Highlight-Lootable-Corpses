@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstdint>
-
 PLUGIN_NAMESPACE_BEGIN
 
 struct Config

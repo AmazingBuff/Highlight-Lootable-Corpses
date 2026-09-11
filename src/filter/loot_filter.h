@@ -4,10 +4,6 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
-
-
 PLUGIN_NAMESPACE_BEGIN
 
 class LootFilter

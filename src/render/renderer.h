@@ -1,8 +1,5 @@
 #pragma once
 
-#include <d3d11.h>
-#include <dxgi.h>
-
 PLUGIN_NAMESPACE_BEGIN
 
 class Renderer

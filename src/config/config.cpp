@@ -1,6 +1,5 @@
 #include "config.h"
 
-#include <fstream>
 #include <SimpleIni.h>
 
 PLUGIN_NAMESPACE_BEGIN
