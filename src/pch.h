@@ -1,26 +1,5 @@
 #pragma once
 
-#pragma warning(push)
-#include <RE/Skyrim.h>
-#include <REL/Relocation.h>
-#include <SKSE/SKSE.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/msvc_sink.h>
-#include <fmt/format.h>
-#pragma warning(pop)
-
-// Direct3D / DirectXTK
-#pragma warning(push)
-#pragma warning(disable: 4324)  // structure was padded due to alignment specifier
-#include <d3d11.h>
-#include <dxgi.h>
-#include <d3dcompiler.h>
-#include <DirectXMath.h>
-#include <CommonStates.h>
-#pragma warning(pop)
-
-#include <SimpleIni.h>
-
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -31,14 +10,15 @@
 #include <unordered_set>
 #include <vector>
 
+#include <RE/Skyrim.h>
+#include <REL/Relocation.h>
+#include <SKSE/SKSE.h>
+#include <fmt/format.h>
+
+
 using namespace std::literals;
 
 namespace logger = SKSE::log;
-
-namespace util
-{
-    using SKSE::stl::report_and_fail;
-}
 
 #define DLLEXPORT __declspec(dllexport)
 

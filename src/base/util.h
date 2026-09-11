@@ -1,0 +1,19 @@
+//
+// Created by AmazingBuff on 2026/9/10.
+//
+
+#pragma once
+
+#include "def.h"
+
+PLUGIN_NAMESPACE_BEGIN
+
+namespace Util
+{
+    [[nodiscard]] RE::TESObjectREFR* get_container_object(RE::TESObjectREFR* a_ref);
+
+    [[nodiscard]] bool is_corpse_actor(RE::Actor* a_actor);
+    [[nodiscard]] bool is_ash_pile_ref(const RE::TESObjectREFR* a_ref);
+    [[nodiscard]] bool is_corpse_object_ref(const RE::TESObjectREFR* a_ref);
+}
+PLUGIN_NAMESPACE_END

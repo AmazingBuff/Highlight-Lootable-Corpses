@@ -1,13 +1,9 @@
 {
-  "name": "highlightlootablecorpses",
-  "version": "1.0.0",
+  "name": "highlight-lootable-corpses",
+  "version": "1.2.0",
   "dependencies": [
     "fmt",
     "spdlog",
-    {
-      "name": "vcpkg-cmake-config",
-      "host": true
-    },
     "directxmath",
     "directxtk",
     "rapidcsv",

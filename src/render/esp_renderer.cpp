@@ -1,28 +1,22 @@
-#include "pch.h"
 #include "esp_renderer.h"
-#include "config.h"
-#include "corpse_finder.h"
-#include "input.h"
-#include "loot_filter.h"
-#include "shader_compile.h"
+#include "filter/loot_filter.h"
+#include "config/config.h"
+#include "search/corpse_finder.h"
+
+// Direct3D / DirectXTK
+#pragma warning(push)
+#pragma warning(disable: 4324)  // structure was padded due to alignment specifier
+#include <d3d11.h>
+#include <dxgi.h>
+#include <DirectXMath.h>
+#include <CommonStates.h>
+#include <d3dcompiler.h>
+#pragma warning(pop)
+
+PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    // ---------------------------------------------------------------------------
-    // IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位）
-    // 运行时无关：不依赖 Address Library ID，任何 AE 版本都有效
-    // ---------------------------------------------------------------------------
-    using PresentFunc = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
-
-    PresentFunc g_original_present = nullptr;
-    void** g_hooked_slot = nullptr;
-
-    HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swapChain, UINT a_syncInterval, UINT a_flags)
-    {
-        ESPRenderer::on_present(a_swapChain);
-        return g_original_present(a_swapChain, a_syncInterval, a_flags);
-    }
-
     // ---------------------------------------------------------------------------
     // 绘制资源（懒创建，渲染线程独占）
     // ---------------------------------------------------------------------------
@@ -135,6 +129,34 @@ namespace
     // 并发下导致绘制错乱/不显示/透明度异常，故整个绘制段串行化。
     std::mutex g_draw_mutex;
 
+    ID3DBlob* compile(char const* a_source, char const* a_target, char const* a_name)
+    {
+        if (!a_source || !a_target)
+            return nullptr;
+
+        ID3DBlob* blob = nullptr;
+        ID3DBlob* err = nullptr;
+        HRESULT const hr = D3DCompile(a_source, std::strlen(a_source), nullptr, nullptr, nullptr, "main", a_target, 0, 0, &blob, &err);
+        if (FAILED(hr))
+        {
+            logger::error(
+                "Shader compile failed [{} {}] ({:X}): {}",
+                a_name ? a_name : "?",
+                a_target,
+                static_cast<unsigned int>(hr),
+                err ? static_cast<char const*>(err->GetBufferPointer()) : "no diagnostics");
+            if (blob)
+            {
+                blob->Release();
+                blob = nullptr;
+            }
+        }
+        if (err)
+            err->Release();
+
+        return blob;
+    }
+
     void release_ui_pipeline()
     {
         if (g_ui_vb)
@@ -200,8 +222,8 @@ namespace
             }
         )";
 
-        ID3DBlob* vs_blob = ShaderCompile::compile(vs_src, "vs_5_0", "esp quad");
-        ID3DBlob* ps_blob = ShaderCompile::compile(ps_src, "ps_5_0", "esp quad");
+        ID3DBlob* vs_blob = compile(vs_src, "vs_5_0", "esp quad");
+        ID3DBlob* ps_blob = compile(ps_src, "ps_5_0", "esp quad");
         if (!vs_blob || !ps_blob)
         {
             if (vs_blob)
@@ -373,7 +395,7 @@ namespace
     // 距离衰减：FadeStartDistance 内完全不透明；超过后按 FadePower 指数衰减，
     // 到 MaxDistance 处达到 MinOpacity 下限。
     // 前置条件：min_opacity ∈ [0,1]、max_distance > 0（Config::load 已规范化）。
-    [[nodiscard]] float corpse_alpha(Config::Settings const& a_cfg, float a_distance)
+    [[nodiscard]] float corpse_alpha(Config const& a_cfg, float a_distance)
     {
         float const fade_range = std::max(a_cfg.max_distance - a_cfg.fade_start_distance, 1.0f);
         float const f = a_distance <= a_cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((a_distance - a_cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
@@ -404,63 +426,22 @@ namespace
             a_p1.x + nx, a_p1.y + ny,
             a_color);
     }
-}
-
-namespace ESPRenderer
-{
-    void install()
-    {
-        if (g_hooked_slot)
-            return;  // 已安装
-
-        RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
-        if (!renderer)
-            return;
-
-        RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
-        if (!rt.renderWindows[0].swapChain)
-        {
-            logger::warn("SwapChain not available yet, will retry on next game message");
-            return;
-        }
-
-        IDXGISwapChain* swap_chain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
-        void** vtable = *reinterpret_cast<void***>(swap_chain);
-
-        // IDXGISwapChain::Present 是虚函数表中第 8 个槽位
-        g_hooked_slot = &vtable[8];
-        g_original_present = reinterpret_cast<PresentFunc>(*g_hooked_slot);
-
-        DWORD old_protect = 0;
-        if (!VirtualProtect(g_hooked_slot, sizeof(void*), PAGE_READWRITE, &old_protect))
-        {
-            logger::error("VirtualProtect failed, cannot install Present hook");
-            g_hooked_slot = nullptr;
-            g_original_present = nullptr;
-            return;
-        }
-        *g_hooked_slot = reinterpret_cast<void*>(&present_thunk);
-        VirtualProtect(g_hooked_slot, sizeof(void*), old_protect, &old_protect);
-
-        logger::info("Installed IDXGISwapChain::Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(g_original_present));
-    }
 
     void on_present(IDXGISwapChain* a_swapChain)
     {
         // 整个绘制段串行化（见 g_draw_mutex 注释：多线程并发进入 Present hook）
         std::lock_guard<std::mutex> const draw_lock(g_draw_mutex);
 
-        Input::poll();
 
         // 定时派发尸体扫描任务到游戏线程；在途守卫保证同一时刻最多一个
         // 扫描任务排队或执行中，避免扫描堆积（exchange 置位成功才派发）。
         std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
-        if (now - g_last_scan >= std::chrono::milliseconds(Config::get().scan_interval_ms) &&
+        if (now - g_last_scan >= std::chrono::milliseconds(Setting::get_config().scan_interval_ms) &&
             !g_scan_in_flight.exchange(true))
         {
             g_last_scan = now;
             SKSE::GetTaskInterface()->AddTask([] {
-                CorpseFinder::scan();
+                CorpseScan::search();
                 g_scan_in_flight.store(false);
             });
         }
@@ -475,10 +456,6 @@ namespace ESPRenderer
         if (!device || !context)
             return;
 
-        // 防御：同一游戏帧内 Present 若被多次调用，只绘制一次，避免 alpha 叠加。
-        // frameCount 经 GetFrameCount() 读取：AE < 1.7.99 位于 State+0x4C，
-        // 1.7.99+ 被引擎重排进 FRAME_STATE_1799（RUNTIME_DATA 起始 0x60 → 0x70），
-        // 直读成员在新运行时会错位（NG v7.2.0 起不再提供扁平成员）。
         RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
         std::uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
 
@@ -532,9 +509,9 @@ namespace ESPRenderer
             context->RSSetState(g_states->CullNone());
 
             // ---- 尸体 ESP 标记 ----
-            if (Config::is_enabled())
+            Config const& cfg = Setting::get_config();
+            if (cfg.enabled)
             {
-                Config::Settings const& cfg = Config::get();
                 // 相机对象：世界根相机（Present 时仍是本帧数据），用于投影
                 RE::NiCamera* world_cam = RE::Main::WorldRootCamera();
 
@@ -562,14 +539,8 @@ namespace ESPRenderer
                 float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                 float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
 
-                std::uint16_t const category_mask = LootFilter::enabled_category_mask();
-
-                for (CorpseFinder::CorpseEntry const& corpse : CorpseFinder::snapshot())
+                for (CorpseScan::CorpseInfo const& corpse : CorpseScan::snapshot())
                 {
-                    // 战利品筛选：开启时跳过未命中任何已启用价值分类的尸体
-                    if (cfg.value_filter_enabled && (corpse.loot_categories & category_mask) == 0)
-                        continue;
-
                     // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
                     // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
                     // 失败时兜底用 State 的 viewProj 矩阵。
@@ -775,4 +746,58 @@ namespace ESPRenderer
                 prev_rs->Release();
         }  // if (!skip_draw)
     }
+
+    // ---------------------------------------------------------------------------
+    // IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位）
+    // 运行时无关：不依赖 Address Library ID，任何 AE 版本都有效
+    // ---------------------------------------------------------------------------
+    using PresentFunc = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+
+    PresentFunc g_original_present = nullptr;
+    void** g_hooked_slot = nullptr;
+
+    HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swapChain, UINT a_syncInterval, UINT a_flags)
+    {
+        on_present(a_swapChain);
+        return g_original_present(a_swapChain, a_syncInterval, a_flags);
+    }
 }
+
+void Renderer::install()
+{
+    if (g_hooked_slot)
+        return;  // 已安装
+
+    RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
+    if (!renderer)
+        return;
+
+    RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
+    if (!rt.renderWindows[0].swapChain)
+    {
+        logger::warn("SwapChain not available yet, will retry on next game message");
+        return;
+    }
+
+    IDXGISwapChain* swap_chain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
+    void** vtable = *reinterpret_cast<void***>(swap_chain);
+
+    // IDXGISwapChain::Present 是虚函数表中第 8 个槽位
+    g_hooked_slot = &vtable[8];
+    g_original_present = reinterpret_cast<PresentFunc>(*g_hooked_slot);
+
+    DWORD old_protect = 0;
+    if (!VirtualProtect(g_hooked_slot, sizeof(void*), PAGE_READWRITE, &old_protect))
+    {
+        logger::error("VirtualProtect failed, cannot install Present hook");
+        g_hooked_slot = nullptr;
+        g_original_present = nullptr;
+        return;
+    }
+    *g_hooked_slot = reinterpret_cast<void*>(&present_thunk);
+    VirtualProtect(g_hooked_slot, sizeof(void*), old_protect, &old_protect);
+
+    logger::info("Installed IDXGISwapChain::Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(g_original_present));
+}
+
+PLUGIN_NAMESPACE_END

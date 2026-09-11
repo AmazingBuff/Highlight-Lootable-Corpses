@@ -2,18 +2,19 @@
 
 #include <string_view>
 
+#define PLUGIN_NAMESPACE Amazing::@PROJECT_NAME@
+#define PLUGIN_NAMESPACE_BEGIN namespace Amazing { namespace @PROJECT_NAME@ {
+#define PLUGIN_NAMESPACE_END } }
+
 namespace Plugin
 {
-	using namespace std::literals;
-
-	inline constexpr REL::Version VERSION
+	inline constexpr REL::Version Plugin_Version
 	{
-		// clang-format off
 		@PROJECT_VERSION_MAJOR@u,
 		@PROJECT_VERSION_MINOR@u,
 		@PROJECT_VERSION_PATCH@u,
-		// clang-format on
 	};
 
-	inline constexpr auto NAME = "@PROJECT_NAME@"sv;
+	inline constexpr std::string_view Plugin_Name = "@PROJECT_NAME@"sv;
+	inline constexpr std::string_view Plugin_Author = "AmazingBuff";
 }
