@@ -345,103 +345,10 @@ namespace
         return false;
     }
 
-    // 静态可搜刮物体表单：localID + 插件名，运行时换算成完整 FormID。
-    // 不用 EDID 前缀匹配：GetFormEditorID 是虚表调用（槽位 32），本机实测和 IsDead()
-    // 一样返回垃圾值，不可用；GetFormID 是纯数据读取，安全。
-    struct StaticFormID
-    {
-        uint32_t local;
-        char const* plugin;
-    };
-
-    [[nodiscard]] std::vector<RE::FormID> resolve_form_ids(std::initializer_list<StaticFormID> a_forms)
-    {
-        std::vector<RE::FormID> out;
-        RE::TESDataHandler* dh = RE::TESDataHandler::GetSingleton();
-        if (dh)
-        {
-            for (auto const& [local, plugin] : a_forms)
-            {
-                RE::FormID const id = dh->LookupFormID(local, plugin);
-                if (id != 0)
-                    out.push_back(id);
-            }
-        }
-        // 结果被 static 缓存一次：为空说明数据未就绪或主文件缺失，对应检测会整体失效
-        if (out.empty())
-            logger::warn("Resolved 0 of {} static form IDs, related corpse detection is disabled", a_forms.size());
-
-        return out;
-    }
-
-    // 按 (通道, FormID) 去重的状态日志：同一 (通道, form_id) 的内容变化时才输出（首次必输出），
-    // 避免每 0.5s 刷屏。三个通道（一次性跳过诊断、灰烬堆/静态尸体状态、每轮 listed 诊断）
-    // 各自独立去重——只按 form_id 去重会让不同通道的同一 form_id 互相顶掉内容而反复重打。
-    void log_state_once(RE::FormID a_form_id, std::string_view a_channel, std::string_view a_detail)
-    {
-        static std::mutex s_mutex;
-        static std::vector<std::pair<RE::FormID, std::string>> s_seen;
-        static std::vector<std::string> s_details;
-        bool log_it = false;
-        {
-            std::lock_guard lock(s_mutex);
-            for (std::size_t i = 0; i < s_seen.size(); ++i)
-            {
-                if (s_seen[i].first != a_form_id || s_seen[i].second != a_channel)
-                    continue;
-                if (s_details[i] == a_detail)
-                    return;
-
-                s_details[i] = std::string(a_detail);
-                log_it = true;
-                break;
-            }
-            if (!log_it)
-            {
-                s_seen.emplace_back(a_form_id, std::string(a_channel));
-                s_details.emplace_back(a_detail);
-                log_it = true;
-            }
-        }
-        if (log_it)
-            logger::info("{}", a_detail);
-    }
-
-    // 一次性诊断：被"看起来还活着"过滤器排除的 Actor（转发到 log_state_once）
-    void log_once_skip(RE::Actor* a_actor, std::string_view a_reason)
-    {
-        log_state_once(
-            a_actor->GetFormID(),
-            "skip",
-            fmt::format(
-                "Skip non-corpse {:08X} ({}): {}",
-                a_actor->GetFormID(),
-                a_actor->GetDisplayFullName(),
-                a_reason));
-    }
-
-    // 灰烬堆/静态尸体状态诊断（状态变化时才记日志，转发到 log_state_once）
-    void log_ash_pile_state(RE::TESObjectREFR* a_ref, std::string_view a_detail)
-    {
-        log_state_once(
-            a_ref->GetFormID(),
-            "ash",
-            fmt::format(
-                "Ash Pile {:08X} base {:08X}: {}",
-                a_ref->GetFormID(),
-                a_ref->GetBaseObject() ? a_ref->GetBaseObject()->GetFormID() : 0,
-                a_detail));
-    }
-
-    void filter_corpse(RE::TESObjectREFR* a_ref, Config const& a_cfg, std::vector<CorpseScan::CorpseInfo>& corpse_infos)
+    bool filter_corpse(RE::TESObjectREFR* a_ref, Config const& a_cfg, CorpseScan::CorpseInfo& corpse_info)
     {
         if (!a_ref)
-            return;
-
-        RE::TESObjectREFR* ref = Util::get_container_object(a_ref);
-
-        if (a_cfg.hide_searched_enabled && MarkCorpse::contains(ref))
-            return;
+            return false;
 
         RE::PlayerCharacter* player = RE::PlayerCharacter::GetSingleton();
 
@@ -450,12 +357,12 @@ namespace
         {
             if (actor == player || actor->IsDisabled() || actor->IsDeleted() ||
                 actor->IsReanimated() || actor->IsGhost() || !actor->Is3DLoaded() ||
-                actor->IsDead())
-                return;
+                !Util::is_corpse_actor(actor))
+                return false;
 
             LootFilter::EvaluateResult const loot = LootFilter::evaluate(actor);
             if (!loot.has_items)
-                return;
+                return false;
 
             RE::NiPoint3 const pos = actor->GetPosition();
             float const dist = (pos - player->GetPosition()).Length();
@@ -485,20 +392,18 @@ namespace
                     entry.radius = bound.radius;
                 }
             }
-
-            corpse_infos.push_back(entry);
         }
         else
         {
-            bool const is_ash = Util::is_ash_pile_ref(a_ref);
-            bool const is_corpse_obj = is_ash ? false : Util::is_corpse_object_ref(a_ref);
+            bool const is_ash = Util::is_ash_pile(a_ref);
+            bool const is_corpse_obj = Util::is_corpse_object(a_ref);
             if (!is_ash && !is_corpse_obj)
-                return;
+                return false;
 
             // only container need use owner
-            LootFilter::EvaluateResult loot = LootFilter::evaluate(ref);
+            LootFilter::EvaluateResult loot = LootFilter::evaluate(Util::get_container_object(a_ref));
             if (!loot.has_items)
-                return;
+                return false;
 
             entry.form_id = a_ref->GetFormID();
             entry.anchor = a_ref->GetPosition();
@@ -527,9 +432,11 @@ namespace
                 entry.bound_max = b_max;
             }
             entry.distance = (entry.anchor - player->GetPosition()).Length();
-
-            corpse_infos.push_back(entry);
         }
+
+        corpse_info = entry;
+
+        return true;
     }
 }
 
@@ -547,25 +454,31 @@ void CorpseScan::search()
     found.reserve(64);
     tes->ForEachReferenceInRange(player, cfg.max_distance, [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult
     {
-        filter_corpse(a_ref, cfg, found);
+        RE::TESObjectREFR* ref = Util::get_container_object(a_ref);
+
+        if (cfg.hide_searched_enabled && MarkCorpse::contains(ref))
+            return RE::BSContainer::ForEachResult::kContinue;
+
+        CorpseInfo info;
+        if (filter_corpse(a_ref, cfg, info))
+        {
+            found.push_back(info);
+            if (!MarkCorpse::contains(ref))
+                logger::info("{} ({:0x8}) has been added!", ref->GetDisplayFullName(), ref->GetFormID());
+        }
         return RE::BSContainer::ForEachResult::kContinue;
     });
 
-    // 取回旧表在本线程（游戏线程）析构，避免渲染线程在快照交换瞬间
-    // 与扫描线程并发触碰同一批 CorpseEntry
-    std::vector<CorpseInfo> previous;
     {
         std::lock_guard lock(g_mutex);
-        previous = std::move(g_corpses);
-        g_corpses = std::move(found);
+        g_corpses.swap(found);
     }
-    previous.clear();
 }
 
 std::vector<CorpseScan::CorpseInfo> CorpseScan::snapshot()
 {
     std::lock_guard lock(g_mutex);
-    return g_corpses;
+    return std::move(g_corpses);
 }
 
 PLUGIN_NAMESPACE_END

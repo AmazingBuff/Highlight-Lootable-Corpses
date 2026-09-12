@@ -116,19 +116,26 @@ namespace Util
 
     bool is_corpse_actor(RE::Actor* a_actor)
     {
-        return a_actor->IsDead() && a_actor->AsActorState()->GetLifeState() == RE::ACTOR_LIFE_STATE::kDead;
+        return a_actor->AsActorState()->GetLifeState() == RE::ACTOR_LIFE_STATE::kDead;
     }
 
-    bool is_ash_pile_ref(const RE::TESObjectREFR* a_ref)
+    bool is_ash_pile(const RE::TESObjectREFR* a_ref)
     {
         static const std::vector<RE::FormID> s_ash_pile_ids = resolve_form_ids(Ash_Piles);
         return is_ref_form_in(a_ref, s_ash_pile_ids);
     }
 
-    bool is_corpse_object_ref(const RE::TESObjectREFR* a_ref)
+    bool is_corpse_object(const RE::TESObjectREFR* a_ref)
     {
         static const std::vector<RE::FormID> s_static_corpses_ids = resolve_form_ids(Static_Corpses);
         return is_ref_form_in(a_ref, s_static_corpses_ids);
+    }
+
+    bool is_corpse(RE::TESObjectREFR* a_ref)
+    {
+        if (RE::Actor* const actor = a_ref->As<RE::Actor>())
+            return is_corpse_actor(actor);
+        return is_ash_pile(a_ref) || is_corpse_object(a_ref);
     }
 }
 

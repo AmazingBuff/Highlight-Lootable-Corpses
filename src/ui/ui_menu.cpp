@@ -16,17 +16,6 @@ namespace
         if (a_vk == 0)
             return "None";
 
-        switch (a_vk)
-        {
-        case 0x01: return "LMB";
-        case 0x02: return "RMB";
-        case 0x04: return "MMB";
-        case 0x05: return "Mouse 4";
-        case 0x06: return "Mouse 5";
-        default:
-            logger::warn("Unsupported hotkey {}!", a_vk);
-        }
-
         static constexpr std::string_view s_key_names[] = {
             "Backspace"sv, "Tab"sv, ""sv, ""sv, ""sv, "Enter"sv, ""sv, ""sv,   // 0x08-0x0F
             "Shift"sv, "Ctrl"sv, "Alt"sv, "Pause"sv, "Caps"sv, ""sv, ""sv, ""sv, ""sv, ""sv, ""sv, "Esc"sv, ""sv, ""sv, ""sv, ""sv,   // 0x10-0x1F
@@ -46,6 +35,17 @@ namespace
             return fmt::format("Num {}", a_vk - 0x60);                             // 小键盘 0-9
         if (a_vk >= 0x70 && a_vk <= 0x87)
             return fmt::format("F{}", a_vk - 0x6F);                                // F1-F24
+
+        switch (a_vk)
+        {
+        case 0x01: return "LMB";
+        case 0x02: return "RMB";
+        case 0x04: return "MMB";
+        case 0x05: return "Mouse 4";
+        case 0x06: return "Mouse 5";
+        default:
+            logger::warn("Unsupported hotkey {}!", a_vk);
+        }
         return fmt::format("0x{:02X}", a_vk);
     }
 

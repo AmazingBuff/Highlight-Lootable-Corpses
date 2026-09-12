@@ -26,11 +26,8 @@ namespace
     // ---------------------------------------------------------------------------
     // 扫描调度（渲染线程计时，游戏线程执行）
     // ---------------------------------------------------------------------------
-    std::chrono::steady_clock::time_point g_last_scan{};
-    // 在途扫描守卫：同一时刻最多一个扫描任务排队或执行中（见派发点）。
-    // 注：SKSE TaskInterface::AddTask(TaskFn) const 返回 void，派发本身不报失败，
-    // 无失败回滚路径；任务入队后必然在游戏线程执行并在此复位。
-    std::atomic<bool> g_scan_in_flight{ false };
+    std::chrono::steady_clock::time_point g_last_scan;
+    std::atomic<bool> g_scan_in_flight = false;
 
     // NiRect<T> 成员为 protected，按固定布局（left, right, top, bottom）
     // memcpy 到同布局的本地 POD 读取相机 port，避免修改三方库。

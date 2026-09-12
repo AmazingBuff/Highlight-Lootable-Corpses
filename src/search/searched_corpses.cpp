@@ -31,12 +31,7 @@ namespace
                 if (action && action->IsPlayerRef())
                 {
                     RE::TESObjectREFR* const object = a_event->objectActivated.get();
-                    bool is_corpse = false;
-                    if (RE::Actor* const actor = object->As<RE::Actor>())
-                        is_corpse = actor->IsDead();
-                    else
-                        is_corpse = Util::is_ash_pile_ref(object) || Util::is_corpse_object_ref(object);
-                    if (is_corpse)
+                    if (Util::is_corpse(object))
                         MarkCorpse::mark(Util::get_container_object(object));
                 }
             }

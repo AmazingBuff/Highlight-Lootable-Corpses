@@ -13,17 +13,6 @@ PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    bool is_corpse_ref(RE::TESObjectREFR* a_ref)
-    {
-        if (!a_ref)
-            return false;
-
-        if (RE::Actor* const actor = a_ref->As<RE::Actor>())
-            return actor->IsDead();
-
-        return Util::is_ash_pile_ref(a_ref) || Util::is_corpse_object_ref(a_ref);
-    }
-
     void OnOpeningLootMenu40(QuickLoot::API::OpeningLootMenuEvent* a_event)
     {
         if (!a_event || !a_event->container)
@@ -31,14 +20,14 @@ namespace
 
         if (RE::NiPointer<RE::TESObjectREFR> const ref = a_event->container.get())
         {
-          if (RE::TESObjectREFR* r = ref.get(); !is_corpse_ref(r))
+          if (RE::TESObjectREFR* r = ref.get(); Util::is_corpse(r))
                 MarkCorpse::mark(Util::get_container_object(r));
         }
     }
 
     void OnOpeningLootMenu34(QuickLoot::OpeningLootMenuEvent* a_event)
     {
-        if (a_event && is_corpse_ref(a_event->container))
+        if (a_event && Util::is_corpse(a_event->container))
             MarkCorpse::mark(Util::get_container_object(a_event->container));
     }
 
