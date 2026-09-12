@@ -10,7 +10,7 @@ namespace
     // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
     std::mutex g_mutex;
     std::vector<CorpseScan::CorpseInfo> g_corpses;
-
+    std::unordered_set<RE::FormID> g_logged_corpses;
 
     // ---------------------------------------------------------------------------
     // 包围盒计算（参考 Precision 的碰撞体方案）
@@ -345,7 +345,7 @@ namespace
         return false;
     }
 
-    bool filter_corpse(RE::TESObjectREFR* a_ref, Config const& a_cfg, CorpseScan::CorpseInfo& corpse_info)
+    bool filter_corpse(RE::TESObjectREFR* a_ref, CorpseScan::CorpseInfo& corpse_info)
     {
         if (!a_ref)
             return false;
@@ -459,12 +459,14 @@ void CorpseScan::search()
         if (cfg.hide_searched_enabled && MarkCorpse::contains(ref))
             return RE::BSContainer::ForEachResult::kContinue;
 
-        CorpseInfo info;
-        if (filter_corpse(a_ref, cfg, info))
+        if (CorpseInfo info; filter_corpse(a_ref, info))
         {
             found.push_back(info);
-            if (!MarkCorpse::contains(ref))
-                logger::info("{} ({:0x8}) has been added!", ref->GetDisplayFullName(), ref->GetFormID());
+
+            const RE::FormID form_id = ref->GetFormID();
+            if (!g_logged_corpses.contains(form_id))
+                logger::info("{} ({:08x}) has been added!", ref->GetDisplayFullName(), form_id);
+            g_logged_corpses.insert(form_id);
         }
         return RE::BSContainer::ForEachResult::kContinue;
     });
@@ -478,7 +480,7 @@ void CorpseScan::search()
 std::vector<CorpseScan::CorpseInfo> CorpseScan::snapshot()
 {
     std::lock_guard lock(g_mutex);
-    return std::move(g_corpses);
+    return g_corpses;
 }
 
 PLUGIN_NAMESPACE_END

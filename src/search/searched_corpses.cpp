@@ -45,7 +45,14 @@ namespace
 void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
 {
     if (a_ref)
-        g_searched_corpses.insert(a_ref->GetFormID());
+    {
+        const RE::FormID form_id = a_ref->GetFormID();
+        if (!g_searched_corpses.contains(form_id))
+        {
+            g_searched_corpses.insert(form_id);
+            logger::info("{} ({:08x}) has been removed!", a_ref->GetDisplayFullName(), form_id);
+        }
+    }
 }
 
 bool MarkCorpse::contains(RE::TESObjectREFR* a_ref)
