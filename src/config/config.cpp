@@ -34,17 +34,17 @@ namespace
     void sanitize(Config& a_settings) noexcept
     {
         a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
-        a_settings.max_distance = std::clamp(a_settings.max_distance, 100.0f, 100000.0f);
-        a_settings.scan_interval_ms = std::clamp(a_settings.scan_interval_ms, 50, 60000);
+        a_settings.max_distance = std::clamp(a_settings.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance);
+        a_settings.scan_interval_ms = std::clamp(a_settings.scan_interval_ms, Setting::Min_Scan_Interval, Setting::Max_Scan_Interval);
         a_settings.display_mode = a_settings.display_mode > Config::DisplayMode::e_icon
                                       ? Config::DisplayMode::e_outline
                                       : a_settings.display_mode;
         a_settings.outline_color &= 0x00FFFFFFu;
         a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
-        a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, 1.0f, 16.0f);
+        a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
         a_settings.fade_start_distance = std::clamp(a_settings.fade_start_distance, 0.0f, a_settings.max_distance);
-        a_settings.fade_power = std::clamp(a_settings.fade_power, 0.1f, 16.0f);
-        a_settings.high_value_threshold = std::max(0, a_settings.high_value_threshold);
+        a_settings.fade_power = std::clamp(a_settings.fade_power, Setting::Min_Fade_Power, Setting::Max_Fade_Power);
+        a_settings.high_value_threshold = std::clamp(a_settings.high_value_threshold, Setting::Min_High_Value_Threshold, Setting::Max_High_Value_Threshold);
         a_settings.book_filter_mode = static_cast<Config::BookType>(
             std::clamp(a_settings.book_filter_mode.underlying(),
             static_cast<std::underlying_type_t<Config::BookType>>(Config::BookType::e_none),

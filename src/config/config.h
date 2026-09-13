@@ -16,7 +16,7 @@ struct Config
         e_icon       = 2
     };
 
-    DisplayMode display_mode = DisplayMode::e_outline;  // 尸体显示样式（默认 outline）
+    DisplayMode display_mode;
 
     uint32_t outline_color;
     float min_opacity;
@@ -62,6 +62,21 @@ public:
 
     static void load() noexcept;
     static void save() noexcept;
+
+    constexpr static float Min_Max_Distance = 500.f;
+    constexpr static float Max_Max_Distance = 5000.f;
+
+    constexpr static int Min_Scan_Interval = 100;
+    constexpr static int Max_Scan_Interval = 1000;
+
+    constexpr static float Min_Outline_Thickness = 1.f;
+    constexpr static float Max_Outline_Thickness = 3.f;
+
+    constexpr static float Min_Fade_Power = 0.1f;
+    constexpr static float Max_Fade_Power = 4.f;
+
+    constexpr static int Min_High_Value_Threshold = 0;
+    constexpr static int Max_High_Value_Threshold = 500;
 };
 
 PLUGIN_NAMESPACE_END

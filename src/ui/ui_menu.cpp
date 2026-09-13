@@ -77,8 +77,8 @@ namespace
             cfg.display_mode = s_display_modes[mode_index];
         }
 
-        ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, 500.0f, 10000.0f, "%.0f");
-        ImGuiMCP::SliderInt("Scan Interval (ms)", &cfg.scan_interval_ms, 100, 5000);
+        ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance, "%.0f");
+        ImGuiMCP::SliderInt("Scan Interval (ms)", &cfg.scan_interval_ms, Setting::Min_Scan_Interval, Setting::Max_Scan_Interval);
 
         float color[3] = {
             static_cast<float>((cfg.outline_color >> 16) & 0xFF) / 255.0f,
@@ -94,10 +94,10 @@ namespace
         }
 
         ImGuiMCP::SliderFloat("Min Opacity", &cfg.min_opacity, 0.0f, 1.0f, "%.2f");
-        ImGuiMCP::SliderFloat("Outline Thickness", &cfg.outline_thickness, 1.0f, 8.0f, "%.1f");
+        ImGuiMCP::SliderFloat("Outline Thickness", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness, "%.1f");
 
         ImGuiMCP::SliderFloat("Fade Start Distance", &cfg.fade_start_distance, 0.0f, cfg.max_distance, "%.0f");
-        ImGuiMCP::SliderFloat("Fade Power", &cfg.fade_power, 0.1f, 8.0f, "%.1f");
+        ImGuiMCP::SliderFloat("Fade Power", &cfg.fade_power, Setting::Min_Fade_Power, Setting::Max_Fade_Power, "%.1f");
 
         ImGuiMCP::Separator();
 
@@ -109,7 +109,7 @@ namespace
         ImGuiMCP::Checkbox("Keys", &cfg.value_keys);
         ImGuiMCP::Checkbox("Enchanted Gear", &cfg.value_enchanted);
         ImGuiMCP::Checkbox("High-Value Items", &cfg.value_high_value);
-        ImGuiMCP::SliderInt("High Value Threshold", &cfg.high_value_threshold, 0, 1000);
+        ImGuiMCP::SliderInt("High Value Threshold", &cfg.high_value_threshold, Setting::Min_High_Value_Threshold, Setting::Max_High_Value_Threshold);
 
         static constexpr char const* s_book_modes[] = { "Spell Books", "Skill Books", "Unread Books" };
         bool book_mode[] = {
@@ -123,7 +123,6 @@ namespace
         ImGuiMCP::Checkbox(s_book_modes[1], &book_mode[1]);
         ImGuiMCP::SameLine();
         ImGuiMCP::Checkbox(s_book_modes[2], &book_mode[2]);
-        ImGuiMCP::SameLine();
 
         cfg.book_filter_mode = Config::BookType::e_none;
         if (book_mode[0])
