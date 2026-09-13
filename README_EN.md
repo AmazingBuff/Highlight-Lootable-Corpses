@@ -66,6 +66,8 @@ OutlineThickness=2.0
 FadeStartDistance=500.0
 ; fade curve exponent (higher = faster fade)
 FadePower=2.0
+; debug: overlay the wall-penetrating outline mask (off by default, for silhouette verification)
+OutlineMaskDebug=false
 
 [LootFilter]
 ; stop outlining corpses the player has searched (activated) at least once, even if nothing was taken

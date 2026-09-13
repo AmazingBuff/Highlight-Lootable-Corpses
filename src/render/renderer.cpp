@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "outline_mask.h"
 #include "config/config.h"
 #include "search/corpse_finder.h"
 
@@ -531,7 +532,8 @@ namespace
                 float const cg = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f;
                 float const cb = static_cast<float>(rgb & 0xFF) / 255.0f;
 
-                for (CorpseScan::CorpseInfo const& corpse : CorpseScan::snapshot())
+                std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
+                for (CorpseScan::CorpseInfo const& corpse : corpses)
                 {
                     // ---- 投影函数：世界点 -> 屏幕像素（左上原点），成功返回 true ----
                     // 优先用引擎 NiCamera::WorldPtToScreenPt3（返回左下原点归一化坐标），
@@ -711,6 +713,24 @@ namespace
                     }
                     else
                         draw_rect_outline(x0, y0, x1, y1, cfg.outline_thickness, color);
+                }
+
+                // ---- 描边 mask（穿墙剪影，后续边缘检测 pass 的输入）----
+                // 目标由本帧尸体快照的 form_id 解析为引用；仅当调试开关开启时
+                // 渲染并叠加（mask 目前无其他消费者）。调试叠加画在本帧画面之上，
+                // 现有线框绘制路径的行为与顺序不变。
+                if (!corpses.empty())
+                {
+                    std::vector<RE::TESObjectREFR*> mask_targets;
+                    mask_targets.reserve(corpses.size());
+                    for (CorpseScan::CorpseInfo const& corpse : corpses)
+                    {
+                        if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
+                            if (RE::TESObjectREFR* ref = form->AsReference())
+                                mask_targets.push_back(ref);
+                    }
+                    OutlineMask::set_targets(mask_targets);
+                    OutlineMask::render(device, context, world_cam, g_back_w, g_back_h);
                 }
             }
 

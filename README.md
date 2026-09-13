@@ -63,6 +63,8 @@ OutlineThickness=2.0
 FadeStartDistance=500.0
 ; 淡出曲线指数（越大衰减越快，1.0 = 线性）
 FadePower=2.0
+; 调试：叠加显示穿墙描边 mask（默认关闭，用于人工验证剪影）
+OutlineMaskDebug=false
 
 [LootFilter]
 ; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体边框
