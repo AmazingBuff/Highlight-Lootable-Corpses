@@ -18,6 +18,15 @@ struct Config
 
     DisplayMode display_mode;
 
+    enum class HotkeyMode : std::uint8_t
+    {
+        e_constant = 0,  // 常亮：热键切换 enabled（既有行为）
+        e_pulse    = 1   // 消退：热键触发一次脉冲高亮，highlight 后渐渐变淡直至消失
+    };
+
+    HotkeyMode hotkey_mode;
+    std::uint32_t pulse_duration_ms;
+
     uint32_t outline_color;
     float min_opacity;
     float outline_thickness;
@@ -77,6 +86,9 @@ public:
 
     constexpr static int Min_High_Value_Threshold = 0;
     constexpr static int Max_High_Value_Threshold = 500;
+
+    constexpr static std::uint32_t Min_Pulse_Duration_Ms = 500;
+    constexpr static std::uint32_t Max_Pulse_Duration_Ms = 30000;
 };
 
 PLUGIN_NAMESPACE_END

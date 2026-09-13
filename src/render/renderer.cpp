@@ -12,7 +12,9 @@
 #include "ui_overlay.h"
 
 #include "config/config.h"
+#include "input/pulse_highlight.h"
 #include "search/corpse_finder.h"
+#include "search/searched_corpses.h"
 
 #include <RE/Skyrim.h>
 
@@ -29,6 +31,18 @@ namespace
 {
     // icon 模式的实心小圆：半径固定像素值，不做距离缩放。
     constexpr float Icon_Radius = 10.0f;
+
+    // 脉冲渐隐系数：脉冲期起始 10% 保持完全不透明（"highlight"段），其余时间线性
+    // 渐隐到 0（"渐渐变淡直至消失"）。elapsed 超过 duration 后返回 0。
+    float pulse_alpha(std::uint32_t a_elapsed_ms, std::uint32_t a_duration_ms)
+    {
+        if (a_duration_ms == 0 || a_elapsed_ms >= a_duration_ms)
+            return 0.0f;
+
+        float const progress = static_cast<float>(a_elapsed_ms) / static_cast<float>(a_duration_ms);
+        constexpr float Hold_Fraction = 0.10f;
+        return progress <= Hold_Fraction ? 1.0f : std::clamp(1.0f - (progress - Hold_Fraction) / (1.0f - Hold_Fraction), 0.0f, 1.0f);
+    }
 
     // 距离衰减：FadeStartDistance 内完全不透明；超过后按 FadePower 指数衰减，
     // 到 MaxDistance 处达到 MinOpacity 下限。
@@ -134,11 +148,39 @@ namespace
             a_context->RSSetState(m_states.cull_none());
 
             Config const& cfg = Setting::get_config();
-            if (cfg.enabled)
+
+            // 消退模式：enable 是脉冲模式的前提——enable=true 时显示只由脉冲驱动
+            //（在途画渐隐，过期不画），热键触发脉冲；enable=false 一切不画。
+            bool const pulse_mode = cfg.hotkey_mode == Config::HotkeyMode::e_pulse;
+            bool const pulse_active = pulse_mode && cfg.enabled && PulseHighlight::active();
+            if (pulse_mode && !pulse_active)
+                return;  // 脉冲模式无在途脉冲，无可见路径
+
+            if (pulse_active || cfg.enabled)
             {
                 m_projector.refresh();
                 RgbColor const color = RgbColor::decode(cfg.outline_color);
                 std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
+
+                // 逐 corpse 的显示系数（0 = 本帧不画）。常亮模式下恒 1（走既有
+                // corpse_alpha 距离衰减）；脉冲模式下：
+                //  - highlight 的目标即 snapshot 中的尸体，不做二次过滤；
+                //  - 渐隐途中尸体被玩家搜索（MarkCorpse 标记）→ 立即取消该尸体的
+                //    highlight（系数置 0）；
+                //  - 时长取 trigger 时快照值，中途改配置只影响下次脉冲。
+                auto corpse_display_alpha = [&](CorpseScan::CorpseInfo const& a_corpse) -> float {
+                    if (!pulse_active)
+                        return 1.0f;
+
+                    RE::TESForm* const form = RE::TESForm::LookupByID(a_corpse.form_id);
+                    RE::TESObjectREFR* const ref = form ? form->AsReference() : nullptr;
+                    if (ref && MarkCorpse::contains(ref))
+                        return 0.0f;
+
+                    std::uint32_t const duration = PulseHighlight::duration_ms();
+                    std::uint32_t const elapsed = PulseHighlight::elapsed_ms();
+                    return pulse_alpha(elapsed, duration);
+                };
 
                 // ---- icon 模式：每 corpse 只投影固定世界锚点（bounds/worldBound 中心），
                 // 投影随视角平滑连续。silhouette/outline 模式由 mask pass 负责显示，
@@ -148,11 +190,15 @@ namespace
                     m_ui.begin_frame(w, h);
                     for (CorpseScan::CorpseInfo const& corpse : corpses)
                     {
+                        float const pulse = corpse_display_alpha(corpse);
+                        if (pulse <= 0.0f)
+                            continue;
+
                         float px = 0.0f, py = 0.0f, d = 0.0f;
                         if (!m_projector.world_to_screen(corpse.anchor, w, h, px, py, d))
                             continue;  // 相机后方/投影失败 → 跳过该 corpse
 
-                        float const alpha = corpse_alpha(cfg, corpse.distance);
+                        float const alpha = pulse * corpse_alpha(cfg, corpse.distance);
                         m_ui.add_circle(px, py, Icon_Radius, { color.r, color.g, color.b, alpha });
                     }
                 }
@@ -161,15 +207,20 @@ namespace
                 else if (!corpses.empty())
                 {
                     // 目标携带距离衰减不透明度（corpse_alpha），按目标序号填入消费
-                    // pass 的 per-frame alpha LUT。
+                    // pass 的 per-frame alpha LUT。脉冲模式叠加渐隐系数，渐隐途中
+                    // 被搜索的尸体系数为 0，不进目标列表（立即取消 highlight）。
                     std::vector<OutlineMaskTarget> mask_targets;
                     mask_targets.reserve(corpses.size());
                     for (CorpseScan::CorpseInfo const& corpse : corpses)
                     {
+                        float const pulse = corpse_display_alpha(corpse);
+                        if (pulse <= 0.0f)
+                            continue;
+
                         if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
                         {
                             if (RE::TESObjectREFR* ref = form->AsReference())
-                                mask_targets.push_back({ ref, corpse_alpha(cfg, corpse.distance) });
+                                mask_targets.push_back({ ref, pulse * corpse_alpha(cfg, corpse.distance) });
                         }
                     }
                     OutlineMask::set_targets(mask_targets);

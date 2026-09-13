@@ -1,5 +1,6 @@
 #include "ui_menu.h"
 #include "config/config.h"
+#include "input/pulse_highlight.h"
 #include "search/corpse_finder.h"
 
 #pragma warning(push)
@@ -76,6 +77,31 @@ namespace
             mode_index = (mode_index + 1) % std::size(s_display_modes);
             cfg.display_mode = s_display_modes[mode_index];
         }
+
+        // 热键模式二选一：constant=切换开关，pulse=触发一次渐隐高亮。即时生效；
+        // enable 在切换中保持不变——pulse 模式下 enable 是脉冲前提（true 才能触发
+        // 消退），常亮在途转 pulse 时以一次脉冲渐渐淡出。
+        static constexpr Config::HotkeyMode s_hotkey_modes[] = {
+            Config::HotkeyMode::e_constant,
+            Config::HotkeyMode::e_pulse,
+        };
+        static constexpr char const* s_hotkey_mode_names[] = { "Constant", "Pulse" };
+        std::size_t hk_index = std::min<std::size_t>(static_cast<std::size_t>(cfg.hotkey_mode), std::size(s_hotkey_modes) - 1);
+        if (ImGuiMCP::Button(fmt::format("Hotkey Mode: {}", s_hotkey_mode_names[hk_index]).c_str()))
+        {
+            hk_index = (hk_index + 1) % std::size(s_hotkey_modes);
+            Config::HotkeyMode const previous = cfg.hotkey_mode;
+            cfg.hotkey_mode = s_hotkey_modes[hk_index];
+            if (previous == Config::HotkeyMode::e_constant && cfg.hotkey_mode == Config::HotkeyMode::e_pulse && cfg.enabled)
+                PulseHighlight::trigger(cfg.pulse_duration_ms);  // 常亮转脉冲：从满 alpha 开始渐隐
+            else if (previous == Config::HotkeyMode::e_pulse && cfg.hotkey_mode == Config::HotkeyMode::e_constant)
+                PulseHighlight::reset();
+        }
+
+        // 脉冲时长（仅 pulse 模式有意义）：修改即时生效，但只影响下一次脉冲
+        //（在途脉冲已按触发时刻的时间戳走完自身曲线）。
+        if (cfg.hotkey_mode == Config::HotkeyMode::e_pulse)
+            ImGuiMCP::SliderInt("Pulse Duration (ms)", reinterpret_cast<int*>(&cfg.pulse_duration_ms), static_cast<int>(Setting::Min_Pulse_Duration_Ms), static_cast<int>(Setting::Max_Pulse_Duration_Ms));
 
         ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance, "%.0f");
         ImGuiMCP::SliderInt("Scan Interval (ms)", &cfg.scan_interval_ms, Setting::Min_Scan_Interval, Setting::Max_Scan_Interval);

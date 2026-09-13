@@ -24,6 +24,13 @@ namespace
         a_settings.display_mode = a_settings.display_mode > Config::DisplayMode::e_icon
                                       ? Config::DisplayMode::e_outline
                                       : a_settings.display_mode;
+        a_settings.hotkey_mode = a_settings.hotkey_mode > Config::HotkeyMode::e_pulse
+                                     ? Config::HotkeyMode::e_constant
+                                     : a_settings.hotkey_mode;
+        a_settings.pulse_duration_ms = std::clamp(
+            a_settings.pulse_duration_ms,
+            static_cast<std::uint32_t>(Setting::Min_Pulse_Duration_Ms),
+            static_cast<std::uint32_t>(Setting::Max_Pulse_Duration_Ms));
         a_settings.outline_color &= 0x00FFFFFFu;
         a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
         a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
@@ -60,6 +67,8 @@ void Setting::load() noexcept
     g_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
 
     g_config.display_mode = static_cast<Config::DisplayMode>(ini.GetLongValue("Display", "DisplayMode"));
+    g_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
+    g_config.pulse_duration_ms = static_cast<std::uint32_t>(ini.GetLongValue("General", "PulseDurationMs", 3000));
     g_config.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor"), 0x00FF66);
     g_config.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity"));
     g_config.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness"));
@@ -94,6 +103,8 @@ void Setting::save() noexcept
     body += section("General");
     body += option("mod enabled on startup", fmt::format("Enabled={}", g_config.enabled ? "true" : "false"));
     body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", g_config.hotkey));
+    body += option("hotkey behavior: constant (0, toggle ESP on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(g_config.hotkey_mode)));
+    body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", g_config.pulse_duration_ms));
     body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
     body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
     body += section("Display");
