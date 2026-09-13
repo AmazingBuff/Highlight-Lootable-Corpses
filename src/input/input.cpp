@@ -2,10 +2,17 @@
 #include "config/config.h"
 #include "ui/ui_menu.h"
 
+#include <Windows.h>
+
 PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
+    std::uint32_t dik_from_vk(std::uint32_t a_vk)
+    {
+        return a_vk > 0xFFu ? 0u : MapVirtualKeyA(a_vk, MAPVK_VK_TO_VSC);
+    }
+
     void button_event(RE::ButtonEvent* a_event)
     {
         if (Menu::is_menu_open())
@@ -14,7 +21,7 @@ namespace
         // just hotkey
         if (uint32_t const& vk = Setting::get_config().hotkey)
         {
-            if (a_event->IsPressed() && a_event->GetIDCode() == vk)
+            if (a_event->IsDown() && a_event->GetIDCode() == dik_from_vk(vk))
             {
                 bool& enabled = Setting::get_config().enabled;
                 enabled = !enabled;
@@ -27,11 +34,6 @@ namespace
         InputHandler() = default;
         ~InputHandler() override = default;
     public:
-        InputHandler(InputHandler&&) = delete;
-        InputHandler(const InputHandler&) = delete;
-        InputHandler& operator=(InputHandler&&) = delete;
-        InputHandler& operator=(const InputHandler&) = delete;
-
         static InputHandler* get_singleton()
         {
             static InputHandler instance;

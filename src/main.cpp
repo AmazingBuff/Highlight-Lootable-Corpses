@@ -1,4 +1,5 @@
 #include "config/config.h"
+#include "input/input.h"
 #include "quickloot_compat/quickloot_compat.h"
 #include "render/renderer.h"
 #include "search/searched_corpses.h"
@@ -35,6 +36,7 @@ namespace
             (void)PLUGIN_NAMESPACE::QuickLootCompat::install();
         case SKSE::MessagingInterface::kPostLoadGame:
             PLUGIN_NAMESPACE::Renderer::install();
+            PLUGIN_NAMESPACE::InputManager::install();
             PLUGIN_NAMESPACE::Menu::register_menu();
             break;
         case SKSE::MessagingInterface::kSaveGame:
