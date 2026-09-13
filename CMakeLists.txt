@@ -16,6 +16,41 @@ include(cmake/packaging.cmake)
 file(GLOB_RECURSE SOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 file(GLOB_RECURSE HEADER_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h)
 
+# ---- HLSL 源码嵌入：src/render/shaders/*.hlsl → build/src/render/shader_sources.h ----
+# 着色器以原始字符串常量进入二进制，运行时 D3DCompile 的行为不变；
+# <文件>:<变量名> 的映射显式列出，变量位于 PLUGIN_NAMESPACE::render_shaders。
+set(RENDER_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders)
+set(RENDER_SHADER_EMBED
+    ui_overlay.hlsl:UiOverlay
+    mask_geometry.hlsl:MaskGeometry
+    mask_composite.hlsl:MaskComposite
+)
+set(RENDER_SHADER_FILES "")
+set(GENERATED_SHADER_HEADER ${CMAKE_CURRENT_BINARY_DIR}/src/render/shader_sources.h)
+foreach(RENDER_SHADER_ENTRY ${RENDER_SHADER_EMBED})
+    string(REPLACE ":" ";" RENDER_SHADER_PAIR ${RENDER_SHADER_ENTRY})
+    list(GET RENDER_SHADER_PAIR 0 RENDER_SHADER_FILE)
+    list(APPEND RENDER_SHADER_FILES ${RENDER_SHADER_DIR}/${RENDER_SHADER_FILE})
+endforeach()
+add_custom_command(
+    OUTPUT ${GENERATED_SHADER_HEADER}
+    COMMAND ${CMAKE_COMMAND}
+        -DSHADER_DIR=${RENDER_SHADER_DIR}
+        -DOUTPUT_HEADER=${GENERATED_SHADER_HEADER}
+        "-DEMBED_ENTRIES=${RENDER_SHADER_EMBED}"
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_shaders.cmake
+    DEPENDS ${RENDER_SHADER_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_shaders.cmake
+    COMMENT "Embedding HLSL sources (render/shaders)"
+    VERBATIM
+)
+# 生成的头位于构建树，MSBuild 对 include 目录内生成头的依赖扫描不可靠——
+# 显式声明消费它的翻译单元，保证 .hlsl 变更后相关 .cpp 一定重编。
+set_source_files_properties(
+    src/render/ui_overlay.cpp
+    src/render/mask_passes.cpp
+    PROPERTIES OBJECT_DEPENDS ${GENERATED_SHADER_HEADER}
+)
+
 set(VERSION_HEADER ${CMAKE_CURRENT_BINARY_DIR}/src/Plugin.h)
 configure_file(
 	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Plugin.h.in
@@ -37,6 +72,7 @@ add_library(
 	SHARED
 	${HEADER_FILES}
 	${SOURCE_FILES}
+	${GENERATED_SHADER_HEADER}
 	${VERSION_HEADER}
 	${CMAKE_CURRENT_BINARY_DIR}/version.rc
 )
