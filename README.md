@@ -14,10 +14,11 @@
   Soul Ember、灰烬魔等变体），通过 `ExtraAshPileRef` 关联原始 Actor 判断库存
 - 支持**静态尸体**：干尸/裹尸/烧焦尸体等容器物体（`TreasDraugrAmbushCorpse*`、
   `TreasBurntCorpse*`、`defaultGhostCorpse` 等，含 DLC 变体）
-- 描边为**包围盒线框**：绘制碰撞盒边框
-- 纯标记，无文字干扰：只绘制描边，边框按距离指数衰减（越远越"虚"）
-- 包围盒取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体，与尸体实际
-  碰撞范围一致；有方向碰撞盒时绘制 12 边 3D 线框
+- 三种显示模式（`DisplayMode`）三选一：`silhouette` 穿墙剪影内部填充、
+  `outline` 剪影外侧描边带、`icon` 尸体屏幕位置的实心小圆图标
+- 纯标记，无文字干扰；icon 模式的图标按距离指数衰减（越远越"虚"）
+- 标记位置取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体的包围盒投影，
+  与尸体实际位置一致
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
 - 热键一键开关（默认未绑定；可在 MCP 菜单中重绑定，或通过 INI 的 `Hotkey` 键配置）
 - **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
@@ -53,6 +54,8 @@ MaxDistance=2000.0
 ScanIntervalMs=500
 
 [Display]
+; 尸体显示样式：silhouette（穿墙剪影填充）| outline（剪影外描边带）| icon（尸体位置的小圆图标）
+DisplayMode=outline
 ; 描边颜色（RGB 十六进制）
 OutlineColor=00FF66
 ; 远处标记最小不透明度
@@ -63,11 +66,9 @@ OutlineThickness=2.0
 FadeStartDistance=500.0
 ; 淡出曲线指数（越大衰减越快，1.0 = 线性）
 FadePower=2.0
-; 调试：叠加显示穿墙描边 mask（默认关闭，用于人工验证剪影）
-OutlineMaskDebug=false
 
 [LootFilter]
-; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体边框
+; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体标记
 ValueFilterEnabled=false
 ; 各分类开关（默认全关，按需勾选；在 MCP 菜单中亦可实时修改）
 ValueQuestItems=false

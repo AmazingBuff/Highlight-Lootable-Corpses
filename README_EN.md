@@ -11,11 +11,12 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 - **Ash pile support** — ash piles from reanimated / disintegrated enemies (including DLC variants such as Soul Embers and Ash Spawn) are checked through the original actor they point to
 - **Static corpse support** — container-type corpses such as `TreasDraugrAmbushCorpse*`, `TreasBurntCorpse*`, `defaultGhostCorpse`, including DLC variants
 - **Optional loot filter** — show only corpses whose inventory contains quest items, keys, enchanted gear, high-value items, books, consumables (arrows, potions, scrolls, ingredients, soul gems — filled-only option available)
-- **Distance fade** — outlines are fully opaque up close and fade smoothly with distance
-- **Accurate boxes** — outlines come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint (12-edge 3D wireframe when an oriented collision box is available)
+- **Distance fade** — the `icon` marker is fully opaque up close and fades smoothly with distance
+- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the wall-penetrating mesh silhouette, `outline` draws a band just outside it, and `icon` shows a small circular marker at the corpse's screen position
+- **Accurate placement** — marker positions come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint
 - **Hotkey toggle** — optionally turn the overlay on/off with a single key (unbound by default; bind one via the "Hotkey" button in the MCP menu or the `Hotkey` INI key; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
 - **In-game settings menu** — every option can be adjusted live in the Mod Control Panel ("Highlight Lootable Corpses > Settings") and saved to the INI
-- **Lightweight** — bounding-box wireframe rendering only, with a throttled scan loop; negligible frame-time impact
+- **Lightweight** — simple marker rendering only, with a throttled scan loop; negligible frame-time impact
 
 ## Requirements
 
@@ -56,6 +57,8 @@ MaxDistance=2000.0
 ScanIntervalMs=500
 
 [Display]
+; corpse display style: silhouette (filled mask) | outline (band around the mask) | icon (small circle at the corpse position)
+DisplayMode=outline
 ; outline color (RGB hex)
 OutlineColor=00FF66
 ; minimum opacity at max distance
@@ -66,8 +69,6 @@ OutlineThickness=2.0
 FadeStartDistance=500.0
 ; fade curve exponent (higher = faster fade)
 FadePower=2.0
-; debug: overlay the wall-penetrating outline mask (off by default, for silhouette verification)
-OutlineMaskDebug=false
 
 [LootFilter]
 ; stop outlining corpses the player has searched (activated) at least once, even if nothing was taken

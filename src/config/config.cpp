@@ -16,11 +16,29 @@ namespace
         return end == a_value ? a_default : value;
     }
 
+    // DisplayMode 的 INI/日志名（小写；未知值由调用方回退默认）
+    char const* display_mode_name(Config::DisplayMode a_mode) noexcept
+    {
+        switch (a_mode)
+        {
+        case Config::DisplayMode::e_silhouette:
+            return "silhouette";
+        case Config::DisplayMode::e_icon:
+            return "icon";
+        case Config::DisplayMode::e_outline:
+        default:
+            return "outline";
+        }
+    }
+
     void sanitize(Config& a_settings) noexcept
     {
         a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
         a_settings.max_distance = std::clamp(a_settings.max_distance, 100.0f, 100000.0f);
         a_settings.scan_interval_ms = std::clamp(a_settings.scan_interval_ms, 50, 60000);
+        a_settings.display_mode = a_settings.display_mode > Config::DisplayMode::e_icon
+                                      ? Config::DisplayMode::e_outline
+                                      : a_settings.display_mode;
         a_settings.outline_color &= 0x00FFFFFFu;
         a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
         a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, 1.0f, 16.0f);
@@ -62,6 +80,32 @@ void Setting::load() noexcept
     g_config.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance"));
     g_config.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower"));
 
+    // DisplayMode：不区分大小写的 silhouette/outline/icon；未知值回退默认并 WARN 一次，
+    // 键缺失保持默认（成员初始化为 e_outline）。
+    if (char const* mode_value = ini.GetValue("Display", "DisplayMode"); mode_value && *mode_value)
+    {
+        std::string mode = mode_value;
+        for (char& c : mode)
+            c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+
+        static bool s_unknown_mode_reported = false;
+        if (mode == "silhouette")
+            g_config.display_mode = Config::DisplayMode::e_silhouette;
+        else if (mode == "outline")
+            g_config.display_mode = Config::DisplayMode::e_outline;
+        else if (mode == "icon")
+            g_config.display_mode = Config::DisplayMode::e_icon;
+        else
+        {
+            g_config.display_mode = Config::DisplayMode::e_outline;
+            if (!s_unknown_mode_reported)
+            {
+                s_unknown_mode_reported = true;
+                logger::warn("Unknown DisplayMode \"{}\" in INI, falling back to \"outline\"", mode_value);
+            }
+        }
+    }
+
     g_config.hide_searched_enabled = ini.GetBoolValue("LootFilter", "HideSearchedEnabled");
     g_config.value_filter_enabled = ini.GetBoolValue("LootFilter", "ValueFilterEnabled");
     g_config.value_quest_items = ini.GetBoolValue("LootFilter", "ValueQuestItems");
@@ -93,6 +137,8 @@ void Setting::save() noexcept
     body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
     body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
     body += section("Display");
+    body += option("corpse display style: silhouette (filled mask) | outline (band around the mask) | icon (small circle at the corpse position)",
+        fmt::format("DisplayMode={}", display_mode_name(g_config.display_mode)));
     body += option("outline color (RGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
     body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_config.min_opacity));
     body += option("outline thickness in pixels", fmt::format("OutlineThickness={:.1f}", g_config.outline_thickness));

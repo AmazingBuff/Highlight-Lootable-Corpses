@@ -63,6 +63,20 @@ namespace
         if (ImGuiMCP::Button(label.c_str()))
             s_rebinding = !s_rebinding;
 
+        // 显示模式三选一（契约 v13）：点击循环到下一模式，修改即时生效
+        static constexpr Config::DisplayMode s_display_modes[] = {
+            Config::DisplayMode::e_silhouette,
+            Config::DisplayMode::e_outline,
+            Config::DisplayMode::e_icon,
+        };
+        static constexpr char const* s_display_mode_names[] = { "Silhouette", "Outline", "Icon" };
+        std::size_t mode_index = std::min<std::size_t>(static_cast<std::size_t>(cfg.display_mode), std::size(s_display_modes) - 1);
+        if (ImGuiMCP::Button(fmt::format("Display Mode: {}", s_display_mode_names[mode_index]).c_str()))
+        {
+            mode_index = (mode_index + 1) % std::size(s_display_modes);
+            cfg.display_mode = s_display_modes[mode_index];
+        }
+
         ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, 500.0f, 10000.0f, "%.0f");
         ImGuiMCP::SliderInt("Scan Interval (ms)", &cfg.scan_interval_ms, 100, 5000);
 

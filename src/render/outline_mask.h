@@ -12,6 +12,14 @@ namespace RE
 
 PLUGIN_NAMESPACE_BEGIN
 
+// mask 渲染目标（契约 v15/v18 R-02）：引用 + 距离衰减不透明度
+//（corpse_alpha(distance)，按目标序号填入消费 pass 的 per-frame alpha LUT）。
+struct OutlineMaskTarget
+{
+	RE::TESObjectREFR* ref;
+	float opacity;
+};
+
 // 可搜刮尸体的 mesh 描边 mask 渲染器。
 //
 // 每帧把 set_targets 传入的目标对象的 3D mesh（含 GPU 蒙皮）绘制进一张离屏
@@ -31,7 +39,7 @@ public:
     OutlineMask operator=(OutlineMask&) = delete;
     OutlineMask operator=(OutlineMask&&) = delete;
 
-    static void set_targets(std::vector<RE::TESObjectREFR*> const& a_targets);
+    static void set_targets(std::vector<OutlineMaskTarget> const& a_targets);
 
     // 由 Present 回调调用：收集 a_camera 视角下的几何并渲染 mask。
     // a_width/a_height 为后备缓冲尺寸（mask RT 与其同尺寸，变化时重建）。

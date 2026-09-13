@@ -8,6 +8,16 @@ struct Config
     uint32_t hotkey;
     float max_distance;
     int scan_interval_ms;
+
+    enum class DisplayMode : std::uint8_t
+    {
+        e_silhouette = 0,
+        e_outline    = 1,
+        e_icon       = 2
+    };
+
+    DisplayMode display_mode = DisplayMode::e_outline;  // 尸体显示样式（默认 outline）
+
     uint32_t outline_color;
     float min_opacity;
     float outline_thickness;

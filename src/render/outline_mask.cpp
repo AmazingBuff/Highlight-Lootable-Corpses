@@ -30,6 +30,7 @@ namespace
     constexpr std::size_t Palette_CB_Bytes = Max_Palette_Bones * 64;
     static_assert(Palette_CB_Bytes == Max_Palette_Bones * sizeof(float) * 16, "palette CB layout must be float4x4 slots");
     constexpr std::size_t Max_Draws_Per_Frame = 256;
+    constexpr std::size_t Max_Corpse_Index = 255;  // 契约 v18：mask B 通道可精确存储的索引上限
 
     // ---- 静态 draw 足迹校验常量（契约 v4）：世界包围球 / 目标归属 ----
     constexpr float Max_Part_World_Radius = 1024.0f;  // 世界包围球半径上限（游戏单位）
@@ -50,13 +51,30 @@ namespace
     constexpr bool k_skinning_enabled = true;
     // ---- 诊断脚手架结束 ----
     ID3D11PixelShader* g_ps_composite = nullptr;
+    ID3D11Buffer* g_composite_cb = nullptr;        // b0：float4（OutlineColor rgb + 填充系数）
+    constexpr float Silhouette_Fill_Alpha = 0.5f;  // 剪影内部填充系数（契约 v14：维持既有亮度）
+
+    // alpha LUT（契约 v18 R-03）：按目标序号存放 corpse_alpha，消费 PS 以 mask B 通道
+    // 的尸体索引查表；256 个 alpha 以 64 个 float4 打包（1024 字节，CB 尺寸 16 对齐）。
+    constexpr std::size_t Alpha_Lut_Floats = 256;
+    constexpr std::size_t Alpha_Lut_CB_Bytes = Alpha_Lut_Floats * sizeof(float);
+    static_assert(Alpha_Lut_CB_Bytes == 64 * sizeof(float) * 4);
+    ID3D11Buffer* g_alpha_lut_cb = nullptr;
     ID3DBlob* g_vs_static_blob = nullptr;   // CreateInputLayout 需要 VS 字节码，随管线保留
     ID3DBlob* g_vs_skinned_blob = nullptr;
-    ID3D11Buffer* g_per_draw_cb = nullptr;  // b0：row_major float4x4（静态=ViewProj*World，蒙皮=ViewProj）
+    ID3D11Buffer* g_per_draw_cb = nullptr;  // b0：row_major float4x4 + mask alpha（契约 v15，80 字节）
     ID3D11Buffer* g_palette_cb = nullptr;   // b1：row_major float4x4[Max_Palette_Bones]
     bool g_pipeline_ready = false;
     bool g_pipeline_failed = false;         // 创建失败后不再每帧重试（避免持续泄漏 D3D 对象）
     bool g_composite_ready = false;         // 合成（仅调试叠加）可用性：失败只禁用叠加，mask 渲染保持可用
+
+    // ---- 描边 pass（契约 v12）：mask 的既定消费者。可选对象组与 composite 同模式：
+    // 创建失败只禁描边（一次性 WARN），不影响 mask 渲染与叠加。----
+    constexpr std::uint32_t Max_Outline_Radius = 6;   // PS 圆盘采样半径上限（(2r+1)² = 169 taps）
+    constexpr float Outline_Alpha = 1.0f;             // 色带 alpha 恒 1.0（按距离淡出经 alpha LUT 生效）
+    ID3D11PixelShader* g_ps_outline = nullptr;        // ps_5_0：mask 圆盘膨胀外描边
+    ID3D11Buffer* g_outline_cb = nullptr;             // b0：texel/radius/pad + color（32 字节）
+    bool g_outline_ready = false;                     // 描边管线可用性（失败只禁描边）
 
     // InputLayout 按 (蒙皮, 精度, 属性偏移, 步进) 缓存——属性偏移来自各 mesh 的
     // vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重（尸体 mesh 布局种类极少）。
@@ -89,9 +107,16 @@ namespace
 
     constexpr float Mask_Clear_Color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    // 目标列表：NiPointer 保活 + 互斥锁（线程模型见 outline_mask.h）
+    // 目标列表（契约 v15/v18 R-02）：NiPointer 保活 + 互斥锁 + 距离衰减不透明度
+    //（corpse_alpha(distance)，按目标序号填入消费 pass 的 per-frame alpha LUT）。
+    // 线程模型见 outline_mask.h。
     std::mutex g_target_mutex;
-    std::vector<RE::NiPointer<RE::TESObjectREFR>> g_targets;
+    struct MaskTarget
+    {
+        RE::NiPointer<RE::TESObjectREFR> ref;
+        float opacity;
+    };
+    std::vector<MaskTarget> g_targets;
 
     // ---------------------------------------------------------------------------
     // 矩阵工具：行主序 4x4，数学约定（列向量），clip = M · v。
@@ -1019,6 +1044,9 @@ namespace
         bool skinned = false;                    // true：按分区 draw，调色板蒙皮
         RE::NiPointer<RE::NiSkinInstance> skin;  // 保活蒙皮实例（骨骼世界矩阵）
         std::uint32_t partition = 0;
+        // R-02（契约 v18）：尸体索引（目标序号/255），经 per-draw CB → VS → mask PS
+        // 的 B 通道输出（MAX 混合取重叠尸体的较高索引），消费 pass 据此查 alpha LUT。
+        float corpse_index = 0.0f;
         // 蒙皮权重/索引布局（契约 v9 R-05）：仅蒙皮 draw 写入标定结果，供 get_layout
         // 生成 BLENDWEIGHT/BLENDINDICES；静态 draw 保持默认值且 get_layout 不读取。
         MaskSkinLayout skin_layout{};
@@ -1032,6 +1060,8 @@ namespace
         RE::FormID form_id = 0;
         // R-04（契约 v11）：目标 3D 中含蒙皮几何 → 其非蒙皮几何（冰锥等装饰）不画。
         bool has_skinned = false;
+        // R-02（契约 v18）：尸体索引（目标序号/255），mask PS 写入 B 通道供 LUT 查表。
+        float corpse_index = 0.0f;
     };
 
     // R-05：静态 draw 跳过定位日志——按 (目标 form id, 节点名, 原因) 签名一次性
@@ -1292,10 +1322,11 @@ namespace
         draw.index_count = static_cast<std::uint32_t>(tri_rt.triangleCount) * 3u;
         draw.position_format = calibration.format;   // R-06：InputLayout 用标定结果
         draw.position_offset = calibration.offset;
+        draw.corpse_index = a_target.corpse_index;  // R-02（契约 v18）：尸体索引
         a_draws.push_back(std::move(draw));
     }
 
-    void collect_skinned(RE::BSGeometry* a_geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& a_geom_rt, std::vector<MaskDraw>& a_draws)
+    void collect_skinned(RE::BSGeometry* a_geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& a_geom_rt, TargetContext const& a_target, std::vector<MaskDraw>& a_draws)
     {
         char const* const node_name = a_geom->name.c_str();
         char const* const rtti_name = a_geom->GetRTTI() ? a_geom->GetRTTI()->GetName() : "?";
@@ -1564,6 +1595,7 @@ namespace
             draw.position_format = calibration.position_format;  // R-03：绝不为 UNKNOWN
             draw.position_offset = calibration.position_offset;
             draw.skin_layout = calibration.skin;  // R-05：权重/索引格式与偏移
+            draw.corpse_index = a_target.corpse_index;   // R-02（契约 v18）：尸体索引
             a_draws.push_back(std::move(draw));
         }
 
@@ -1617,7 +1649,7 @@ namespace
         if (geom_rt.skinInstance)
         {
             if (k_skinning_enabled)
-                collect_skinned(a_geom, geom_rt, a_draws);
+                collect_skinned(a_geom, geom_rt, a_target, a_draws);
             else
             {
                 static bool s_skinned_deferred_reported = false;
@@ -1637,11 +1669,23 @@ namespace
         collect_static(a_geom, geom_rt, a_target, a_draws);
     }
 
-    void collect_draws(std::vector<RE::NiPointer<RE::TESObjectREFR>> const& a_targets, std::vector<MaskDraw>& a_draws)
+    void collect_draws(std::vector<MaskTarget> const& a_targets, std::vector<MaskDraw>& a_draws)
     {
-        for (RE::NiPointer<RE::TESObjectREFR> const& target : a_targets)
+        // R-02（契约 v18）：目标列表顺序即尸体索引（renderer.cpp 构造顺序 = corpses
+        // 快照顺序）；超出索引槽位的目标 clamp 到最后一个索引并一次性 WARN。
+        static bool s_index_clamp_reported = false;
+        if (a_targets.size() > Max_Corpse_Index + 1 && !s_index_clamp_reported)
         {
-            RE::TESObjectREFR* ref = target.get();
+            s_index_clamp_reported = true;
+            logger::warn("outline mask: {} targets exceed the {} corpse-index slots, extras share the last index",
+                a_targets.size(), Max_Corpse_Index + 1);
+        }
+
+        for (std::size_t ti = 0; ti < a_targets.size(); ++ti)
+        {
+            MaskTarget const& target = a_targets[ti];
+            std::size_t const corpse_index = std::min<std::size_t>(ti, Max_Corpse_Index);
+            RE::TESObjectREFR* ref = target.ref.get();
             if (!ref)
                 continue;
 
@@ -1662,7 +1706,10 @@ namespace
             });
 
             // 静态 draw 校验（R-02..R-05）所需的目标上下文：每目标取一次
-            TargetContext const target_ctx{ .position = ref->GetPosition(), .form_id = ref->GetFormID(), .has_skinned = has_skinned };
+            //（corpse_index = 目标序号/255，契约 v18 R-02 随上下文传入收集与绘制）
+            TargetContext const target_ctx{
+                .position = ref->GetPosition(), .form_id = ref->GetFormID(), .has_skinned = has_skinned,
+                .corpse_index = static_cast<float>(corpse_index) / 255.0f };
 
             RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* a_geom) {
                 if (a_draws.size() >= Max_Draws_Per_Frame)
@@ -1712,11 +1759,14 @@ namespace
         return blob;
     }
 
-    // 静态 VS：世界变换已在 CPU 侧组合进 ViewProj*World
+    // 静态 VS：世界变换已在 CPU 侧组合进 ViewProj*World；尸体索引经
+    // nointerpolation 语义传给 mask PS 写入 B 通道（契约 v18 R-02，同一 draw 恒定）
     char const* Vs_Static_Source = R"(
         cbuffer PerDrawCB : register(b0)
         {
             row_major float4x4 g_world_view_proj;
+            float g_corpse_index;
+            float3 g_pad;
         };
 
         struct VS_IN
@@ -1724,17 +1774,28 @@ namespace
             float3 pos : POSITION;
         };
 
-        float4 main(VS_IN a_in) : SV_Position
+        struct VS_OUT
         {
-            return mul(g_world_view_proj, float4(a_in.pos, 1.0f));
+            float4 pos : SV_Position;
+            nointerpolation float corpse_index : TEXCOORD0;
+        };
+
+        VS_OUT main(VS_IN a_in)
+        {
+            VS_OUT o;
+            o.pos = mul(g_world_view_proj, float4(a_in.pos, 1.0f));
+            o.corpse_index = g_corpse_index;
+            return o;
         }
     )";
 
-    // 蒙皮 VS：VB 自带混合索引/权重，索引指向分区调色板 g_bones
+    // 蒙皮 VS：VB 自带混合索引/权重，索引指向分区调色板 g_bones；尸体索引传递同静态 VS
     char const* Vs_Skinned_Source = R"(
         cbuffer PerDrawCB : register(b0)
         {
             row_major float4x4 g_world_view_proj;
+            float g_corpse_index;
+            float3 g_pad;
         };
         cbuffer PaletteCB : register(b1)
         {
@@ -1748,13 +1809,22 @@ namespace
             uint4 indices : BLENDINDICES;
         };
 
-        float4 main(VS_IN a_in) : SV_Position
+        struct VS_OUT
+        {
+            float4 pos : SV_Position;
+            nointerpolation float corpse_index : TEXCOORD0;
+        };
+
+        VS_OUT main(VS_IN a_in)
         {
             float4 p = 0.0f;
             [unroll]
             for (int i = 0; i < 4; ++i)
                 p += a_in.weights[i] * mul(g_bones[a_in.indices[i]], float4(a_in.pos, 1.0f));
-            return mul(g_world_view_proj, p);
+            VS_OUT o;
+            o.pos = mul(g_world_view_proj, p);
+            o.corpse_index = g_corpse_index;
+            return o;
         }
     )";
 
@@ -1775,16 +1845,18 @@ namespace
         }
     )";
 
-    // ---- 诊断脚手架：通道编码 mask —— R=静态路径覆盖，G=蒙皮路径覆盖（诊断后还原为单色白）----
+    // ---- 诊断脚手架：通道编码 mask —— R=静态路径覆盖，G=蒙皮路径覆盖（诊断后还原为单色白）；
+    // B = 尸体索引（契约 v18 R-02，MAX 混合取重叠尸体较高索引），A = 1 ----
     char const* Ps_Mask_Source = R"(
         struct PS_IN
         {
             float4 pos : SV_Position;
+            nointerpolation float corpse_index : TEXCOORD0;
         };
 
         float4 main(PS_IN a_in) : SV_Target
         {
-            return float4(1.0f, 0.0f, 0.0f, 1.0f);  // 诊断：静态路径 → R
+            return float4(1.0f, 0.0f, a_in.corpse_index, 1.0f);  // 诊断：静态路径 → R
         }
     )";
 
@@ -1792,21 +1864,32 @@ namespace
         struct PS_IN
         {
             float4 pos : SV_Position;
+            nointerpolation float corpse_index : TEXCOORD0;
         };
 
         float4 main(PS_IN a_in) : SV_Target
         {
-            return float4(0.0f, 1.0f, 0.0f, 1.0f);  // 诊断：蒙皮路径 → G
+            return float4(0.0f, 1.0f, a_in.corpse_index, 1.0f);  // 诊断：蒙皮路径 → G
         }
     )";
     // ---- 诊断脚手架结束 ----
 
-    // 合成 PS：采样 mask，半透明叠加。OM 为预乘 alpha 混合（ONE/INV_SRC_ALPHA，
-    // 同 renderer.cpp），必须输出预乘颜色。
-    // ---- 诊断脚手架：R 通道（静态）显示绿色，G 通道（蒙皮）显示品红（诊断后还原为单色品红）----
+    // 合成 PS（契约 v14 R-01）：silhouette 模式的内部填充，静态/蒙皮统一为单色
+    // OutlineColor（覆盖度取 max(R,G)——mask pass 的通道编码保留，不影响视觉）。
+    // alpha = coverage × Silhouette_Fill_Alpha（0.5 维持既有亮度）。OM 为预乘 alpha
+    // 混合（ONE/INV_SRC_ALPHA，同 renderer.cpp），必须输出预乘颜色。
     char const* Ps_Composite_Source = R"(
         Texture2D g_mask : register(t0);
         SamplerState g_mask_sampler : register(s0);
+
+        cbuffer CompositeCB : register(b0)
+        {
+            float4 g_color;  // rgb + 填充系数
+        };
+        cbuffer AlphaLutCB : register(b1)
+        {
+            float4 g_alpha_lut[64];  // 256 个 corpse_alpha（按目标序号）
+        };
 
         struct PS_IN
         {
@@ -1818,14 +1901,72 @@ namespace
         {
             // 注意：HLSL/FXC 不接受 "float const"（east const 仅适用于 C++ 代码，不适用于着色器串）
             const float4 m = g_mask.Sample(g_mask_sampler, a_in.uv);
-            const float a_static = m.r;
-            const float a_skinned = m.g;
-            const float alpha = max(a_static, a_skinned) * 0.5f;
-            const float3 tint = (a_skinned >= a_static) ? float3(1.0f, 0.2f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
-            return float4(tint * alpha, alpha);
+            // R-04（契约 v18）：B 通道 = 尸体索引，查 per-frame alpha LUT（单次消费无复合）
+            const uint idx = min(255u, (uint)round(m.b * 255.0f));
+            const float a = max(m.r, m.g) * g_alpha_lut[idx / 4][idx % 4] * g_color.a;
+            return float4(g_color.rgb * a, a);
         }
     )";
-    // ---- 诊断脚手架结束 ----
+
+    // 描边 PS（契约 v12 R-02）：对 mask 做圆盘膨胀，仅在剪影**外侧**画 OutlineColor
+    // 色带（中心覆盖度 > 0.5 即输出透明，内部不填充——内部显示由既有验证叠加负责）。
+    // 覆盖度 = max(R, G)，与诊断通道编码兼容（脚手架拆除后该公式依然正确）。
+    // 预乘 alpha 混合（同 composite/renderer.cpp 约定），故输出 rgb*a。
+    char const* Ps_Outline_Source = R"(
+        Texture2D g_mask : register(t0);
+        SamplerState g_mask_sampler : register(s0);
+
+        cbuffer OutlineCB : register(b0)
+        {
+            float2 g_texel;   // (1/W, 1/H)
+            float g_radius;   // 圆盘半径（像素）
+            float g_pad;
+            float4 g_color;   // rgb + a
+        };
+        cbuffer AlphaLutCB : register(b1)
+        {
+            float4 g_alpha_lut[64];  // 256 个 corpse_alpha（按目标序号）
+        };
+
+        struct PS_IN
+        {
+            float4 pos : SV_Position;
+            float2 uv : TEXCOORD0;
+        };
+
+        float coverage(float2 a_uv)
+        {
+            // 注意：HLSL/FXC 不接受 "float const"（east const 仅适用于 C++ 代码，不适用于着色器串）
+            const float4 m = g_mask.Sample(g_mask_sampler, a_uv);
+            return max(m.r, m.g);
+        }
+
+        float4 main(PS_IN a_in) : SV_Target
+        {
+            if (coverage(a_in.uv) > 0.5f)
+                return float4(0.0f, 0.0f, 0.0f, 0.0f);  // 剪影内部：不画
+
+            // R-04（契约 v18）：命中样本按 B 通道索引查 alpha LUT，取最大值
+            const int r = (int)g_radius;
+            float hit_alpha = 0.0f;
+            [loop]
+            for (int dy = -r; dy <= r; ++dy)
+            {
+                [loop]
+                for (int dx = -r; dx <= r; ++dx)
+                {
+                    const float4 m = g_mask.Sample(g_mask_sampler, a_in.uv + float2(float(dx), float(dy)) * g_texel);
+                    if (max(m.r, m.g) > 0.5f)
+                    {
+                        const uint idx = min(255u, (uint)round(m.b * 255.0f));
+                        hit_alpha = max(hit_alpha, g_alpha_lut[idx / 4][idx % 4]);
+                    }
+                }
+            }
+            const float final_a = hit_alpha * g_color.a;
+            return float4(g_color.rgb * final_a, final_a);
+        }
+    )";
 
     void release_mask_target()
     {
@@ -1907,6 +2048,26 @@ namespace
             g_ps_composite->Release();
             g_ps_composite = nullptr;
         }
+        if (g_composite_cb)  // 契约 v14：composite 常量缓冲
+        {
+            g_composite_cb->Release();
+            g_composite_cb = nullptr;
+        }
+        if (g_alpha_lut_cb)  // 契约 v18：alpha LUT 常量缓冲
+        {
+            g_alpha_lut_cb->Release();
+            g_alpha_lut_cb = nullptr;
+        }
+        if (g_ps_outline)  // 描边 pass（契约 v12）
+        {
+            g_ps_outline->Release();
+            g_ps_outline = nullptr;
+        }
+        if (g_outline_cb)
+        {
+            g_outline_cb->Release();
+            g_outline_cb = nullptr;
+        }
         if (g_ps_mask)
         {
             g_ps_mask->Release();
@@ -1934,6 +2095,7 @@ namespace
         }
         g_pipeline_ready = false;
         g_composite_ready = false;
+        g_outline_ready = false;
     }
 
     bool ensure_mask_target(ID3D11Device* a_device, std::uint32_t a_width, std::uint32_t a_height)
@@ -2011,7 +2173,7 @@ namespace
         cb.Usage = D3D11_USAGE_DYNAMIC;
         cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        cb.ByteWidth = 64;  // 单个 float4x4
+        cb.ByteWidth = 80;  // Mat4 + corpse_index + pad[3]（契约 v15/v18，见 PerDrawCBData）
         a_device->CreateBuffer(&cb, nullptr, &g_per_draw_cb);
         cb.ByteWidth = static_cast<UINT>(Palette_CB_Bytes);
         a_device->CreateBuffer(&cb, nullptr, &g_palette_cb);
@@ -2048,7 +2210,7 @@ namespace
             return false;
         }
 
-        // ---- 合成（仅调试叠加）对象：失败只禁用叠加，不影响 mask 渲染 ----
+        // ---- 合成（silhouette 模式的内部填充）对象：失败只禁用叠加，不影响 mask 渲染 ----
         g_composite_ready = false;
         ID3DBlob* vs_composite_blob = compile(Vs_Composite_Source, "vs_5_0", "outline mask composite");
         ID3DBlob* ps_composite_blob = compile(Ps_Composite_Source, "ps_5_0", "outline mask composite");
@@ -2074,7 +2236,23 @@ namespace
             sampler.MaxLOD = D3D11_FLOAT32_MAX;
             a_device->CreateSamplerState(&sampler, &g_sampler_mask);
 
-            g_composite_ready = g_vs_composite && g_ps_composite && g_blend_premul_alpha && g_sampler_mask;
+            // b0：float4（OutlineColor rgb + Silhouette_Fill_Alpha）
+            D3D11_BUFFER_DESC ccb{};
+            ccb.Usage = D3D11_USAGE_DYNAMIC;
+            ccb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            ccb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            ccb.ByteWidth = 16;
+            a_device->CreateBuffer(&ccb, nullptr, &g_composite_cb);
+
+            // R-03（契约 v18）：alpha LUT CB（composite/outline 共用，PS b1）
+            D3D11_BUFFER_DESC lcb{};
+            lcb.Usage = D3D11_USAGE_DYNAMIC;
+            lcb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            lcb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            lcb.ByteWidth = static_cast<UINT>(Alpha_Lut_CB_Bytes);
+            a_device->CreateBuffer(&lcb, nullptr, &g_alpha_lut_cb);
+
+            g_composite_ready = g_vs_composite && g_ps_composite && g_blend_premul_alpha && g_sampler_mask && g_composite_cb && g_alpha_lut_cb;
         }
         if (vs_composite_blob)
             vs_composite_blob->Release();
@@ -2082,6 +2260,31 @@ namespace
             ps_composite_blob->Release();
         if (!g_composite_ready)
             logger::warn("outline mask composite pipeline unavailable, debug overlay disabled (mask rendering stays active)");
+
+        // ---- 描边 pass（契约 v12）对象：失败只禁描边，不影响 mask 渲染与叠加 ----
+        // 复用 composite 的全屏三角形 VS 与预乘 alpha 混合/深度/光栅化/采样器状态。
+        g_outline_ready = false;
+        if (g_composite_ready)
+        {
+            ID3DBlob* ps_outline_blob = compile(Ps_Outline_Source, "ps_5_0", "outline mask outline");
+            if (ps_outline_blob)
+            {
+                a_device->CreatePixelShader(ps_outline_blob->GetBufferPointer(), ps_outline_blob->GetBufferSize(), nullptr, &g_ps_outline);
+                ps_outline_blob->Release();
+            }
+
+            // b0：float2 texel + float radius + float pad（16 字节）+ float4 color（16 字节）
+            D3D11_BUFFER_DESC ocb{};
+            ocb.Usage = D3D11_USAGE_DYNAMIC;
+            ocb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            ocb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            ocb.ByteWidth = 32;
+            a_device->CreateBuffer(&ocb, nullptr, &g_outline_cb);
+
+            g_outline_ready = g_ps_outline && g_outline_cb && g_alpha_lut_cb;
+        }
+        if (!g_outline_ready)
+            logger::warn("outline mask outline pass unavailable, corpse outline band disabled (mask rendering stays active)");
 
         logger::info("outline mask pipeline ready (palette {} bones/draw, overlay {})", Max_Palette_Bones, g_composite_ready ? "on" : "off");
         return true;
@@ -2180,6 +2383,18 @@ namespace
         a_context->Unmap(a_cb, 0);
     }
 
+    // per-draw 常量缓冲（契约 v15 R-02）：矩阵 + 逐 draw 的距离衰减 alpha。HLSL 侧
+    // 声明为 `row_major float4x4 + float g_corpse_index + float3 g_pad`（packing 后同为
+    // 80 字节，corpse_index 在 64 字节处）。80 为 16 的倍数，满足 CB 尺寸对齐要求。
+    struct PerDrawCBData
+    {
+        Mat4 mvp;          // 静态=ViewProj*World，蒙皮=ViewProj；上传经 oriented()
+        float corpse_index;  // 目标序号/255（契约 v18）
+        float pad[3];
+    };
+    static_assert(sizeof(PerDrawCBData) == 80);
+    static_assert(sizeof(PerDrawCBData) % 16 == 0);
+
     void draw_mask_pass(ID3D11Device* a_device, ID3D11DeviceContext* a_context, Mat4 const& a_view_proj, std::vector<MaskDraw> const& a_draws)
     {
         for (MaskDraw const& draw : a_draws)
@@ -2222,8 +2437,12 @@ namespace
             {
                 per_draw = a_view_proj * Mat4::from_transform(draw.node->world);
             }
-            Mat4 const per_draw_upload = oriented(per_draw);
-            update_cb(a_context, g_per_draw_cb, &per_draw_upload, sizeof(Mat4));
+            // R-02（契约 v15）：oriented() 只作用矩阵部分（转置上传路径行为不变），
+            // mask alpha 原样随 CB 传入 VS
+            PerDrawCBData cb_data{};
+            cb_data.mvp = oriented(per_draw);
+            cb_data.corpse_index = draw.corpse_index;
+            update_cb(a_context, g_per_draw_cb, &cb_data, sizeof(cb_data));
             a_context->VSSetConstantBuffers(0, 1, &g_per_draw_cb);
 
             if (use_palette)
@@ -2306,8 +2525,18 @@ namespace
         // 合成对象缺失（创建失败）时静默跳过：只影响调试叠加，不影响 mask 渲染。
         // g_mask_srv 为空时若继续绘制，采样的将是未绑定 SRV（默认值 alpha=1，
         // 表现为整屏均匀着色）——同样必须跳过。
-        if (!a_target || !g_mask_srv || !g_vs_composite || !g_ps_composite || !g_blend_premul_alpha || !g_sampler_mask)
+        if (!a_target || !g_mask_srv || !g_vs_composite || !g_ps_composite || !g_blend_premul_alpha || !g_sampler_mask || !g_composite_cb || !g_alpha_lut_cb)
             return;
+
+        // ---- R-01（契约 v14）：每帧填充 composite 常量缓冲（rgb = OutlineColor 解码，
+        // a = Silhouette_Fill_Alpha 0.5），单色填充静态/蒙皮剪影。----
+        std::uint32_t const rgb = Setting::get_config().outline_color;
+        float const cb_data[4] = {
+            static_cast<float>((rgb >> 16) & 0xFF) / 255.0f,
+            static_cast<float>((rgb >> 8) & 0xFF) / 255.0f,
+            static_cast<float>(rgb & 0xFF) / 255.0f,
+            Silhouette_Fill_Alpha,
+        };
 
         D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(g_mask_w), static_cast<float>(g_mask_h), 0.0f, 1.0f };
         a_context->OMSetRenderTargets(1, &a_target, nullptr);
@@ -2325,7 +2554,99 @@ namespace
         a_context->PSSetShader(g_ps_composite, nullptr, 0);
         a_context->PSSetShaderResources(0, 1, &g_mask_srv);
         a_context->PSSetSamplers(0, 1, &g_sampler_mask);
+        // PS 常量缓冲槽 b0（composite CB）+ b1（alpha LUT，契约 v18）被本 pass 改写——
+        // 两槽一起就地保存/恢复（既有 restore 路径不覆盖 PS 常量缓冲）
+        ID3D11Buffer* prev_ps_cbs[2] = {};
+        a_context->PSGetConstantBuffers(0, 2, prev_ps_cbs);
+        ID3D11Buffer* const ps_cbs[2] = { g_composite_cb, g_alpha_lut_cb };
+        update_cb(a_context, g_composite_cb, cb_data, sizeof(cb_data));
+        a_context->PSSetConstantBuffers(0, 2, ps_cbs);
         a_context->Draw(3, 0);
+        a_context->PSSetConstantBuffers(0, 2, prev_ps_cbs);
+        for (ID3D11Buffer* cb : prev_ps_cbs)
+        {
+            if (cb)
+                cb->Release();  // Get 系列返回已 AddRef 的接口（同文件 restore 块的处理惯例）
+        }
+    }
+
+    // 描边常量缓冲（契约 v12 R-01 布局，16 字节对齐）：texel/radius/pad + color
+    struct OutlineCBData
+    {
+        float texel_x;
+        float texel_y;
+        float radius;
+        float pad;
+        float color_r;
+        float color_g;
+        float color_b;
+        float color_a;
+    };
+    static_assert(sizeof(OutlineCBData) == 32);
+
+    void draw_outline(ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target)
+    {
+        // 描边对象缺失（创建失败）时静默跳过：只影响描边带，不影响 mask 渲染与叠加。
+        if (!a_target || !g_mask_srv || !g_ps_outline || !g_outline_cb || !g_outline_ready || !g_alpha_lut_cb)
+            return;
+
+        // ---- R-04：每帧填充描边常量缓冲。半径 = clamp(round(OutlineThickness), 1, 6)
+        //（上限控制 PS 采样数 (2r+1)² ≤ 169）；被 clamp 时一次性 INFO。颜色解码同
+        // renderer.cpp 的移位先例；alpha 恒 1.0（按距离淡出留待后续修订）。----
+        Config const& cfg = Setting::get_config();
+        int const thickness_rounded = static_cast<int>(std::lround(cfg.outline_thickness));
+        int const radius = std::clamp(thickness_rounded, 1, static_cast<int>(Max_Outline_Radius));
+        static bool s_radius_clamp_reported = false;
+        if (!s_radius_clamp_reported &&
+            (thickness_rounded < 1 || thickness_rounded > static_cast<int>(Max_Outline_Radius)))
+        {
+            s_radius_clamp_reported = true;
+            logger::info("outline mask: outline thickness {} clamped to {} pixels (max keeps the dilate pass at {} taps)",
+                thickness_rounded, radius, (2 * Max_Outline_Radius + 1) * (2 * Max_Outline_Radius + 1));
+        }
+        std::uint32_t const rgb = cfg.outline_color;
+        OutlineCBData const cb_data{
+            .texel_x = 1.0f / static_cast<float>(g_mask_w),
+            .texel_y = 1.0f / static_cast<float>(g_mask_h),
+            .radius = static_cast<float>(radius),
+            .pad = 0.0f,
+            .color_r = static_cast<float>((rgb >> 16) & 0xFF) / 255.0f,
+            .color_g = static_cast<float>((rgb >> 8) & 0xFF) / 255.0f,
+            .color_b = static_cast<float>(rgb & 0xFF) / 255.0f,
+            .color_a = Outline_Alpha,
+        };
+
+        D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(g_mask_w), static_cast<float>(g_mask_h), 0.0f, 1.0f };
+        a_context->OMSetRenderTargets(1, &a_target, nullptr);
+        a_context->OMSetBlendState(g_blend_premul_alpha, nullptr, 0xFFFFFFFF);
+        a_context->OMSetDepthStencilState(g_depth_disabled, 0);
+        a_context->RSSetState(g_raster_cull_none);
+        a_context->RSSetViewports(1, &vp);
+        a_context->IASetInputLayout(nullptr);  // SV_VertexID 全屏三角形，无需布局
+        a_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D11Buffer* const no_vb = nullptr;
+        UINT const zero = 0;
+        a_context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
+        a_context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+        a_context->VSSetShader(g_vs_composite, nullptr, 0);
+        a_context->PSSetShader(g_ps_outline, nullptr, 0);
+        a_context->PSSetShaderResources(0, 1, &g_mask_srv);
+        a_context->PSSetSamplers(0, 1, &g_sampler_mask);
+        // PS 常量缓冲槽 b0（描边 CB）+ b1（alpha LUT，契约 v18）被本 pass 改写——
+        // 两槽一起就地保存/恢复（既有 restore 路径不覆盖 PS 常量缓冲）
+        ID3D11Buffer* prev_ps_cbs[2] = {};
+        a_context->PSGetConstantBuffers(0, 2, prev_ps_cbs);
+        ID3D11Buffer* const ps_cbs[2] = { g_outline_cb, g_alpha_lut_cb };
+        update_cb(a_context, g_outline_cb, &cb_data, sizeof(cb_data));
+        a_context->VSSetConstantBuffers(0, 1, &g_outline_cb);
+        a_context->PSSetConstantBuffers(0, 2, ps_cbs);
+        a_context->Draw(3, 0);
+        a_context->PSSetConstantBuffers(0, 2, prev_ps_cbs);
+        for (ID3D11Buffer* cb : prev_ps_cbs)
+        {
+            if (cb)
+                cb->Release();  // Get 系列返回已 AddRef 的接口（同文件 restore 块的处理惯例）
+        }
     }
 
     void render_impl(ID3D11Device* a_device, ID3D11DeviceContext* a_context, RE::NiCamera* a_camera, std::uint32_t a_width, std::uint32_t a_height)
@@ -2333,7 +2654,7 @@ namespace
         if (!a_device || !a_context || !a_camera || a_width == 0 || a_height == 0)
             return;
 
-        std::vector<RE::NiPointer<RE::TESObjectREFR>> targets;
+        std::vector<MaskTarget> targets;
         {
             std::lock_guard<std::mutex> const lock(g_target_mutex);
             targets = g_targets;
@@ -2397,7 +2718,7 @@ namespace
         Mat4 const view_proj = Mat4::from_world_to_cam_raw(a_camera->GetRuntimeData().worldToCam);
 
         static bool s_ground_truth_checked = false;
-        if (!s_ground_truth_checked && !draws.empty() && draws.front().node)
+        if (!s_ground_truth_checked && draws.front().node)
         {
             RE::NiPoint3 const anchor = draws.front().node->world.translate;
             Mat4 const model = Mat4::from_transform(draws.front().node->world);
@@ -2500,7 +2821,9 @@ namespace
         ID3D11SamplerState* prev_sampler = nullptr;
         a_context->PSGetSamplers(0, 1, &prev_sampler);
 
-        // ---- mask pass：离屏 RT，无深度测试（穿墙），实心单色 ----
+        // ---- mask pass（契约 v18 R-01/R-02）：一次清屏，逐 draw 绘制全部目标；
+        // 每个 draw 经 per-draw CB 携带尸体索引，mask PS 写入 B 通道（MAX 混合在
+        // 重叠区取较高索引）----
         a_context->OMSetRenderTargets(1, &g_mask_rtv, nullptr);
         a_context->ClearRenderTargetView(g_mask_rtv, Mask_Clear_Color);
         a_context->OMSetBlendState(g_blend_mask_write, nullptr, 0xFFFFFFFF);
@@ -2512,9 +2835,29 @@ namespace
 
         draw_mask_pass(a_device, a_context, view_proj, draws);
 
-        // ---- 调试叠加（R-06）：OutlineMaskDebug 开启且合成管线可用时把 mask 半透明覆盖到画面 ----
-        if (g_composite_ready && prev_rtv)
-            draw_composite(a_context, prev_rtv);
+        // ---- R-03（契约 v18）：per-frame alpha LUT（与目标快照同序，其余槽位 0），
+        // 消费 PS 以 mask B 通道的尸体索引查表——单次消费无复合，重叠像素取较高
+        // 索引尸体的 alpha（常量），每具尸体各部位颜色一致。----
+        Config::DisplayMode const display_mode = Setting::get_config().display_mode;
+        bool const consumer_active =
+            (display_mode == Config::DisplayMode::e_silhouette && g_composite_ready) ||
+            (display_mode == Config::DisplayMode::e_outline && g_outline_ready);
+        if (consumer_active && g_alpha_lut_cb)
+        {
+            float alpha_lut[Alpha_Lut_Floats]{};
+            std::size_t const lut_count = std::min<std::size_t>(targets.size(), Alpha_Lut_Floats);
+            for (std::size_t i = 0; i < lut_count; ++i)
+                alpha_lut[i] = targets[i].opacity;
+            update_cb(a_context, g_alpha_lut_cb, alpha_lut, sizeof(alpha_lut));
+
+            // 显示模式门控（契约 v13/v18）：silhouette=内部填充叠加（draw_composite）、
+            // outline=外描边带（draw_outline），各只调用一次；icon 模式两 pass 均不画
+            //（防御：正常路径 renderer.cpp 在 icon 模式不会调用本类）。
+            if (display_mode == Config::DisplayMode::e_silhouette && prev_rtv)
+                draw_composite(a_context, prev_rtv);
+            else if (display_mode == Config::DisplayMode::e_outline && prev_rtv)
+                draw_outline(a_context, prev_rtv);
+        }
 
         // ---- 恢复游戏渲染状态 ----
         a_context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
@@ -2577,14 +2920,14 @@ namespace
     }
 }
 
-void OutlineMask::set_targets(std::vector<RE::TESObjectREFR*> const& a_targets)
+void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& a_targets)
 {
-    std::vector<RE::NiPointer<RE::TESObjectREFR>> kept;
+    std::vector<MaskTarget> kept;
     kept.reserve(a_targets.size());
-    for (RE::TESObjectREFR* ref : a_targets)
+    for (OutlineMaskTarget const& target : a_targets)
     {
-        if (ref)
-            kept.emplace_back(ref);  // NiPointer 构造即保活
+        if (target.ref)
+            kept.push_back(MaskTarget{ RE::NiPointer<RE::TESObjectREFR>(target.ref), target.opacity });  // NiPointer 构造即保活
     }
 
     std::lock_guard<std::mutex> const lock(g_target_mutex);
