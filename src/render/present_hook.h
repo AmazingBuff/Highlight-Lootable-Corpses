@@ -8,7 +8,8 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-// IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位，VirtualProtect 改写）。
+// IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位，经 REL::Relocation::
+// write_vfunc 写入，页保护由其内部 safe_write 处理并返回原始函数指针）。
 // 运行时无关：不依赖 Address Library ID，任何 AE 版本都有效。
 // 回调先于原 Present 执行；游戏线程 Present hook 可能被多个线程并发进入，
 // 回调内部自行串行化。
