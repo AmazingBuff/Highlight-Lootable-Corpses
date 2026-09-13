@@ -47,15 +47,15 @@
 ; 是否默认启用
 Enabled=true
 ; 热键虚拟键码（Windows VK 码，0 = 未绑定，默认禁用热键；在 MCP 菜单中可重绑定）
-Hotkey=0
+Hotkey=118
 ; 最大搜索距离（游戏单位，默认约 17 米）
 MaxDistance=2000.0
 ; 尸体扫描间隔（毫秒）
 ScanIntervalMs=500
 
 [Display]
-; 尸体显示样式：silhouette（穿墙剪影填充）| outline（剪影外描边带）| icon（尸体位置的小圆图标）
-DisplayMode=outline
+; 尸体显示样式：silhouette（穿墙剪影填充，0）| outline（剪影外描边带，1）| icon（尸体位置的小圆图标，2）
+DisplayMode=0
 ; 描边颜色（RGB 十六进制）
 OutlineColor=00FF66
 ; 远处标记最小不透明度
@@ -68,6 +68,8 @@ FadeStartDistance=500.0
 FadePower=2.0
 
 [LootFilter]
+; 当尸体被搜索过后，是否停止其描边效果
+HideSearchedEnabled=false
 ; 战利品筛选总开关：开启后只显示库存命中以下任一分类的尸体标记
 ValueFilterEnabled=false
 ; 各分类开关（默认全关，按需勾选；在 MCP 菜单中亦可实时修改）
@@ -77,7 +79,7 @@ ValueEnchanted=false
 ValueHighValue=false
 ; 高价值单件阈值（金币；金币堆按枚数计）
 HighValueThreshold=100.0
-; 书籍分类范围（0=全部书籍 1=法术+技能书 2=仅法术书）
+; 书籍分类范围（1=法术 2=技能 3=未读取 7=全部）
 BookFilterMode=0
 ; 消耗品（箭矢/炼金材料/灵魂石/药水/卷轴）
 ValueConsumables=false

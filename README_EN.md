@@ -50,15 +50,15 @@ All options live in `Data\SKSE\Plugins\HighlightLootableCorpses.ini` (auto-gener
 ; mod enabled on startup
 Enabled=true
 ; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
-Hotkey=0
+Hotkey=118
 ; search radius in game units (~17 m default)
 MaxDistance=2000.0
 ; corpse scan interval in milliseconds
 ScanIntervalMs=500
 
 [Display]
-; corpse display style: silhouette (filled mask) | outline (band around the mask) | icon (small circle at the corpse position)
-DisplayMode=outline
+; corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (small circle at the corpse position, 2)
+DisplayMode=0
 ; outline color (RGB hex)
 OutlineColor=00FF66
 ; minimum opacity at max distance
@@ -85,9 +85,7 @@ ValueEnchanted=false
 ValueHighValue=false
 ; high-value threshold (gold piles count by amount)
 HighValueThreshold=100.0
-; books
-ValueBooks=false
-; 0 = all books, 1 = spell & skill books, 2 = spell books only
+; bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all
 BookFilterMode=0
 ; arrows, ingredients, potions, scrolls, soul gems
 ValueConsumables=false

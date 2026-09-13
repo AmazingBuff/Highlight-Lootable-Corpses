@@ -16,21 +16,6 @@ namespace
         return end == a_value ? a_default : value;
     }
 
-    // DisplayMode 的 INI/日志名（小写；未知值由调用方回退默认）
-    char const* display_mode_name(Config::DisplayMode a_mode) noexcept
-    {
-        switch (a_mode)
-        {
-        case Config::DisplayMode::e_silhouette:
-            return "silhouette";
-        case Config::DisplayMode::e_icon:
-            return "icon";
-        case Config::DisplayMode::e_outline:
-        default:
-            return "outline";
-        }
-    }
-
     void sanitize(Config& a_settings) noexcept
     {
         a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
@@ -74,37 +59,12 @@ void Setting::load() noexcept
     g_config.max_distance = static_cast<float>(ini.GetDoubleValue("General", "MaxDistance"));
     g_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
 
+    g_config.display_mode = static_cast<Config::DisplayMode>(ini.GetLongValue("Display", "DisplayMode"));
     g_config.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor"), 0x00FF66);
     g_config.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity"));
     g_config.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness"));
     g_config.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance"));
     g_config.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower"));
-
-    // DisplayMode：不区分大小写的 silhouette/outline/icon；未知值回退默认并 WARN 一次，
-    // 键缺失保持默认（成员初始化为 e_outline）。
-    if (char const* mode_value = ini.GetValue("Display", "DisplayMode"); mode_value && *mode_value)
-    {
-        std::string mode = mode_value;
-        for (char& c : mode)
-            c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-
-        static bool s_unknown_mode_reported = false;
-        if (mode == "silhouette")
-            g_config.display_mode = Config::DisplayMode::e_silhouette;
-        else if (mode == "outline")
-            g_config.display_mode = Config::DisplayMode::e_outline;
-        else if (mode == "icon")
-            g_config.display_mode = Config::DisplayMode::e_icon;
-        else
-        {
-            g_config.display_mode = Config::DisplayMode::e_outline;
-            if (!s_unknown_mode_reported)
-            {
-                s_unknown_mode_reported = true;
-                logger::warn("Unknown DisplayMode \"{}\" in INI, falling back to \"outline\"", mode_value);
-            }
-        }
-    }
 
     g_config.hide_searched_enabled = ini.GetBoolValue("LootFilter", "HideSearchedEnabled");
     g_config.value_filter_enabled = ini.GetBoolValue("LootFilter", "ValueFilterEnabled");
@@ -123,10 +83,10 @@ void Setting::load() noexcept
 
 void Setting::save() noexcept
 {
-    auto const section = [&](std::string_view a_name) {
+    static auto const section = [](std::string_view a_name) {
         return fmt::format("[{}]\n", a_name);
     };
-    auto const option = [](std::string_view a_comment, std::string_view a_kv) {
+    static auto const option = [](std::string_view a_comment, std::string_view a_kv) {
         return fmt::format("; {}\n{}\n", a_comment, a_kv);
     };
 
@@ -137,8 +97,7 @@ void Setting::save() noexcept
     body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
     body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
     body += section("Display");
-    body += option("corpse display style: silhouette (filled mask) | outline (band around the mask) | icon (small circle at the corpse position)",
-        fmt::format("DisplayMode={}", display_mode_name(g_config.display_mode)));
+    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (small circle at the corpse position, 2)",fmt::format("DisplayMode={}", static_cast<int>(g_config.display_mode)));
     body += option("outline color (RGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
     body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_config.min_opacity));
     body += option("outline thickness in pixels", fmt::format("OutlineThickness={:.1f}", g_config.outline_thickness));
@@ -152,7 +111,7 @@ void Setting::save() noexcept
     body += option("enchanted equipment", fmt::format("ValueEnchanted={}", g_config.value_enchanted ? "true" : "false"));
     body += option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", g_config.value_high_value ? "true" : "false"));
     body += option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", g_config.high_value_threshold));
-    body += option("bit flag, 0x1 for spell, 0x2 for skill, 0x4 for unread, 0x7 for all", fmt::format("BookFilterMode={:06X}", static_cast<int>(g_config.book_filter_mode.underlying())));
+    body += option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(g_config.book_filter_mode.underlying())));
     body += option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", g_config.value_consumables ? "true" : "false"));
 
     std::string const& path = get_config_path();
@@ -166,6 +125,8 @@ void Setting::save() noexcept
 
     if (!file)
         logger::warn("Failed to write INI at {}", path);
+
+    file.close();
 }
 
 Config& Setting::get_config() noexcept
