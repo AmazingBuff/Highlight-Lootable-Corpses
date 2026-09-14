@@ -111,7 +111,8 @@ namespace
             alpha_lut[i] = targets[i].opacity;
 
         Config const& cfg = Setting::get_config();
-        RgbColor const color = RgbColor::decode(cfg.outline_color);
+        Color color;
+        color.decode(cfg.outline_color);
         ID3D11RenderTargetView* overlay_target = capture.render_target();
         bool drew_consumer = false;
         if (cfg.display_mode == Config::DisplayMode::e_silhouette && g_silhouette_pass.ready())

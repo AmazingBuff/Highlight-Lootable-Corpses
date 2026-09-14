@@ -2,6 +2,7 @@
 #include "config/config.h"
 #include "input/pulse_highlight.h"
 #include "search/corpse_finder.h"
+#include "render/render_util.h"
 
 #pragma warning(push)
 #pragma warning(disable: 4996 5054 4099 4267 4244 4061 4062)
@@ -56,7 +57,6 @@ namespace
     {
         Config& cfg = Setting::get_config();
 
-        // 总开关：必须经 set_enabled 同步 g_enabled（渲染线程读它），直接改字段无效
         ImGuiMCP::Checkbox("Enabled", &cfg.enabled);
 
         static bool s_rebinding = false;
@@ -64,64 +64,54 @@ namespace
         if (ImGuiMCP::Button(label.c_str()))
             s_rebinding = !s_rebinding;
 
-        // 显示模式三选一（契约 v13）：点击循环到下一模式，修改即时生效
-        static constexpr Config::DisplayMode s_display_modes[] = {
-            Config::DisplayMode::e_silhouette,
-            Config::DisplayMode::e_outline,
-            Config::DisplayMode::e_icon,
-        };
-        static constexpr char const* s_display_mode_names[] = { "Silhouette", "Outline", "Icon" };
-        std::size_t mode_index = std::min<std::size_t>(static_cast<std::size_t>(cfg.display_mode), std::size(s_display_modes) - 1);
-        if (ImGuiMCP::Button(fmt::format("Display Mode: {}", s_display_mode_names[mode_index]).c_str()))
-        {
-            mode_index = (mode_index + 1) % std::size(s_display_modes);
-            cfg.display_mode = s_display_modes[mode_index];
-        }
-
-        // 热键模式二选一：constant=切换开关，pulse=触发一次渐隐高亮。即时生效；
-        // enable 在切换中保持不变——pulse 模式下 enable 是脉冲前提（true 才能触发
-        // 消退），常亮在途转 pulse 时以一次脉冲渐渐淡出。
         static constexpr Config::HotkeyMode s_hotkey_modes[] = {
             Config::HotkeyMode::e_constant,
             Config::HotkeyMode::e_pulse,
         };
         static constexpr char const* s_hotkey_mode_names[] = { "Constant", "Pulse" };
-        std::size_t hk_index = std::min<std::size_t>(static_cast<std::size_t>(cfg.hotkey_mode), std::size(s_hotkey_modes) - 1);
+        std::size_t hk_index = static_cast<std::size_t>(cfg.hotkey_mode);
         if (ImGuiMCP::Button(fmt::format("Hotkey Mode: {}", s_hotkey_mode_names[hk_index]).c_str()))
         {
             hk_index = (hk_index + 1) % std::size(s_hotkey_modes);
             Config::HotkeyMode const previous = cfg.hotkey_mode;
             cfg.hotkey_mode = s_hotkey_modes[hk_index];
             if (previous == Config::HotkeyMode::e_constant && cfg.hotkey_mode == Config::HotkeyMode::e_pulse && cfg.enabled)
-                PulseHighlight::trigger(cfg.pulse_duration_ms);  // 常亮转脉冲：从满 alpha 开始渐隐
+                PulseHighlight::trigger(cfg.pulse_duration_ms);
             else if (previous == Config::HotkeyMode::e_pulse && cfg.hotkey_mode == Config::HotkeyMode::e_constant)
                 PulseHighlight::reset();
         }
 
-        // 脉冲时长（仅 pulse 模式有意义）：修改即时生效，但只影响下一次脉冲
-        //（在途脉冲已按触发时刻的时间戳走完自身曲线）。
         if (cfg.hotkey_mode == Config::HotkeyMode::e_pulse)
-            ImGuiMCP::SliderInt("Pulse Duration (ms)", reinterpret_cast<int*>(&cfg.pulse_duration_ms), static_cast<int>(Setting::Min_Pulse_Duration_Ms), static_cast<int>(Setting::Max_Pulse_Duration_Ms));
+            ImGuiMCP::SliderInt("Pulse Duration (ms)", &cfg.pulse_duration_ms, Setting::Min_Pulse_Duration_Ms, Setting::Max_Pulse_Duration_Ms);
 
-        ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance, "%.0f");
         ImGuiMCP::SliderInt("Scan Interval (ms)", &cfg.scan_interval_ms, Setting::Min_Scan_Interval, Setting::Max_Scan_Interval);
 
-        float color[3] = {
-            static_cast<float>((cfg.outline_color >> 16) & 0xFF) / 255.0f,
-            static_cast<float>((cfg.outline_color >> 8) & 0xFF) / 255.0f,
-            static_cast<float>(cfg.outline_color & 0xFF) / 255.0f,
+        ImGuiMCP::Separator();
+
+        static constexpr Config::DisplayMode s_display_modes[] = {
+            Config::DisplayMode::e_silhouette,
+            Config::DisplayMode::e_outline,
+            Config::DisplayMode::e_icon,
         };
-        if (ImGuiMCP::ColorEdit3("Outline Color", color))
+        static constexpr char const* s_display_mode_names[] = { "Silhouette", "Outline", "Icon" };
+        std::size_t mode_index = static_cast<std::size_t>(cfg.display_mode);
+        if (ImGuiMCP::Button(fmt::format("Display Mode: {}", s_display_mode_names[mode_index]).c_str()))
         {
-            cfg.outline_color =
-                (static_cast<std::uint32_t>(color[0] * 255.0f) << 16) |
-                (static_cast<std::uint32_t>(color[1] * 255.0f) << 8) |
-                static_cast<std::uint32_t>(color[2] * 255.0f);
+            mode_index = (mode_index + 1) % std::size(s_display_modes);
+            cfg.display_mode = s_display_modes[mode_index];
         }
+        if (cfg.display_mode == Config::DisplayMode::e_outline)
+            ImGuiMCP::SliderInt("Outline Thickness", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
+        else if (cfg.display_mode == Config::DisplayMode::e_icon)
+            ImGuiMCP::SliderInt("Icon Radius", &cfg.icon_radius, Setting::Min_Icon_Radius, Setting::Max_Icon_Radius);
+
+        Color rgb;
+        rgb.decode(cfg.outline_color);
+        if (ImGuiMCP::ColorEdit4("Outline Color", reinterpret_cast<float*>(&rgb)))
+            cfg.outline_color = rgb.encode();
 
         ImGuiMCP::SliderFloat("Min Opacity", &cfg.min_opacity, 0.0f, 1.0f, "%.2f");
-        ImGuiMCP::SliderFloat("Outline Thickness", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness, "%.1f");
-
+        ImGuiMCP::SliderFloat("Max Search Distance", &cfg.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance, "%.0f");
         ImGuiMCP::SliderFloat("Fade Start Distance", &cfg.fade_start_distance, 0.0f, cfg.max_distance, "%.0f");
         ImGuiMCP::SliderFloat("Fade Power", &cfg.fade_power, Setting::Min_Fade_Power, Setting::Max_Fade_Power, "%.1f");
 
@@ -171,7 +161,7 @@ namespace
 
         ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
 
-        if (ImGuiMCP::Button("Save to INI"))
+        if (ImGuiMCP::Button("Save"))
             Setting::save();
     }
 }

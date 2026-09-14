@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "d3d11_util.h"
+#include "render_util.h"
 #include "mask_types.h"
 
 namespace RE
@@ -139,7 +139,7 @@ public:
     // 返回 false 表示管线对象缺失未绘制（正常路径不发生）
     bool draw(
         ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-        std::uint32_t a_width, std::uint32_t a_height, RgbColor const& a_color,
+        std::uint32_t a_width, std::uint32_t a_height, Color const& a_color,
         ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none);
 
 private:
@@ -162,7 +162,7 @@ public:
     // 返回 false 表示管线对象缺失未绘制（正常路径不发生）。
     bool draw(
         ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-        std::uint32_t a_width, std::uint32_t a_height, RgbColor const& a_color, float a_thickness,
+        std::uint32_t a_width, std::uint32_t a_height, Color const& a_color, int a_thickness,
         ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none);
 
 private:

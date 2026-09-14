@@ -10,15 +10,6 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-RgbColor RgbColor::decode(std::uint32_t a_rgb)
-{
-    return {
-        static_cast<float>((a_rgb >> 16) & 0xFF) / 255.0f,
-        static_cast<float>((a_rgb >> 8) & 0xFF) / 255.0f,
-        static_cast<float>(a_rgb & 0xFF) / 255.0f,
-    };
-}
-
 ID3DBlob* compile_shader(char const* a_source, char const* a_entry, char const* a_target, char const* a_name, char const* a_log_prefix)
 {
     if (!a_source || !a_entry || !a_target)

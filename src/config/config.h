@@ -6,7 +6,14 @@ struct Config
 {
     bool enabled;
     uint32_t hotkey;
-    float max_distance;
+    enum class HotkeyMode : std::uint8_t
+    {
+        e_constant = 0,
+        e_pulse    = 1
+    };
+
+    HotkeyMode hotkey_mode;
+    int pulse_duration_ms;
     int scan_interval_ms;
 
     enum class DisplayMode : std::uint8_t
@@ -17,20 +24,11 @@ struct Config
     };
 
     DisplayMode display_mode;
-
-    enum class HotkeyMode : std::uint8_t
-    {
-        e_constant = 0,  // 常亮：热键切换 enabled（既有行为）
-        e_pulse    = 1   // 消退：热键触发一次脉冲高亮，highlight 后渐渐变淡直至消失
-    };
-
-    HotkeyMode hotkey_mode;
-    std::uint32_t pulse_duration_ms;
-
+    int outline_thickness;
+    int icon_radius;
     uint32_t outline_color;
     float min_opacity;
-    float outline_thickness;
-
+    float max_distance;
     float fade_start_distance;
     float fade_power;
 
@@ -72,14 +70,17 @@ public:
     static void load() noexcept;
     static void save() noexcept;
 
+    constexpr static int Min_Outline_Thickness = 1;
+    constexpr static int Max_Outline_Thickness = 5;
+
+    constexpr static int Min_Icon_Radius = 5;
+    constexpr static int Max_Icon_Radius = 20;
+
     constexpr static float Min_Max_Distance = 500.f;
     constexpr static float Max_Max_Distance = 5000.f;
 
     constexpr static int Min_Scan_Interval = 100;
     constexpr static int Max_Scan_Interval = 1000;
-
-    constexpr static float Min_Outline_Thickness = 1.f;
-    constexpr static float Max_Outline_Thickness = 3.f;
 
     constexpr static float Min_Fade_Power = 0.1f;
     constexpr static float Max_Fade_Power = 4.f;
@@ -87,8 +88,8 @@ public:
     constexpr static int Min_High_Value_Threshold = 0;
     constexpr static int Max_High_Value_Threshold = 500;
 
-    constexpr static std::uint32_t Min_Pulse_Duration_Ms = 500;
-    constexpr static std::uint32_t Max_Pulse_Duration_Ms = 30000;
+    constexpr static int Min_Pulse_Duration_Ms = 500;
+    constexpr static int Max_Pulse_Duration_Ms = 30000;
 };
 
 PLUGIN_NAMESPACE_END

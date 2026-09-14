@@ -7,6 +7,7 @@
 #include "mask_geometry.h"
 #include "render/shader_sources.h"
 #include "screen_projector.h"
+#include "d3d11_util.h"
 
 #include <RE/Skyrim.h>
 
@@ -698,7 +699,7 @@ void SilhouettePass::release()
 
 bool SilhouettePass::draw(
     ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-    std::uint32_t a_width, std::uint32_t a_height, RgbColor const& a_color,
+    std::uint32_t a_width, std::uint32_t a_height, Color const& a_color,
     ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none)
 {
     if (!ready())
@@ -706,9 +707,9 @@ bool SilhouettePass::draw(
 
     // 每帧填充常量缓冲（rgb = OutlineColor 解码，a = 填充系数），单色填充静态/蒙皮剪影。
     float const cb_data[4] = {
-        a_color.r,
-        a_color.g,
-        a_color.b,
+        a_color.r(),
+        a_color.g(),
+        a_color.b(),
         Silhouette_Fill_Alpha,
     };
     return draw_fullscreen_triangle(a_context, a_target, a_mask_srv, a_width, a_height,
@@ -770,7 +771,7 @@ void OutlinePass::release()
 
 bool OutlinePass::draw(
     ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-    std::uint32_t a_width, std::uint32_t a_height, RgbColor const& a_color, float a_thickness,
+    std::uint32_t a_width, std::uint32_t a_height, Color const& a_color, int a_thickness,
     ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none)
 {
     if (!ready())
@@ -778,7 +779,7 @@ bool OutlinePass::draw(
 
     // 每帧填充描边常量缓冲。半径 = clamp(round(thickness), 1, 6)
     //（上限控制 PS 采样数 (2r+1)² ≤ 169）；被 clamp 时一次性 INFO。
-    int const thickness_rounded = static_cast<int>(std::lround(a_thickness));
+    int const thickness_rounded = a_thickness;
     int const radius = std::clamp(thickness_rounded, 1, static_cast<int>(Max_Outline_Radius));
     static bool s_radius_clamp_reported = false;
     if (!s_radius_clamp_reported &&
@@ -793,9 +794,9 @@ bool OutlinePass::draw(
         .texel_y = 1.0f / static_cast<float>(a_height),
         .radius = static_cast<float>(radius),
         .pad = 0.0f,
-        .color_r = a_color.r,
-        .color_g = a_color.g,
-        .color_b = a_color.b,
+        .color_r = a_color.r(),
+        .color_g = a_color.g(),
+        .color_b = a_color.b(),
         .color_a = Outline_Alpha,
     };
     return draw_fullscreen_triangle(a_context, a_target, a_mask_srv, a_width, a_height,

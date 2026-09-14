@@ -10,6 +10,7 @@
 #include "present_hook.h"
 #include "screen_projector.h"
 #include "ui_overlay.h"
+#include "render_util.h"
 
 #include "config/config.h"
 #include "input/pulse_highlight.h"
@@ -31,28 +32,23 @@ namespace
 {
     // icon 模式的实心小圆：半径固定像素值，不做距离缩放。
     constexpr float Icon_Radius = 10.0f;
+    constexpr float Hold_Fraction = 0.10f;
 
-    // 脉冲渐隐系数：脉冲期起始 10% 保持完全不透明（"highlight"段），其余时间线性
-    // 渐隐到 0（"渐渐变淡直至消失"）。elapsed 超过 duration 后返回 0。
     float pulse_alpha(std::uint32_t a_elapsed_ms, std::uint32_t a_duration_ms)
     {
         if (a_duration_ms == 0 || a_elapsed_ms >= a_duration_ms)
             return 0.0f;
 
         float const progress = static_cast<float>(a_elapsed_ms) / static_cast<float>(a_duration_ms);
-        constexpr float Hold_Fraction = 0.10f;
         return progress <= Hold_Fraction ? 1.0f : std::clamp(1.0f - (progress - Hold_Fraction) / (1.0f - Hold_Fraction), 0.0f, 1.0f);
     }
 
-    // 距离衰减：FadeStartDistance 内完全不透明；超过后按 FadePower 指数衰减，
-    // 到 MaxDistance 处达到 MinOpacity 下限。
-    // 前置条件：min_opacity ∈ [0,1]、max_distance > 0（Config::load 已规范化）。
-    float corpse_alpha(Config const& a_cfg, float a_distance)
+    float corpse_alpha(Config const& a_cfg, float a_distance, float a_alpha)
     {
         float const fade_range = std::max(a_cfg.max_distance - a_cfg.fade_start_distance, 1.0f);
         float const f = a_distance <= a_cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((a_distance - a_cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
         float const fade = std::pow(f, a_cfg.fade_power);
-        return std::clamp(a_cfg.min_opacity + fade * (1.0f - a_cfg.min_opacity), a_cfg.min_opacity, 1.0f);
+        return std::clamp(a_cfg.min_opacity + fade * a_alpha * (1.0f - a_cfg.min_opacity), a_cfg.min_opacity, 1.0f);
     }
 
     // ---------------------------------------------------------------------------
@@ -99,7 +95,7 @@ namespace
         }
 
     private:
-        OverlayDirector() = default;
+        OverlayDirector() : m_scan_in_flight(false), m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max()) {}
 
         // 定时派发尸体扫描任务到游戏线程；在途守卫保证同一时刻最多一个扫描任务
         // 排队或执行中，避免扫描堆积（exchange 置位成功才派发）。
@@ -110,7 +106,8 @@ namespace
                 !m_scan_in_flight.exchange(true))
             {
                 m_last_scan = now;
-                SKSE::GetTaskInterface()->AddTask([this] {
+                SKSE::GetTaskInterface()->AddTask([this]
+                {
                     CorpseScan::search();
                     m_scan_in_flight.store(false);
                 });
@@ -131,7 +128,6 @@ namespace
             float h = static_cast<float>(m_back_buffer.height());
             if (w <= 0.0f || h <= 0.0f)
             {
-                // 后备：渲染器报告的屏幕尺寸
                 RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
                 w = static_cast<float>(screen.width);
                 h = static_cast<float>(screen.height);
@@ -139,7 +135,6 @@ namespace
             if (w <= 0.0f || h <= 0.0f)
                 return;
 
-            // ---- 保存游戏渲染状态；随后绑定我们的绘制状态 ----
             D3D11StateCapture const capture(a_context);
             ID3D11RenderTargetView* back_rtv = m_back_buffer.rtv();
             a_context->OMSetRenderTargets(1, &back_rtv, nullptr);
@@ -149,82 +144,48 @@ namespace
 
             Config const& cfg = Setting::get_config();
 
-            // 消退模式：enable 是脉冲模式的前提——enable=true 时显示只由脉冲驱动
-            //（在途画渐隐，过期不画），热键触发脉冲；enable=false 一切不画。
             bool const pulse_mode = cfg.hotkey_mode == Config::HotkeyMode::e_pulse;
             bool const pulse_active = pulse_mode && cfg.enabled && PulseHighlight::active();
             if (pulse_mode && !pulse_active)
-                return;  // 脉冲模式无在途脉冲，无可见路径
+                return;
 
             if (pulse_active || cfg.enabled)
             {
-                m_projector.refresh();
-                RgbColor const color = RgbColor::decode(cfg.outline_color);
                 std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
-
-                // 逐 corpse 的显示系数（0 = 本帧不画）。常亮模式下恒 1（走既有
-                // corpse_alpha 距离衰减）；脉冲模式下：
-                //  - highlight 的目标即 snapshot 中的尸体，不做二次过滤；
-                //  - 渐隐途中尸体被玩家搜索（MarkCorpse 标记）→ 立即取消该尸体的
-                //    highlight（系数置 0）；
-                //  - 时长取 trigger 时快照值，中途改配置只影响下次脉冲。
-                auto corpse_display_alpha = [&](CorpseScan::CorpseInfo const& a_corpse) -> float {
-                    if (!pulse_active)
-                        return 1.0f;
-
-                    RE::TESForm* const form = RE::TESForm::LookupByID(a_corpse.form_id);
-                    RE::TESObjectREFR* const ref = form ? form->AsReference() : nullptr;
-                    if (ref && MarkCorpse::contains(ref))
-                        return 0.0f;
-
-                    std::uint32_t const duration = PulseHighlight::duration_ms();
-                    std::uint32_t const elapsed = PulseHighlight::elapsed_ms();
-                    return pulse_alpha(elapsed, duration);
-                };
-
-                // ---- icon 模式：每 corpse 只投影固定世界锚点（bounds/worldBound 中心），
-                // 投影随视角平滑连续。silhouette/outline 模式由 mask pass 负责显示，
-                // 无逐 corpse 工作。----
-                if (cfg.display_mode == Config::DisplayMode::e_icon)
+                float const pulse = pulse_active ? pulse_alpha(PulseHighlight::elapsed_ms(), PulseHighlight::duration_ms()) : 1.0f;
+                if (pulse > 0.f && !corpses.empty())
                 {
-                    m_ui.begin_frame(w, h);
-                    for (CorpseScan::CorpseInfo const& corpse : corpses)
+                    m_projector.refresh();
+                    Color color;
+                    color.decode(cfg.outline_color);
+                    if (cfg.display_mode == Config::DisplayMode::e_icon)
                     {
-                        float const pulse = corpse_display_alpha(corpse);
-                        if (pulse <= 0.0f)
-                            continue;
-
-                        float px = 0.0f, py = 0.0f, d = 0.0f;
-                        if (!m_projector.world_to_screen(corpse.anchor, w, h, px, py, d))
-                            continue;  // 相机后方/投影失败 → 跳过该 corpse
-
-                        float const alpha = pulse * corpse_alpha(cfg, corpse.distance);
-                        m_ui.add_circle(px, py, Icon_Radius, { color.r, color.g, color.b, alpha });
-                    }
-                }
-                // ---- mask 渲染（穿墙剪影/描边带的输入）：目标由本帧尸体快照的
-                // form_id 解析为引用。icon 模式下 mask 无消费者，整段跳过。----
-                else if (!corpses.empty())
-                {
-                    // 目标携带距离衰减不透明度（corpse_alpha），按目标序号填入消费
-                    // pass 的 per-frame alpha LUT。脉冲模式叠加渐隐系数，渐隐途中
-                    // 被搜索的尸体系数为 0，不进目标列表（立即取消 highlight）。
-                    std::vector<OutlineMaskTarget> mask_targets;
-                    mask_targets.reserve(corpses.size());
-                    for (CorpseScan::CorpseInfo const& corpse : corpses)
-                    {
-                        float const pulse = corpse_display_alpha(corpse);
-                        if (pulse <= 0.0f)
-                            continue;
-
-                        if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
+                        m_ui.begin_frame(w, h);
+                        for (CorpseScan::CorpseInfo const& corpse : corpses)
                         {
-                            if (RE::TESObjectREFR* ref = form->AsReference())
-                                mask_targets.push_back({ ref, pulse * corpse_alpha(cfg, corpse.distance) });
+                            float px = 0.0f, py = 0.0f, d = 0.0f;
+                            if (!m_projector.world_to_screen(corpse.anchor, w, h, px, py, d))
+                                continue;
+
+                            float const alpha = pulse * corpse_alpha(cfg, corpse.distance, color.a());
+                            m_ui.add_circle(px, py, Icon_Radius, { color.r(), color.g(), color.b(), alpha });
                         }
                     }
-                    OutlineMask::set_targets(mask_targets);
-                    OutlineMask::render(a_device, a_context, m_projector.camera(), m_back_buffer.width(), m_back_buffer.height());
+                    else
+                    {
+                        std::vector<OutlineMaskTarget> mask_targets;
+                        mask_targets.reserve(corpses.size());
+                        for (CorpseScan::CorpseInfo const& corpse : corpses)
+                        {
+                            if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
+                            {
+                                if (RE::TESObjectREFR* ref = form->AsReference())
+                                    mask_targets.emplace_back(ref, pulse * corpse_alpha(cfg, corpse.distance, color.a()));
+                            }
+                        }
+                        OutlineMask::set_targets(mask_targets);
+                        OutlineMask::render(a_device, a_context, m_projector.camera(), m_back_buffer.width(), m_back_buffer.height());
+                    }
                 }
             }
 
@@ -233,9 +194,9 @@ namespace
 
         // ---- 扫描调度（渲染线程计时，游戏线程执行）----
         std::chrono::steady_clock::time_point m_last_scan;
-        std::atomic<bool> m_scan_in_flight{ false };
+        std::atomic<bool> m_scan_in_flight;
 
-        std::uint32_t m_last_drawn_frame = std::numeric_limits<std::uint32_t>::max();
+        uint32_t m_last_drawn_frame;
         std::mutex m_draw_mutex;
 
         BackBufferTarget m_back_buffer;

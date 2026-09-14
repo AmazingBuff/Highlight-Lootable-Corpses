@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <numbers>
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -57,7 +58,7 @@ void UiOverlay::add_circle(float a_center_x, float a_center_y, float a_radius_px
     float const ndc_rx = a_radius_px * inv_w;
     float const ndc_ry = a_radius_px * inv_h;
 
-    constexpr float Two_Pi = 6.283185307179586f;
+    constexpr float Two_Pi = 2.f * std::numbers::pi_v<float>;
     constexpr int Segments = 16;
     for (int k = 0; k < Segments; ++k)
     {

@@ -19,21 +19,18 @@ namespace
     void sanitize(Config& a_settings) noexcept
     {
         a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
-        a_settings.max_distance = std::clamp(a_settings.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance);
+        a_settings.hotkey_mode = a_settings.hotkey_mode > Config::HotkeyMode::e_pulse
+                                     ? Config::HotkeyMode::e_constant
+                                     : a_settings.hotkey_mode;
+        a_settings.pulse_duration_ms = std::clamp(a_settings.pulse_duration_ms, Setting::Min_Pulse_Duration_Ms, Setting::Max_Pulse_Duration_Ms);
         a_settings.scan_interval_ms = std::clamp(a_settings.scan_interval_ms, Setting::Min_Scan_Interval, Setting::Max_Scan_Interval);
         a_settings.display_mode = a_settings.display_mode > Config::DisplayMode::e_icon
                                       ? Config::DisplayMode::e_outline
                                       : a_settings.display_mode;
-        a_settings.hotkey_mode = a_settings.hotkey_mode > Config::HotkeyMode::e_pulse
-                                     ? Config::HotkeyMode::e_constant
-                                     : a_settings.hotkey_mode;
-        a_settings.pulse_duration_ms = std::clamp(
-            a_settings.pulse_duration_ms,
-            static_cast<std::uint32_t>(Setting::Min_Pulse_Duration_Ms),
-            static_cast<std::uint32_t>(Setting::Max_Pulse_Duration_Ms));
-        a_settings.outline_color &= 0x00FFFFFFu;
-        a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
         a_settings.outline_thickness = std::clamp(a_settings.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
+        a_settings.icon_radius = std::clamp(a_settings.icon_radius, Setting::Min_Icon_Radius, Setting::Max_Icon_Radius);
+        a_settings.min_opacity = std::clamp(a_settings.min_opacity, 0.0f, 1.0f);
+        a_settings.max_distance = std::clamp(a_settings.max_distance, Setting::Min_Max_Distance, Setting::Max_Max_Distance);
         a_settings.fade_start_distance = std::clamp(a_settings.fade_start_distance, 0.0f, a_settings.max_distance);
         a_settings.fade_power = std::clamp(a_settings.fade_power, Setting::Min_Fade_Power, Setting::Max_Fade_Power);
         a_settings.high_value_threshold = std::clamp(a_settings.high_value_threshold, Setting::Min_High_Value_Threshold, Setting::Max_High_Value_Threshold);
@@ -63,15 +60,16 @@ void Setting::load() noexcept
 
     g_config.enabled = ini.GetBoolValue("General", "Enabled");
     g_config.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey"));
-    g_config.max_distance = static_cast<float>(ini.GetDoubleValue("General", "MaxDistance"));
+    g_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
+    g_config.pulse_duration_ms = ini.GetLongValue("General", "PulseDurationMs");
     g_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
 
     g_config.display_mode = static_cast<Config::DisplayMode>(ini.GetLongValue("Display", "DisplayMode"));
-    g_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
-    g_config.pulse_duration_ms = static_cast<std::uint32_t>(ini.GetLongValue("General", "PulseDurationMs", 3000));
+    g_config.outline_thickness = ini.GetLongValue("Display", "OutlineThickness");
+    g_config.icon_radius = ini.GetLongValue("Display", "IconRadius");
     g_config.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor"), 0x00FF66);
     g_config.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity"));
-    g_config.outline_thickness = static_cast<float>(ini.GetDoubleValue("Display", "OutlineThickness"));
+    g_config.max_distance = static_cast<float>(ini.GetDoubleValue("Display", "MaxDistance"));
     g_config.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance"));
     g_config.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower"));
 
@@ -103,15 +101,16 @@ void Setting::save() noexcept
     body += section("General");
     body += option("mod enabled on startup", fmt::format("Enabled={}", g_config.enabled ? "true" : "false"));
     body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", g_config.hotkey));
-    body += option("hotkey behavior: constant (0, toggle ESP on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(g_config.hotkey_mode)));
+    body += option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(g_config.hotkey_mode)));
     body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", g_config.pulse_duration_ms));
-    body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
     body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
     body += section("Display");
     body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (small circle at the corpse position, 2)",fmt::format("DisplayMode={}", static_cast<int>(g_config.display_mode)));
-    body += option("outline color (RGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
+    body += option("outline thickness in pixels", fmt::format("OutlineThickness={}", g_config.outline_thickness));
+    body += option("icon radius in pixels", fmt::format("IconRadius={}", g_config.icon_radius));
+    body += option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
     body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_config.min_opacity));
-    body += option("outline thickness in pixels", fmt::format("OutlineThickness={:.1f}", g_config.outline_thickness));
+    body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
     body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", g_config.fade_start_distance));
     body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", g_config.fade_power));
     body += section("LootFilter");

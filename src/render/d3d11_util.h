@@ -13,16 +13,6 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-// 0xRRGGBB → [0,1] 线性分量（outline_color 的唯一解码入口）
-struct RgbColor
-{
-    float r;
-    float g;
-    float b;
-
-    static RgbColor decode(std::uint32_t a_rgb);
-};
-
 // D3DCompile 薄封装：失败时按 a_log_prefix 记日志并返回 nullptr；正/误 blob 均正确释放。
 [[nodiscard]] ID3DBlob* compile_shader(
     char const* a_source,
