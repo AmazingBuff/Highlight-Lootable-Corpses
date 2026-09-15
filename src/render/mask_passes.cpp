@@ -6,7 +6,6 @@
 
 #include "mask_geometry.h"
 #include "render/shader_sources.h"
-#include "screen_projector.h"
 #include "d3d11_util.h"
 
 #include <RE/Skyrim.h>
@@ -442,7 +441,7 @@ void MaskGeometryPass::calibrate_upload_orientation(
     float eng_px = 0.0f;
     float eng_py = 0.0f;
     float eng_depth = 0.0f;
-    bool const engine_ok = project_engine(a_camera, anchor, static_cast<float>(a_width), static_cast<float>(a_height), eng_px, eng_py, eng_depth);
+    bool const engine_ok = project(a_camera, anchor, static_cast<float>(a_width), static_cast<float>(a_height), eng_px, eng_py, eng_depth);
 
     // 直传：局部原点 (0,0,0,1) 的裁剪坐标 = mvp 第 4 列；转置上传：= mvp 第 3 行
     float const cw = mvp.m[3][3];

@@ -471,6 +471,14 @@ void CorpseScan::search()
         return RE::BSContainer::ForEachResult::kContinue;
     });
 
+    // sort by distance
+    std::ranges::sort(found, [](CorpseInfo const& l, CorpseInfo const& r)
+    {
+        if (l.distance < r.distance)
+            return true;
+        return false;
+    });
+
     {
         std::lock_guard lock(g_mutex);
         g_corpses.swap(found);

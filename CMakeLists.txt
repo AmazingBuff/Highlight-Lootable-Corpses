@@ -21,7 +21,7 @@ file(GLOB_RECURSE HEADER_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h)
 # <文件>:<变量名> 的映射显式列出，变量位于 PLUGIN_NAMESPACE::render_shaders。
 set(RENDER_SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders)
 set(RENDER_SHADER_EMBED
-    ui_overlay.hlsl:UiOverlay
+    icon_overlay.hlsl:IconOverlay
     mask_geometry.hlsl:MaskGeometry
     mask_composite.hlsl:MaskComposite
 )

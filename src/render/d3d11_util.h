@@ -6,50 +6,16 @@
 
 #include <d3d11.h>
 
-#include <memory>
 #include <cstdint>
 
-#include <CommonStates.h>
-
 PLUGIN_NAMESPACE_BEGIN
+[[nodiscard]] ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix);
+void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, std::size_t bytes);
 
-// D3DCompile 薄封装：失败时按 a_log_prefix 记日志并返回 nullptr；正/误 blob 均正确释放。
-[[nodiscard]] ID3DBlob* compile_shader(
-    char const* a_source,
-    char const* a_entry,
-    char const* a_target,
-    char const* a_name,
-    char const* a_log_prefix);
-
-// DYNAMIC 常量缓冲整块上传（Map WRITE_DISCARD）。
-void update_constant_buffer(ID3D11DeviceContext* a_context, ID3D11Buffer* a_buffer, void const* a_data, std::size_t a_bytes);
-
-// DirectXTK CommonStates 封装：UI 覆盖层共用的预乘 alpha / 无深度 / 无剔除状态。
-// 惰性创建且创建后不随设备重建（与既有行为一致：设备对象进程级复用）。
-// 注意：mask 管线不能复用这里的 CullNone 光栅化状态——mask 需要 DepthClipEnable=FALSE。
-class OverlayStates
-{
-public:
-    void ensure(ID3D11Device* a_device);
-
-    [[nodiscard]] bool ready() const { return m_states != nullptr; }
-    [[nodiscard]] ID3D11BlendState* alpha_blend() const { return m_states->AlphaBlend(); }
-    [[nodiscard]] ID3D11DepthStencilState* depth_none() const { return m_states->DepthNone(); }
-    [[nodiscard]] ID3D11RasterizerState* cull_none() const { return m_states->CullNone(); }
-
-private:
-    std::unique_ptr<DirectX::CommonStates> m_states;
-};
-
-// RAII 捕获/恢复 ImmediateContext 的完整管线状态（OM/RS/IA/VS/PS/CB/SRV/Sampler/视口）。
-// 覆盖层绘制把自有管线绑定包在一段 capture 作用域内，退出后游戏状态原样。
-// 覆盖集刻意不含 PS 常量缓冲槽（消费 pass 各自在全屏绘制前后就地保存/恢复 b0/b1）。
-// Get 系列在引擎默认/隐式状态被绑定时返回 nullptr，Release 前必须判空——
-// 空指针虚调用 Release 即访问违例（且无法被 try/catch 捕获）。
 class D3D11StateCapture
 {
 public:
-    explicit D3D11StateCapture(ID3D11DeviceContext* a_context);
+    explicit D3D11StateCapture(ID3D11DeviceContext* context);
     ~D3D11StateCapture();
 
     D3D11StateCapture(D3D11StateCapture const&) = delete;
@@ -57,9 +23,7 @@ public:
     D3D11StateCapture& operator=(D3D11StateCapture const&) = delete;
     D3D11StateCapture& operator=(D3D11StateCapture&&) = delete;
 
-    // 捕获时刻的 OM 渲染目标（无绑定时不为 nullptr，调用方判空）。
     [[nodiscard]] ID3D11RenderTargetView* render_target() const { return m_render_target; }
-
 private:
     ID3D11DeviceContext* m_ref_context = nullptr;
 

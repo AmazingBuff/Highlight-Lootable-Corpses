@@ -8,16 +8,13 @@
 #include "d3d11_util.h"
 #include "outline_mask.h"
 #include "present_hook.h"
-#include "screen_projector.h"
-#include "ui_overlay.h"
 #include "render_util.h"
+#include "icon/icon_overlay.h"
 
 #include "config/config.h"
 #include "input/pulse_highlight.h"
 #include "search/corpse_finder.h"
 #include "search/searched_corpses.h"
-
-#include <RE/Skyrim.h>
 
 #include <algorithm>
 #include <atomic>
@@ -26,29 +23,49 @@
 #include <limits>
 #include <mutex>
 
+#include <CommonStates.h>
+
 PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    // icon 模式的实心小圆：半径固定像素值，不做距离缩放。
-    constexpr float Icon_Radius = 10.0f;
     constexpr float Hold_Fraction = 0.10f;
 
-    float pulse_alpha(std::uint32_t a_elapsed_ms, std::uint32_t a_duration_ms)
+    float pulse_alpha(std::uint32_t elapsed_ms, std::uint32_t duration_ms)
     {
-        if (a_duration_ms == 0 || a_elapsed_ms >= a_duration_ms)
+        if (duration_ms == 0 || elapsed_ms >= duration_ms)
             return 0.0f;
 
-        float const progress = static_cast<float>(a_elapsed_ms) / static_cast<float>(a_duration_ms);
+        float const progress = static_cast<float>(elapsed_ms) / static_cast<float>(duration_ms);
         return progress <= Hold_Fraction ? 1.0f : std::clamp(1.0f - (progress - Hold_Fraction) / (1.0f - Hold_Fraction), 0.0f, 1.0f);
     }
 
-    float corpse_alpha(Config const& a_cfg, float a_distance, float a_alpha)
+    float corpse_alpha(Config const& cfg, float distance, float alpha)
     {
-        float const fade_range = std::max(a_cfg.max_distance - a_cfg.fade_start_distance, 1.0f);
-        float const f = a_distance <= a_cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((a_distance - a_cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
-        float const fade = std::pow(f, a_cfg.fade_power);
-        return std::clamp(a_cfg.min_opacity + fade * a_alpha * (1.0f - a_cfg.min_opacity), a_cfg.min_opacity, 1.0f);
+        float const fade_range = std::max(cfg.max_distance - cfg.fade_start_distance, 1.0f);
+        float const f = distance <= cfg.fade_start_distance ? 1.0f : 1.0f - std::clamp((distance - cfg.fade_start_distance) / fade_range, 0.0f, 1.0f);
+        float const fade = std::pow(f, cfg.fade_power);
+        return std::clamp(cfg.min_opacity + fade * alpha * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
+    }
+
+    RE::BSGraphics::ViewData const* update_view_data(RE::NiCamera* camera)
+    {
+        RE::BSGraphics::ViewData const* view_data = nullptr;
+        if (RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton())
+        {
+            RE::BSGraphics::State::RUNTIME_DATA& state_rt = state->GetRuntimeData();
+            for (RE::BSGraphics::CameraStateData const& cam_data : state_rt.cameraDataCacheA)
+            {
+                if (cam_data.referenceCamera == camera)
+                {
+                    view_data = std::addressof(cam_data.GetCameraStateRuntimeData().camViewData);
+                    break;
+                }
+            }
+            if (!view_data && !state_rt.cameraDataCacheA.empty())
+                view_data = std::addressof(state_rt.cameraDataCacheA.front().GetCameraStateRuntimeData().camViewData);
+        }
+        return view_data;
     }
 
     // ---------------------------------------------------------------------------
@@ -65,7 +82,7 @@ namespace
             return s_instance;
         }
 
-        void on_present(IDXGISwapChain* a_swap_chain)
+        void on_present(IDXGISwapChain* swap_chain)
         {
             std::lock_guard<std::mutex> const draw_lock(m_draw_mutex);
 
@@ -90,15 +107,13 @@ namespace
                 if (frame != 0)
                     m_last_drawn_frame = frame;
 
-                draw_esp(a_swap_chain, device, context);
+                draw(swap_chain, device, context);
             }
         }
 
     private:
-        OverlayDirector() : m_scan_in_flight(false), m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max()) {}
+        OverlayDirector() : m_scan_in_flight(false), m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max()), m_ready(false) {}
 
-        // 定时派发尸体扫描任务到游戏线程；在途守卫保证同一时刻最多一个扫描任务
-        // 排队或执行中，避免扫描堆积（exchange 置位成功才派发）。
         void schedule_scan()
         {
             std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
@@ -114,18 +129,22 @@ namespace
             }
         }
 
-        void draw_esp(IDXGISwapChain* a_swap_chain, ID3D11Device* a_device, ID3D11DeviceContext* a_context)
+        void draw(IDXGISwapChain* swap_chain, ID3D11Device* device, ID3D11DeviceContext* context)
         {
-            if (!m_back_buffer.ensure(a_swap_chain, a_device))
+            if (!m_ready)
+                refresh(swap_chain, device);
+
+            if (!update_back_buffer(swap_chain, device))
                 return;
 
-            m_states.ensure(a_device);
-            m_ui.ensure(a_device);
-            if (!m_states.ready() || !m_ui.ready())
+            D3D11_TEXTURE2D_DESC desc{};
+            m_back_buffer->GetDesc(&desc);
+            
+            if (!m_states || !m_icon_overlay.ready())
                 return;
 
-            float w = static_cast<float>(m_back_buffer.width());
-            float h = static_cast<float>(m_back_buffer.height());
+            float w = static_cast<float>(desc.Width);
+            float h = static_cast<float>(desc.Height);
             if (w <= 0.0f || h <= 0.0f)
             {
                 RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
@@ -135,12 +154,11 @@ namespace
             if (w <= 0.0f || h <= 0.0f)
                 return;
 
-            D3D11StateCapture const capture(a_context);
-            ID3D11RenderTargetView* back_rtv = m_back_buffer.rtv();
-            a_context->OMSetRenderTargets(1, &back_rtv, nullptr);
-            a_context->OMSetBlendState(m_states.alpha_blend(), nullptr, 0xFFFFFFFF);
-            a_context->OMSetDepthStencilState(m_states.depth_none(), 0);
-            a_context->RSSetState(m_states.cull_none());
+            D3D11StateCapture const capture(context);
+            context->OMSetRenderTargets(1, &m_render_target, nullptr);
+            context->OMSetBlendState(m_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
+            context->OMSetDepthStencilState(m_states->DepthNone(), 0);
+            context->RSSetState(m_states->CullNone());
 
             Config const& cfg = Setting::get_config();
 
@@ -155,21 +173,25 @@ namespace
                 float const pulse = pulse_active ? pulse_alpha(PulseHighlight::elapsed_ms(), PulseHighlight::duration_ms()) : 1.0f;
                 if (pulse > 0.f && !corpses.empty())
                 {
-                    m_projector.refresh();
+                    RE::NiCamera* camera = RE::Main::WorldRootCamera();
+                    RE::BSGraphics::ViewData const* view_data = update_view_data(camera);
+
                     Color color;
                     color.decode(cfg.outline_color);
                     if (cfg.display_mode == Config::DisplayMode::e_icon)
                     {
-                        m_ui.begin_frame(w, h);
+                        m_icon_overlay.begin_frame(w, h);
                         for (CorpseScan::CorpseInfo const& corpse : corpses)
                         {
                             float px = 0.0f, py = 0.0f, d = 0.0f;
-                            if (!m_projector.world_to_screen(corpse.anchor, w, h, px, py, d))
+                            if (!world_to_screen(camera, view_data, corpse.anchor, w, h, px, py, d))
                                 continue;
 
                             float const alpha = pulse * corpse_alpha(cfg, corpse.distance, color.a());
-                            m_ui.add_circle(px, py, Icon_Radius, { color.r(), color.g(), color.b(), alpha });
+                            m_icon_overlay.add_circle(px, py, static_cast<float>(cfg.icon_radius), { color.r(), color.g(), color.b(), alpha });
                         }
+                        m_icon_overlay.draw(context, m_render_target, m_states);
+                        m_icon_overlay.end_frame();
                     }
                     else
                     {
@@ -184,14 +206,87 @@ namespace
                             }
                         }
                         OutlineMask::set_targets(mask_targets);
-                        OutlineMask::render(a_device, a_context, m_projector.camera(), m_back_buffer.width(), m_back_buffer.height());
+                        OutlineMask::render(device, context, camera, desc.Width, desc.Height);
                     }
                 }
             }
-
-            m_ui.flush(a_context, m_back_buffer.rtv(), m_states);
         }
 
+        void refresh(IDXGISwapChain* swap_chain, ID3D11Device* device)
+        {
+            m_states = std::make_shared<DirectX::DX11::CommonStates>(device);
+            m_icon_overlay.init(device);
+
+            ID3D11Texture2D* buffer = nullptr;
+            HRESULT const hr = swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
+            if (FAILED(hr) || !buffer)
+                return;
+
+            if (buffer == m_back_buffer)
+            {
+                buffer->Release();
+                m_ready = true;
+                return;
+            }
+
+            if (m_render_target)
+            {
+                m_render_target->Release();
+                m_render_target = nullptr;
+            }
+            if (m_back_buffer)
+            {
+                m_back_buffer->Release();
+                m_back_buffer = nullptr;
+            }
+
+            m_back_buffer = buffer;
+            HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
+            if (FAILED(rtv_hr) || !m_render_target)
+            {
+                logger::error("Failed to create backbuffer RTV: {:X}", static_cast<unsigned int>(rtv_hr));
+                return;
+            }
+
+            m_ready = true;
+        }
+
+        bool update_back_buffer(IDXGISwapChain* swap_chain, ID3D11Device* device)
+        {
+            ID3D11Texture2D* buffer = nullptr;
+            HRESULT const hr = swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
+            if (FAILED(hr) || !buffer)
+                return false;
+
+            if (buffer == m_back_buffer)
+            {
+                buffer->Release();
+                return true;
+            }
+
+            if (m_render_target)
+            {
+                m_render_target->Release();
+                m_render_target = nullptr;
+            }
+            if (m_back_buffer)
+            {
+                m_back_buffer->Release();
+                m_back_buffer = nullptr;
+            }
+
+            m_back_buffer = buffer;
+
+            HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
+            if (FAILED(rtv_hr) || !m_render_target)
+            {
+                logger::error("Failed to create backbuffer RTV: {:X}", static_cast<unsigned int>(rtv_hr));
+                return false;
+            }
+            return true;
+        }
+
+    private:
         // ---- 扫描调度（渲染线程计时，游戏线程执行）----
         std::chrono::steady_clock::time_point m_last_scan;
         std::atomic<bool> m_scan_in_flight;
@@ -199,15 +294,17 @@ namespace
         uint32_t m_last_drawn_frame;
         std::mutex m_draw_mutex;
 
-        BackBufferTarget m_back_buffer;
-        OverlayStates m_states;
-        UiOverlay m_ui;
-        ScreenProjector m_projector;
+        ID3D11RenderTargetView* m_render_target;
+        ID3D11Texture2D* m_back_buffer;
+        std::shared_ptr<DirectX::DX11::CommonStates> m_states;
+        IconOverlay m_icon_overlay;
+        
+        bool m_ready;
     };
 
-    void STDMETHODCALLTYPE present_callback(IDXGISwapChain* a_swap_chain)
+    void STDMETHODCALLTYPE present_callback(IDXGISwapChain* swap_chain)
     {
-        OverlayDirector::instance().on_present(a_swap_chain);
+        OverlayDirector::instance().on_present(swap_chain);
     }
 }
 

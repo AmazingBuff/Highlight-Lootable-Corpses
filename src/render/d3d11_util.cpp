@@ -10,21 +10,21 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-ID3DBlob* compile_shader(char const* a_source, char const* a_entry, char const* a_target, char const* a_name, char const* a_log_prefix)
+ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix)
 {
-    if (!a_source || !a_entry || !a_target)
+    if (!source || !entry || !target)
         return nullptr;
 
     ID3DBlob* blob = nullptr;
     ID3DBlob* err = nullptr;
-    HRESULT const hr = D3DCompile(a_source, std::strlen(a_source), nullptr, nullptr, nullptr, a_entry, a_target, 0, 0, &blob, &err);
+    HRESULT const hr = D3DCompile(source, std::strlen(source), nullptr, nullptr, nullptr, entry, target, 0, 0, &blob, &err);
     if (FAILED(hr))
     {
         logger::error(
             "{} shader compile failed [{} {}] ({:X}): {}",
-            a_log_prefix ? a_log_prefix : "?",
-            a_name ? a_name : "?",
-            a_target,
+            log_prefix ? log_prefix : "?",
+            name ? name : "?",
+            target,
             static_cast<unsigned int>(hr),
             err ? static_cast<char const*>(err->GetBufferPointer()) : "no diagnostics");
         if (blob)
@@ -39,22 +39,16 @@ ID3DBlob* compile_shader(char const* a_source, char const* a_entry, char const* 
     return blob;
 }
 
-void update_constant_buffer(ID3D11DeviceContext* a_context, ID3D11Buffer* a_buffer, void const* a_data, std::size_t a_bytes)
+void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, std::size_t bytes)
 {
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(a_context->Map(a_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         return;
-    std::memcpy(mapped.pData, a_data, a_bytes);
-    a_context->Unmap(a_buffer, 0);
+    std::memcpy(mapped.pData, data, bytes);
+    context->Unmap(buffer, 0);
 }
 
-void OverlayStates::ensure(ID3D11Device* a_device)
-{
-    if (!m_states && a_device)
-        m_states = std::make_unique<DirectX::CommonStates>(a_device);
-}
-
-D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* a_context) : m_ref_context(a_context)
+D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* context) : m_ref_context(context)
 {
     m_ref_context->OMGetRenderTargets(1, &m_render_target, &m_depth_stencil);
     m_ref_context->OMGetBlendState(&m_blend, m_blend_factor, &m_sample_mask);

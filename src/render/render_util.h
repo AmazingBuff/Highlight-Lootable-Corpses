@@ -52,4 +52,8 @@ private:
     float m_left, m_right, m_bottom, m_top;
 };
 
+bool project(RE::NiCamera* camera, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);
+
+bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);
+
 PLUGIN_NAMESPACE_END

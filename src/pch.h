@@ -20,6 +20,8 @@ using namespace std::literals;
 
 namespace logger = SKSE::log;
 
+static constexpr uint32_t Max_Corpse_Count = 16;
+
 #define DLLEXPORT __declspec(dllexport)
 
 #include "Plugin.h"

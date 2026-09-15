@@ -40,7 +40,6 @@ static_assert(Alpha_Lut_CB_Bytes == 64 * sizeof(float) * 4);
 //    （1e-7 一致性）：成员 WorldPtToScreenPt3 等价于 clip = W2C_raw·p 的列向量
 //    消费 + /w 归一化，视锥斜率已烘焙在行内（行 0/1 的非单位范数即水平/垂直
 //    NDC 缩放），无需视锥矩阵与端口映射。
-// 刻意不用 BSGraphics::State 的 viewProj——AE 实测有坏值（见 screen_projector.cpp）。
 // ---------------------------------------------------------------------------
 struct MaskMat4
 {
