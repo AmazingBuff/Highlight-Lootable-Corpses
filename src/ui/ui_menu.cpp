@@ -1,6 +1,6 @@
 #include "ui_menu.h"
 #include "config/config.h"
-#include "input/pulse_highlight.h"
+#include "pulse_timer.h"
 #include "search/corpse_finder.h"
 #include "render/render_util.h"
 
@@ -76,9 +76,9 @@ namespace
             Config::HotkeyMode const previous = cfg.hotkey_mode;
             cfg.hotkey_mode = s_hotkey_modes[hk_index];
             if (previous == Config::HotkeyMode::e_constant && cfg.hotkey_mode == Config::HotkeyMode::e_pulse && cfg.enabled)
-                PulseHighlight::trigger(cfg.pulse_duration_ms);
+                PulseTimer::instance().trigger(cfg.pulse_duration_ms);
             else if (previous == Config::HotkeyMode::e_pulse && cfg.hotkey_mode == Config::HotkeyMode::e_constant)
-                PulseHighlight::reset();
+                PulseTimer::instance().reset();
         }
 
         if (cfg.hotkey_mode == Config::HotkeyMode::e_pulse)

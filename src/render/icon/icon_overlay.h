@@ -29,8 +29,7 @@ public:
     IconOverlay() = default;
     ~IconOverlay() = default;
 
-    void init(ID3D11Device* device);
-    [[nodiscard]] bool ready() const;
+    bool init(ID3D11Device* device);
     void begin_frame(float width, float height);
     void add_circle(float center_x, float center_y, float radius_px, DirectX::XMFLOAT4 const& color);
     void add_triangle(float x0, float y0, float x1, float y1, float x2, float y2, DirectX::XMFLOAT4 const& a_color);
@@ -46,8 +45,6 @@ private:
     ID3D11InputLayout* m_input_layout = nullptr;
     ID3D11Buffer* m_vertex_buffer = nullptr;
     bool m_ready = false;
-    bool m_failed = false;
-    bool m_overflow_reported = false;
 
     float m_width = 0.0f;
     float m_height = 0.0f;

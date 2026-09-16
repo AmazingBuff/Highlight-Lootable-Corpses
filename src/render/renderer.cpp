@@ -4,7 +4,6 @@
 
 #include "renderer.h"
 
-#include "back_buffer_target.h"
 #include "d3d11_util.h"
 #include "outline_mask.h"
 #include "present_hook.h"
@@ -12,7 +11,7 @@
 #include "icon/icon_overlay.h"
 
 #include "config/config.h"
-#include "input/pulse_highlight.h"
+#include "../ui/pulse_timer.h"
 #include "search/corpse_finder.h"
 #include "search/searched_corpses.h"
 
@@ -31,12 +30,8 @@ namespace
 {
     constexpr float Hold_Fraction = 0.10f;
 
-    float pulse_alpha(std::uint32_t elapsed_ms, std::uint32_t duration_ms)
+    float pulse_alpha(float progress)
     {
-        if (duration_ms == 0 || elapsed_ms >= duration_ms)
-            return 0.0f;
-
-        float const progress = static_cast<float>(elapsed_ms) / static_cast<float>(duration_ms);
         return progress <= Hold_Fraction ? 1.0f : std::clamp(1.0f - (progress - Hold_Fraction) / (1.0f - Hold_Fraction), 0.0f, 1.0f);
     }
 
@@ -48,7 +43,7 @@ namespace
         return std::clamp(cfg.min_opacity + fade * alpha * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
     }
 
-    RE::BSGraphics::ViewData const* update_view_data(RE::NiCamera* camera)
+    RE::BSGraphics::ViewData const* update_view_data(const RE::NiCamera* camera)
     {
         RE::BSGraphics::ViewData const* view_data = nullptr;
         if (RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton())
@@ -68,11 +63,6 @@ namespace
         return view_data;
     }
 
-    // ---------------------------------------------------------------------------
-    // 渲染协调器（composition root）：扫描调度、帧去重、状态管理与模式派发。
-    // 绘制互斥：日志实测 on_present 会被多个线程并发进入（Present hook 触发线程
-    // 与游戏渲染线程交替），整个绘制段串行化。
-    // ---------------------------------------------------------------------------
     class OverlayDirector
     {
     public:
@@ -112,7 +102,12 @@ namespace
         }
 
     private:
-        OverlayDirector() : m_scan_in_flight(false), m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max()), m_ready(false) {}
+        OverlayDirector()
+            : m_scan_in_flight(false)
+            , m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max())
+            , m_back_buffer(nullptr)
+            , m_render_target(nullptr)
+            , m_ready(false) {}
 
         void schedule_scan()
         {
@@ -131,17 +126,14 @@ namespace
 
         void draw(IDXGISwapChain* swap_chain, ID3D11Device* device, ID3D11DeviceContext* context)
         {
-            if (!m_ready)
-                refresh(swap_chain, device);
+            if (!init(swap_chain, device))
+                return;
 
             if (!update_back_buffer(swap_chain, device))
                 return;
 
             D3D11_TEXTURE2D_DESC desc{};
             m_back_buffer->GetDesc(&desc);
-            
-            if (!m_states || !m_icon_overlay.ready())
-                return;
 
             float w = static_cast<float>(desc.Width);
             float h = static_cast<float>(desc.Height);
@@ -154,23 +146,17 @@ namespace
             if (w <= 0.0f || h <= 0.0f)
                 return;
 
-            D3D11StateCapture const capture(context);
-            context->OMSetRenderTargets(1, &m_render_target, nullptr);
-            context->OMSetBlendState(m_states->AlphaBlend(), nullptr, 0xFFFFFFFF);
-            context->OMSetDepthStencilState(m_states->DepthNone(), 0);
-            context->RSSetState(m_states->CullNone());
-
             Config const& cfg = Setting::get_config();
 
             bool const pulse_mode = cfg.hotkey_mode == Config::HotkeyMode::e_pulse;
-            bool const pulse_active = pulse_mode && cfg.enabled && PulseHighlight::active();
+            bool const pulse_active = pulse_mode && cfg.enabled && PulseTimer::instance().active();
             if (pulse_mode && !pulse_active)
                 return;
 
             if (pulse_active || cfg.enabled)
             {
                 std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
-                float const pulse = pulse_active ? pulse_alpha(PulseHighlight::elapsed_ms(), PulseHighlight::duration_ms()) : 1.0f;
+                float const pulse = pulse_active ? pulse_alpha(PulseTimer::instance().progress()) : 1.0f;
                 if (pulse > 0.f && !corpses.empty())
                 {
                     RE::NiCamera* camera = RE::Main::WorldRootCamera();
@@ -212,21 +198,25 @@ namespace
             }
         }
 
-        void refresh(IDXGISwapChain* swap_chain, ID3D11Device* device)
+        bool init(IDXGISwapChain* swap_chain, ID3D11Device* device)
         {
+            if (m_ready)
+                return true;
+
             m_states = std::make_shared<DirectX::DX11::CommonStates>(device);
-            m_icon_overlay.init(device);
+            if (!m_states || !m_icon_overlay.init(device))
+                return false;
 
             ID3D11Texture2D* buffer = nullptr;
             HRESULT const hr = swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
             if (FAILED(hr) || !buffer)
-                return;
+                return false;
 
             if (buffer == m_back_buffer)
             {
                 buffer->Release();
                 m_ready = true;
-                return;
+                return false;
             }
 
             if (m_render_target)
@@ -245,10 +235,11 @@ namespace
             if (FAILED(rtv_hr) || !m_render_target)
             {
                 logger::error("Failed to create backbuffer RTV: {:X}", static_cast<unsigned int>(rtv_hr));
-                return;
+                return false;
             }
 
             m_ready = true;
+            return m_ready;
         }
 
         bool update_back_buffer(IDXGISwapChain* swap_chain, ID3D11Device* device)
@@ -287,15 +278,15 @@ namespace
         }
 
     private:
-        // ---- 扫描调度（渲染线程计时，游戏线程执行）----
         std::chrono::steady_clock::time_point m_last_scan;
         std::atomic<bool> m_scan_in_flight;
 
         uint32_t m_last_drawn_frame;
         std::mutex m_draw_mutex;
 
-        ID3D11RenderTargetView* m_render_target;
         ID3D11Texture2D* m_back_buffer;
+        ID3D11RenderTargetView* m_render_target;
+
         std::shared_ptr<DirectX::DX11::CommonStates> m_states;
         IconOverlay m_icon_overlay;
         

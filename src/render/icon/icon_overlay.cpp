@@ -23,15 +23,10 @@ namespace
     constexpr uint32_t Max_Vertex_Count = 3 * Circle_Segments * Max_Corpse_Count;
 }
 
-void IconOverlay::init(ID3D11Device* device)
+bool IconOverlay::init(ID3D11Device* device)
 {
-    if (m_ready || m_failed || !device)
-        return;
-    m_ready = create_pipeline(device);
-}
-
-bool IconOverlay::ready() const
-{
+    if (!m_ready)
+        m_ready = create_pipeline(device);
     return m_ready;
 }
 
@@ -96,7 +91,6 @@ bool IconOverlay::create_pipeline(ID3D11Device* device)
         if (ps_blob)
             ps_blob->Release();
 
-        m_failed = true;
         return false;
     }
 
@@ -141,7 +135,6 @@ bool IconOverlay::create_pipeline(ID3D11Device* device)
         return true;
     }
 
-    m_failed = true;
     release_pipeline();
     logger::error("Icon overlay pipeline creation failed, ESP rendering disabled");
     return false;
@@ -187,6 +180,9 @@ void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* tar
         return;
     }
 
+    D3D11StateCapture capture(context);
+    capture.capture();
+
     D3D11_MAPPED_SUBRESOURCE mapped = {};
     if (FAILED(context->Map(m_vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
     {
@@ -208,6 +204,8 @@ void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* tar
     context->VSSetShader(m_vertex_shader, nullptr, 0);
     context->PSSetShader(m_pixel_shader, nullptr, 0);
     context->Draw(static_cast<UINT>(count), 0);
+
+    capture.restore();
 }
 
 void IconOverlay::end_frame()

@@ -29,9 +29,9 @@ namespace
     SilhouettePass g_silhouette_pass;
     OutlinePass g_outline_pass;
 
-    void render_impl(ID3D11Device* a_device, ID3D11DeviceContext* a_context, RE::NiCamera* a_camera, std::uint32_t a_width, std::uint32_t a_height)
+    void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera, std::uint32_t width, std::uint32_t height)
     {
-        if (!a_device || !a_context || !a_camera || a_width == 0 || a_height == 0)
+        if (!device || !context || !camera || width == 0 || height == 0)
             return;
 
         std::vector<MaskTarget> targets;
@@ -44,16 +44,16 @@ namespace
         {
             // 无目标：清掉旧 mask，避免消费 pass 读到陈旧内容
             if (g_mask_rt.rtv())
-                a_context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
+                context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
             return;
         }
 
         // ---- RT 重建（尺寸或设备变化）时：InputLayout 缓存一并清空（与原
         // release_mask_target 行为一致）；设备变化时管线对象全部重建（与原
         // release_pipeline 行为一致）。----
-        if (!g_mask_rt.matches(a_device, a_width, a_height))
+        if (!g_mask_rt.matches(device, width, height))
         {
-            if (g_mask_rt.device() && g_mask_rt.device() != a_device)
+            if (g_mask_rt.device() && g_mask_rt.device() != device)
             {
                 g_geometry_pass.release();
                 g_silhouette_pass.release();
@@ -62,41 +62,42 @@ namespace
             // InputLayout 缓存（设备对象）随 RT 重建一并清空（原 release_mask_target 行为）
             g_geometry_pass.release_layouts();
         }
-        if (!g_mask_rt.ensure(a_device, a_width, a_height) || !g_geometry_pass.ensure(a_device))
+        if (!g_mask_rt.ensure(device, width, height) || !g_geometry_pass.ensure(device))
             return;
 
         // 消费 pass 对象惰性创建（失败只禁对应叠加并一次性 WARN，不影响 mask 渲染；
         // 原实现在 ensure_mask_pipeline 内一次性创建，语义相同）。
-        (void)g_silhouette_pass.ensure(a_device);
-        (void)g_outline_pass.ensure(a_device);
+        (void)g_silhouette_pass.ensure(device);
+        (void)g_outline_pass.ensure(device);
 
         std::vector<MaskDraw> draws;
         collect_mask_draws(targets, draws);
         if (draws.empty())
         {
-            a_context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
+            context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
             return;
         }
 
-        MaskMat4 const view_proj = MaskMat4::from_world_to_cam_raw(a_camera->GetRuntimeData().worldToCam);
-        g_geometry_pass.calibrate_upload_orientation(a_camera, view_proj, draws, a_width, a_height);
+        MaskMat4 const view_proj = MaskMat4::from_world_to_cam_raw(camera->GetRuntimeData().worldToCam);
+        g_geometry_pass.calibrate_upload_orientation(camera, view_proj, draws, width, height);
 
         // ---- 保存游戏渲染状态（本类触及的完整管线段）----
-        D3D11StateCapture const capture(a_context);
+        D3D11StateCapture capture(context);
+        capture.capture();
 
         // ---- mask pass：一次清屏，逐 draw 绘制全部目标；每个 draw 经 per-draw CB
         // 携带尸体索引，mask PS 写入 B 通道（MAX 混合在重叠区取较高索引）----
         ID3D11RenderTargetView* mask_rtv = g_mask_rt.rtv();
-        a_context->OMSetRenderTargets(1, &mask_rtv, nullptr);
-        a_context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
-        a_context->OMSetBlendState(g_geometry_pass.mask_write_blend(), nullptr, 0xFFFFFFFF);
-        a_context->OMSetDepthStencilState(g_geometry_pass.depth_none(), 0);
-        a_context->RSSetState(g_geometry_pass.cull_none());
+        context->OMSetRenderTargets(1, &mask_rtv, nullptr);
+        context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
+        context->OMSetBlendState(g_geometry_pass.mask_write_blend(), nullptr, 0xFFFFFFFF);
+        context->OMSetDepthStencilState(g_geometry_pass.depth_none(), 0);
+        context->RSSetState(g_geometry_pass.cull_none());
 
         D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(g_mask_rt.width()), static_cast<float>(g_mask_rt.height()), 0.0f, 1.0f };
-        a_context->RSSetViewports(1, &vp);
+        context->RSSetViewports(1, &vp);
 
-        g_geometry_pass.render(a_device, a_context, view_proj, draws);
+        g_geometry_pass.render(device, context, view_proj, draws);
 
         // ---- 显示模式门控：silhouette=内部填充叠加（draw_silhouette）、outline=外
         // 描边带（draw_outline），各只调用一次；icon 模式两 pass 均不画（防御：正常
@@ -117,14 +118,14 @@ namespace
         bool drew_consumer = false;
         if (cfg.display_mode == Config::DisplayMode::e_silhouette && g_silhouette_pass.ready())
         {
-            g_silhouette_pass.update_alpha_lut(a_context, alpha_lut);
-            drew_consumer = g_silhouette_pass.draw(a_context, overlay_target, g_mask_rt.srv(), a_width, a_height, color,
+            g_silhouette_pass.update_alpha_lut(context, alpha_lut);
+            drew_consumer = g_silhouette_pass.draw(context, overlay_target, g_mask_rt.srv(), width, height, color,
                 g_geometry_pass.depth_none(), g_geometry_pass.cull_none());
         }
         else if (cfg.display_mode == Config::DisplayMode::e_outline && g_outline_pass.ready())
         {
-            g_outline_pass.update_alpha_lut(a_context, alpha_lut);
-            drew_consumer = g_outline_pass.draw(a_context, overlay_target, g_mask_rt.srv(), a_width, a_height, color, cfg.outline_thickness,
+            g_outline_pass.update_alpha_lut(context, alpha_lut);
+            drew_consumer = g_outline_pass.draw(context, overlay_target, g_mask_rt.srv(), width, height, color, cfg.outline_thickness,
                 g_geometry_pass.depth_none(), g_geometry_pass.cull_none());
         }
         static bool s_consumer_skip_logged = false;
@@ -135,14 +136,16 @@ namespace
                 "outline mask: consumer pass not drawn: mode={} silhouette_ready={} outline_ready={} (targets={})",
                 static_cast<int>(cfg.display_mode), g_silhouette_pass.ready(), g_outline_pass.ready(), targets.size());
         }
+
+        capture.restore();
     }
 }
 
-void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& a_targets)
+void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
 {
     std::vector<MaskTarget> kept;
-    kept.reserve(a_targets.size());
-    for (OutlineMaskTarget const& target : a_targets)
+    kept.reserve(targets.size());
+    for (OutlineMaskTarget const& target : targets)
     {
         if (target.ref)
             kept.push_back(MaskTarget{ RE::NiPointer<RE::TESObjectREFR>(target.ref), target.opacity });  // NiPointer 构造即保活
@@ -152,12 +155,12 @@ void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& a_targets)
     g_targets = std::move(kept);
 }
 
-void OutlineMask::render(ID3D11Device* a_device, ID3D11DeviceContext* a_context, RE::NiCamera* a_camera, std::uint32_t a_width, std::uint32_t a_height)
+void OutlineMask::render(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera, std::uint32_t width, std::uint32_t height)
 {
     // Present 回调边界内禁止异常外泄：任何未预期失败记日志并跳过本帧
     try
     {
-        render_impl(a_device, a_context, a_camera, a_width, a_height);
+        render_impl(device, context, camera, width, height);
     }
     catch (std::exception const& e)
     {
