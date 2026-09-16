@@ -26,9 +26,10 @@ namespace
     Mask::SilhouettePass g_silhouette_pass;
     Mask::OutlinePass g_outline_pass;
 
-    void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera, std::uint32_t width, std::uint32_t height)
+    void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
+        ID3D11RenderTargetView* overlay_target, std::uint32_t width, std::uint32_t height)
     {
-        if (!device || !context || !camera || width == 0 || height == 0)
+        if (!device || !context || !camera || !overlay_target || width == 0 || height == 0)
             return;
 
         const std::vector<Mask::MaskTarget> targets = g_targets;
@@ -100,8 +101,8 @@ namespace
 
         // ---- 显示模式门控：silhouette=内部填充叠加（draw_silhouette）、outline=外
         // 描边带（draw_outline），各只调用一次；icon 模式两 pass 均不画（防御：正常
-        // 路径 renderer 在 icon 模式不会调用本类）。叠加目标是 Present 时刻的渲染
-        // 目标。----
+        // 路径 renderer 在 icon 模式不会调用本类）。叠加目标是调用方传入的后备缓冲
+        // RTV（契约见头文件），与 icon 路径显式绑定 m_render_target 一致。----
         // per-frame alpha LUT（与目标快照同序，其余槽位 0），消费 PS 以 mask B 通道
         // 的尸体索引查表——单次消费无复合，重叠像素取较高索引尸体的 alpha（常量），
         // 每具尸体各部位颜色一致。
@@ -113,7 +114,6 @@ namespace
         Config const& cfg = Setting::get_config();
         Color color;
         color.decode(cfg.outline_color);
-        ID3D11RenderTargetView* overlay_target = capture.render_target();
         bool drew_consumer = false;
         if (cfg.display_mode == Config::DisplayMode::e_silhouette && g_silhouette_pass.ready())
         {
@@ -153,12 +153,13 @@ void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
     g_targets = std::move(kept);
 }
 
-void OutlineMask::render(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera, std::uint32_t width, std::uint32_t height)
+void OutlineMask::render(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
+    ID3D11RenderTargetView* overlay_target, std::uint32_t width, std::uint32_t height)
 {
     // Present 回调边界内禁止异常外泄：任何未预期失败记日志并跳过本帧
     try
     {
-        render_impl(device, context, camera, width, height);
+        render_impl(device, context, camera, overlay_target, width, height);
     }
     catch (std::exception const& e)
     {

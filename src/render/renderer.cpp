@@ -192,7 +192,7 @@ namespace
                             }
                         }
                         OutlineMask::set_targets(mask_targets);
-                        OutlineMask::render(device, context, camera, desc.Width, desc.Height);
+                        OutlineMask::render(device, context, camera, m_render_target, desc.Width, desc.Height);
                     }
                 }
             }

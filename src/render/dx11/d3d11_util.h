@@ -25,7 +25,6 @@ public:
 
     void capture();
     void restore() const;
-    [[nodiscard]] ID3D11RenderTargetView* render_target() const { return m_render_target; }
 private:
     ID3D11DeviceContext* m_ref_context = nullptr;
 
