@@ -4,6 +4,8 @@
 # Agent
 .dsh/
 .zcode/
+.codex/
+.lcw/
 
 # IDE
 /.vs/

@@ -5,48 +5,38 @@
 #pragma once
 
 #include <d3d11.h>
+#include <DirectXMath.h>
 
 #include <cstdint>
 #include <vector>
 
-#include "render_util.h"
+#include "render/render_util.h"
 #include "mask_types.h"
 
-namespace RE
-{
-	class NiCamera;
-}
+MASK_NAMESPACE_BEGIN
 
-PLUGIN_NAMESPACE_BEGIN
-
-// mask RT 清屏色
-inline constexpr float Mask_Clear_Color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-// mask 离屏渲染目标：与后备缓冲同尺寸（RGBA8_UNORM，无深度缓冲——mask 天然穿墙）。
-// 设备或尺寸变化时整体重建；对象生存期由门面管理（设备变化时先释放依附旧设备的管线）。
-class MaskRenderTarget
+class RenderTarget
 {
 public:
-    // 确保纹理/RTV/SRV 与 (device, width, height) 匹配；失败返回 false。
-    bool ensure(ID3D11Device* a_device, std::uint32_t a_width, std::uint32_t a_height);
+    RenderTarget();
+    ~RenderTarget();
+
+    bool init(ID3D11Device* device, uint32_t width, uint32_t height);
     void release();
 
-    [[nodiscard]] bool matches(ID3D11Device* a_device, std::uint32_t a_width, std::uint32_t a_height) const;
-    [[nodiscard]] ID3D11Device* device() const { return m_device; }
+    [[nodiscard]] bool matches(ID3D11Device* device, uint32_t width, uint32_t height) const;
+    [[nodiscard]] ID3D11Device* device() const { return m_ref_device; }
     [[nodiscard]] ID3D11RenderTargetView* rtv() const { return m_rtv; }
     [[nodiscard]] ID3D11ShaderResourceView* srv() const { return m_srv; }
     [[nodiscard]] std::uint32_t width() const { return m_width; }
     [[nodiscard]] std::uint32_t height() const { return m_height; }
-
 private:
-    void release_views();
-
-    ID3D11Device* m_device = nullptr;  // 仅用于设备变化比较，不持引用
-    ID3D11Texture2D* m_texture = nullptr;
-    ID3D11RenderTargetView* m_rtv = nullptr;
-    ID3D11ShaderResourceView* m_srv = nullptr;
-    std::uint32_t m_width = 0;
-    std::uint32_t m_height = 0;
+    ID3D11Device* m_ref_device;
+    ID3D11Texture2D* m_texture;
+    ID3D11RenderTargetView* m_rtv;
+    ID3D11ShaderResourceView* m_srv;
+    uint32_t m_width;
+    uint32_t m_height;
 };
 
 // ---------------------------------------------------------------------------
@@ -58,7 +48,7 @@ private:
 class MaskGeometryPass
 {
 public:
-    bool ensure(ID3D11Device* a_device);
+    bool init(ID3D11Device* device);
     void release();
     // InputLayout 缓存随 mask RT 重建而清空（原 release_mask_target 行为）。
     void release_layouts();
@@ -72,20 +62,20 @@ public:
     // 转置字节序）：锚点 = 首记录节点的世界原点，经组合矩阵投影与引擎
     // WorldPtToScreenPt3 像素比对。
     void calibrate_upload_orientation(
-        RE::NiCamera* a_camera,
-        MaskMat4 const& a_view_proj,
-        std::vector<MaskDraw> const& a_draws,
-        std::uint32_t a_width,
-        std::uint32_t a_height);
+        RE::NiCamera* camera,
+        DirectX::XMFLOAT4X4 const& view_proj,
+        std::vector<MaskDraw> const& draws,
+        std::uint32_t width,
+        std::uint32_t height);
 
     // 绘制全部 draw（调色板蒙皮在此构建）。
-    void render(ID3D11Device* a_device, ID3D11DeviceContext* a_context, MaskMat4 const& a_view_proj, std::vector<MaskDraw> const& a_draws);
+    void render(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::vector<MaskDraw> const& draws);
 
 private:
-    bool create_pipeline(ID3D11Device* a_device);
+    bool create_pipeline(ID3D11Device* device);
     ID3D11InputLayout* get_layout(
-        ID3D11Device* a_device, bool a_skinned, RE::BSGraphics::VertexDesc const& a_desc, std::uint32_t a_stride,
-        DXGI_FORMAT a_position_format, std::uint32_t a_position_offset, MaskSkinLayout const* a_skin_layout);
+        ID3D11Device* device, bool skinned, RE::BSGraphics::VertexDesc const& desc, std::uint32_t stride,
+        DXGI_FORMAT position_format, std::uint32_t position_offset, MaskSkinLayout const* skin_layout);
 
     ID3D11VertexShader* m_vs_static = nullptr;
     ID3D11VertexShader* m_vs_skinned = nullptr;
@@ -115,10 +105,10 @@ public:
     void release();
 
     // per-frame alpha LUT（256 项，与目标快照同序）整块上传（PS b1）
-    void update_alpha_lut(ID3D11DeviceContext* a_context, float const* a_lut);
+    void update_alpha_lut(ID3D11DeviceContext* context, float const* lut);
 
 protected:
-    bool ensure_common(ID3D11Device* a_device);
+    bool ensure_common(ID3D11Device* device);
     [[nodiscard]] bool common_ready() const { return m_vertex_shader && m_sampler && m_blend_premul_alpha && m_alpha_lut_cb; }
 
     ID3D11VertexShader* m_vertex_shader = nullptr;
@@ -131,16 +121,16 @@ protected:
 class SilhouettePass final : public FullscreenPass
 {
 public:
-    bool ensure(ID3D11Device* a_device);
+    bool ensure(ID3D11Device* device);
     void release();
 
     [[nodiscard]] bool ready() const { return m_ready; }
 
     // 返回 false 表示管线对象缺失未绘制（正常路径不发生）
     bool draw(
-        ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-        std::uint32_t a_width, std::uint32_t a_height, Color const& a_color,
-        ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none);
+        ID3D11DeviceContext* context, ID3D11RenderTargetView* target, ID3D11ShaderResourceView* mask_srv,
+        std::uint32_t width, std::uint32_t height, Color const& color,
+        ID3D11DepthStencilState* depth_none, ID3D11RasterizerState* cull_none);
 
 private:
     ID3D11PixelShader* m_pixel_shader = nullptr;
@@ -153,17 +143,17 @@ private:
 class OutlinePass final : public FullscreenPass
 {
 public:
-    bool ensure(ID3D11Device* a_device);
+    bool ensure(ID3D11Device* device);
     void release();
 
     [[nodiscard]] bool ready() const { return m_ready; }
 
-    // a_thickness 为 INI 配置的描边厚度（像素），此处 clamp 到 PS 采样预算内。
+    // thickness 为 INI 配置的描边厚度（像素），此处 clamp 到 PS 采样预算内。
     // 返回 false 表示管线对象缺失未绘制（正常路径不发生）。
     bool draw(
-        ID3D11DeviceContext* a_context, ID3D11RenderTargetView* a_target, ID3D11ShaderResourceView* a_mask_srv,
-        std::uint32_t a_width, std::uint32_t a_height, Color const& a_color, int a_thickness,
-        ID3D11DepthStencilState* a_depth_none, ID3D11RasterizerState* a_cull_none);
+        ID3D11DeviceContext* context, ID3D11RenderTargetView* target, ID3D11ShaderResourceView* mask_srv,
+        std::uint32_t width, std::uint32_t height, Color const& color, int thickness,
+        ID3D11DepthStencilState* depth_none, ID3D11RasterizerState* cull_none);
 
 private:
     ID3D11PixelShader* m_pixel_shader = nullptr;
@@ -172,4 +162,4 @@ private:
     bool m_failed = false;  // 创建失败后不再重试（设备变化 release 后重置，允许重建）
 };
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END

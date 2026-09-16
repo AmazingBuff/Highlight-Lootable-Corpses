@@ -9,11 +9,10 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <RE/B/BSGeometry.h>
-#include <RE/N/NiSmartPointer.h>
-#include <RE/N/NiTransform.h>
+#define MASK_NAMESPACE_BEGIN PLUGIN_NAMESPACE_BEGIN namespace Mask {
+#define MASK_NAMESPACE_END PLUGIN_NAMESPACE_END }
 
-PLUGIN_NAMESPACE_BEGIN
+MASK_NAMESPACE_BEGIN
 
 // ---------------------------------------------------------------------------
 // 蒙皮调色板常量缓冲预算（矩阵/draw）；128×64B = 8KB。
@@ -30,77 +29,9 @@ inline constexpr std::size_t Alpha_Lut_Floats = 256;
 inline constexpr std::size_t Alpha_Lut_CB_Bytes = Alpha_Lut_Floats * sizeof(float);
 static_assert(Alpha_Lut_CB_Bytes == 64 * sizeof(float) * 4);
 
-// ---------------------------------------------------------------------------
-// 矩阵工具：行主序 4x4，数学约定（列向量），clip = M · v。
-// 引擎矩阵消费约定由实验实证：
-//  - NiTransform 原样消费（entry[row][col] 直接作为列向量矩阵元素）算得的
-//    世界包围球心与引擎 worldBound.center 完全一致，转置消费偏差明显——
-//    因此 from_transform 不转置；
-//  - worldToCam 原样消费（from_world_to_cam_raw，不转置）——五点解算实证
-//    （1e-7 一致性）：成员 WorldPtToScreenPt3 等价于 clip = W2C_raw·p 的列向量
-//    消费 + /w 归一化，视锥斜率已烘焙在行内（行 0/1 的非单位范数即水平/垂直
-//    NDC 缩放），无需视锥矩阵与端口映射。
-// ---------------------------------------------------------------------------
-struct MaskMat4
-{
-    float m[4][4];
+// mask RT 清屏色
+inline constexpr float Mask_Clear_Color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    static constexpr MaskMat4 identity()
-    {
-        return MaskMat4{ { { 1.0f, 0.0f, 0.0f, 0.0f },
-                           { 0.0f, 1.0f, 0.0f, 0.0f },
-                           { 0.0f, 0.0f, 1.0f, 0.0f },
-                           { 0.0f, 0.0f, 0.0f, 1.0f } } };
-    }
-
-    // NiTransform → 4x4：原样消费 entry[row][col]（不转置）。
-    static MaskMat4 from_transform(RE::NiTransform const& a_transform)
-    {
-        MaskMat4 r = identity();
-        for (int row = 0; row < 3; ++row)
-        {
-            for (int col = 0; col < 3; ++col)
-                r.m[row][col] = a_transform.rotate.entry[row][col] * a_transform.scale;
-            r.m[row][3] = a_transform.translate[row];
-        }
-        return r;
-    }
-
-    // 引擎 worldToCam → MaskMat4：原样行主序拷贝（不转置）。
-    static MaskMat4 from_world_to_cam_raw(float const (&a_src)[4][4])
-    {
-        MaskMat4 r{};
-        for (int row = 0; row < 4; ++row)
-            for (int col = 0; col < 4; ++col)
-                r.m[row][col] = a_src[row][col];
-        return r;
-    }
-
-    MaskMat4 transposed() const
-    {
-        MaskMat4 r{};
-        for (int row = 0; row < 4; ++row)
-            for (int col = 0; col < 4; ++col)
-                r.m[row][col] = m[col][row];
-        return r;
-    }
-
-    MaskMat4 operator*(MaskMat4 const& a_rhs) const  // (A*B)(v) = A(B(v))
-    {
-        MaskMat4 r{};
-        for (int row = 0; row < 4; ++row)
-        {
-            for (int col = 0; col < 4; ++col)
-            {
-                r.m[row][col] = m[row][0] * a_rhs.m[0][col] +
-                                m[row][1] * a_rhs.m[1][col] +
-                                m[row][2] * a_rhs.m[2][col] +
-                                m[row][3] * a_rhs.m[3][col];
-            }
-        }
-        return r;
-    }
-};
 
 // 蒙皮顶点缓冲内的权重/索引布局（自标定结果）
 struct MaskSkinLayout
@@ -147,4 +78,4 @@ struct MaskDraw
     MaskSkinLayout skin_layout{};
 };
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END

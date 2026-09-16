@@ -5,46 +5,37 @@
 #include "outline_mask.h"
 
 #include "config/config.h"
-#include "d3d11_util.h"
+#include "render/dx11/d3d11_util.h"
 #include "mask_geometry.h"
 #include "mask_passes.h"
 
-#include <RE/Skyrim.h>
-
 #include <algorithm>
-#include <mutex>
 
 PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
+
     // ---------------------------------------------------------------------------
     // 门面状态（渲染线程独占；目标列表受互斥锁保护）
     // ---------------------------------------------------------------------------
-    std::mutex g_target_mutex;
-    std::vector<MaskTarget> g_targets;
+    std::vector<Mask::MaskTarget> g_targets;
 
-    MaskRenderTarget g_mask_rt;
-    MaskGeometryPass g_geometry_pass;
-    SilhouettePass g_silhouette_pass;
-    OutlinePass g_outline_pass;
+    Mask::RenderTarget g_mask_rt;
+    Mask::MaskGeometryPass g_geometry_pass;
+    Mask::SilhouettePass g_silhouette_pass;
+    Mask::OutlinePass g_outline_pass;
 
     void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera, std::uint32_t width, std::uint32_t height)
     {
         if (!device || !context || !camera || width == 0 || height == 0)
             return;
 
-        std::vector<MaskTarget> targets;
-        {
-            std::lock_guard<std::mutex> const lock(g_target_mutex);
-            targets = g_targets;
-        }
-
+        const std::vector<Mask::MaskTarget> targets = g_targets;
         if (targets.empty())
         {
-            // 无目标：清掉旧 mask，避免消费 pass 读到陈旧内容
             if (g_mask_rt.rtv())
-                context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
+                context->ClearRenderTargetView(g_mask_rt.rtv(), Mask::Mask_Clear_Color);
             return;
         }
 
@@ -61,8 +52,12 @@ namespace
             }
             // InputLayout 缓存（设备对象）随 RT 重建一并清空（原 release_mask_target 行为）
             g_geometry_pass.release_layouts();
+
+            if (!g_mask_rt.init(device, width, height))
+                return;
         }
-        if (!g_mask_rt.ensure(device, width, height) || !g_geometry_pass.ensure(device))
+
+        if (!g_geometry_pass.init(device))
             return;
 
         // 消费 pass 对象惰性创建（失败只禁对应叠加并一次性 WARN，不影响 mask 渲染；
@@ -70,15 +65,19 @@ namespace
         (void)g_silhouette_pass.ensure(device);
         (void)g_outline_pass.ensure(device);
 
-        std::vector<MaskDraw> draws;
+        std::vector<Mask::MaskDraw> draws;
         collect_mask_draws(targets, draws);
         if (draws.empty())
         {
-            context->ClearRenderTargetView(g_mask_rt.rtv(), Mask_Clear_Color);
+            context->ClearRenderTargetView(g_mask_rt.rtv(), Mask::Mask_Clear_Color);
             return;
         }
 
-        MaskMat4 const view_proj = MaskMat4::from_world_to_cam_raw(camera->GetRuntimeData().worldToCam);
+        DirectX::XMFLOAT4X4 view_proj{};
+        float const (&world_to_cam)[4][4] = camera->GetRuntimeData().worldToCam;
+        for (int row = 0; row < 4; ++row)
+            for (int col = 0; col < 4; ++col)
+                view_proj.m[row][col] = world_to_cam[row][col];
         g_geometry_pass.calibrate_upload_orientation(camera, view_proj, draws, width, height);
 
         // ---- 保存游戏渲染状态（本类触及的完整管线段）----
@@ -89,7 +88,7 @@ namespace
         // 携带尸体索引，mask PS 写入 B 通道（MAX 混合在重叠区取较高索引）----
         ID3D11RenderTargetView* mask_rtv = g_mask_rt.rtv();
         context->OMSetRenderTargets(1, &mask_rtv, nullptr);
-        context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
+        context->ClearRenderTargetView(mask_rtv, Mask::Mask_Clear_Color);
         context->OMSetBlendState(g_geometry_pass.mask_write_blend(), nullptr, 0xFFFFFFFF);
         context->OMSetDepthStencilState(g_geometry_pass.depth_none(), 0);
         context->RSSetState(g_geometry_pass.cull_none());
@@ -106,8 +105,8 @@ namespace
         // per-frame alpha LUT（与目标快照同序，其余槽位 0），消费 PS 以 mask B 通道
         // 的尸体索引查表——单次消费无复合，重叠像素取较高索引尸体的 alpha（常量），
         // 每具尸体各部位颜色一致。
-        float alpha_lut[Alpha_Lut_Floats]{};
-        std::size_t const lut_count = std::min<std::size_t>(targets.size(), Alpha_Lut_Floats);
+        float alpha_lut[Mask::Alpha_Lut_Floats]{};
+        std::size_t const lut_count = std::min<std::size_t>(targets.size(), Mask::Alpha_Lut_Floats);
         for (std::size_t i = 0; i < lut_count; ++i)
             alpha_lut[i] = targets[i].opacity;
 
@@ -143,15 +142,14 @@ namespace
 
 void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
 {
-    std::vector<MaskTarget> kept;
+    std::vector<Mask::MaskTarget> kept;
     kept.reserve(targets.size());
     for (OutlineMaskTarget const& target : targets)
     {
         if (target.ref)
-            kept.push_back(MaskTarget{ RE::NiPointer<RE::TESObjectREFR>(target.ref), target.opacity });  // NiPointer 构造即保活
+            kept.push_back(Mask::MaskTarget{ RE::NiPointer<RE::TESObjectREFR>(target.ref), target.opacity });  // NiPointer 构造即保活
     }
 
-    std::lock_guard<std::mutex> const lock(g_target_mutex);
     g_targets = std::move(kept);
 }
 

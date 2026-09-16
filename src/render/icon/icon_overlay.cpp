@@ -4,7 +4,7 @@
 
 #include "icon_overlay.h"
 
-#include "render/d3d11_util.h"
+#include "../dx11/d3d11_util.h"
 #include "render/shader_sources.h"
 
 #include <algorithm>

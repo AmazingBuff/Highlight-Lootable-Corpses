@@ -15,7 +15,7 @@ namespace RE
 	class NiSkinInstance;
 }
 
-PLUGIN_NAMESPACE_BEGIN
+MASK_NAMESPACE_BEGIN
 
 // 调色板长度 P = min(skinData 骨骼数, skin 世界矩阵数)。顶点骨骼索引是 skin 骨骼
 // 数组的**全局下标**，故调色板按全局下标空间构建，P 为其有效长度。
@@ -32,4 +32,4 @@ void log_skinned_skip_once(bool a_warn, char const* a_node_name, std::string_vie
 // 最后一个索引。
 void collect_mask_draws(std::vector<MaskTarget> const& a_targets, std::vector<MaskDraw>& a_draws);
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END

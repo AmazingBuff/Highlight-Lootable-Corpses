@@ -4,8 +4,8 @@
 
 #include "renderer.h"
 
-#include "d3d11_util.h"
-#include "outline_mask.h"
+#include "dx11/d3d11_util.h"
+#include "mask/outline_mask.h"
 #include "present_hook.h"
 #include "render_util.h"
 #include "icon/icon_overlay.h"

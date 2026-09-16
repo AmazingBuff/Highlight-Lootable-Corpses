@@ -7,15 +7,13 @@
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
 
-#include <RE/Skyrim.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_set>
 
-PLUGIN_NAMESPACE_BEGIN
+MASK_NAMESPACE_BEGIN
 
 void log_skinned_skip_once(bool a_warn, char const* a_node_name, std::string_view a_reason, std::string_view a_details);
 
@@ -138,14 +136,15 @@ namespace
         return std::isfinite(a_p.x) && std::isfinite(a_p.y) && std::isfinite(a_p.z);
     }
 
-    // MaskMat4（世界变换）变换 3D 点：列向量消费，含平移（约定见 MaskMat4 注释）
-    RE::NiPoint3 transform_point(MaskMat4 const& a_m, RE::NiPoint3 const& a_p)
+    // XMFLOAT4X4（世界变换）变换 3D 点：列向量消费，含平移（约定见 mask_types.h 矩阵工具注释）。
+    // XMVector3Transform 求的是行向量积 p·M，故先转置，等价于 M·p。
+    RE::NiPoint3 transform_point(DirectX::XMFLOAT4X4 const& a_m, RE::NiPoint3 const& a_p)
     {
-        return RE::NiPoint3{
-            a_m.m[0][0] * a_p.x + a_m.m[0][1] * a_p.y + a_m.m[0][2] * a_p.z + a_m.m[0][3],
-            a_m.m[1][0] * a_p.x + a_m.m[1][1] * a_p.y + a_m.m[1][2] * a_p.z + a_m.m[1][3],
-            a_m.m[2][0] * a_p.x + a_m.m[2][1] * a_p.y + a_m.m[2][2] * a_p.z + a_m.m[2][3],
-        };
+        DirectX::XMMATRIX const transposed = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&a_m));
+        DirectX::XMFLOAT4 const point{ a_p.x, a_p.y, a_p.z, 1.0f };
+        DirectX::XMFLOAT4 transformed{};
+        DirectX::XMStoreFloat4(&transformed, DirectX::XMVector3Transform(DirectX::XMLoadFloat4(&point), transposed));
+        return RE::NiPoint3{ transformed.x, transformed.y, transformed.z };
     }
 
     float distance_to_point(RE::NiPoint3 const& a_a, RE::NiPoint3 const& a_b)
@@ -957,7 +956,15 @@ namespace
         // ---- 世界包围球校验。modelBound 经节点世界变换外推，3×3 各列范数最大值
         // 作为各向异性缩放上界；非有限/退化/超预算的世界球说明该网格不适合按普通
         // 静态几何画进 mask（效果类/异常数据）。----
-        MaskMat4 const world = MaskMat4::from_transform(a_geom->world);
+        RE::NiTransform const& world_transform = a_geom->world;
+        DirectX::XMFLOAT4X4 world{};
+        DirectX::XMStoreFloat4x4(&world, DirectX::XMMatrixIdentity());
+        for (int row = 0; row < 3; ++row)
+        {
+            for (int col = 0; col < 3; ++col)
+                world.m[row][col] = world_transform.rotate.entry[row][col] * world_transform.scale;
+            world.m[row][3] = world_transform.translate[row];
+        }
         float scale_max = 0.0f;
         for (int col = 0; col < 3; ++col)
         {
@@ -1404,4 +1411,4 @@ void collect_mask_draws(std::vector<MaskTarget> const& a_targets, std::vector<Ma
     }
 }
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END
