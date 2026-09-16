@@ -155,11 +155,26 @@ namespace
 
             if (pulse_active || cfg.enabled)
             {
-                std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
+                std::vector<CorpseScan::CorpseInfo> corpses = CorpseScan::snapshot();
                 float const pulse = pulse_active ? pulse_alpha(PulseTimer::instance().progress()) : 1.0f;
                 if (pulse > 0.f && !corpses.empty())
                 {
                     RE::NiCamera* camera = RE::Main::WorldRootCamera();
+
+                    // ---- CPU 端视锥剔除：范围扫描（max_distance）不区分朝向，而相机视锥
+                    // 只覆盖屏幕方向；视野外尸体的叠加本就不可见（mask 几何会被 GPU 裁剪、
+                    // icon 的 world_to_screen 会拒绝），提前丢弃可省掉本帧的 3D 遍历、布局
+                    // 标定与全部 draw。相交判据用引擎原生 NiCamera::PointInFrustum——
+                    // 包围球（anchor + radius，扫描期由碰撞盒/几何兜底得出）与视锥相交即
+                    // 视为可见，与引擎自身剔除同语义；mask 不改场景，剔除纯属性能优化。
+                    // 相机缺失（如主菜单态）时跳过剔除，保持既有行为。----
+                    if (camera)
+                    {
+                        std::erase_if(corpses, [camera](CorpseScan::CorpseInfo const& corpse) {
+                            return !camera->PointInFrustum(corpse.anchor, corpse.radius);
+                        });
+                    }
+
                     RE::BSGraphics::ViewData const* view_data = update_view_data(camera);
 
                     Color color;
