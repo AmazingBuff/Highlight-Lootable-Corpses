@@ -29,7 +29,7 @@ namespace
         };
         if (a_vk >= 0x08 && a_vk <= 0x2E)
         {
-            const std::string_view name = s_key_names[a_vk - 0x08];
+            std::string_view const name = s_key_names[a_vk - 0x08];
             if (!name.empty())
                 return name.data();
         }

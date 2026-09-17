@@ -8,7 +8,7 @@
 
 namespace
 {
-    const std::vector<LocalFromID> Ash_Piles =
+    std::vector<LocalFromID> const Ash_Piles =
     {
         { .local_id = 0x0000001B, .plugin_name = Skyrim_Plugin }, // DefaultAshPile1 = 0x1B
         { .local_id = 0x00000022, .plugin_name = Skyrim_Plugin }, // DefaultAshPile2 = 0x22
@@ -24,7 +24,7 @@ namespace
         { .local_id = 0x00023F83, .plugin_name = Dragonborn_Plugin }, // DLC2HMDaedraAshPile = 0x23F83
    };
 
-    const std::vector<LocalFromID> Static_Corpses =
+    std::vector<LocalFromID> const Static_Corpses =
     {
         { .local_id = 0x00023969, .plugin_name = Skyrim_Plugin },  // TreasDraugrAmbushCorpse01
         { .local_id = 0x0008008D, .plugin_name = Skyrim_Plugin },  // TreasDraugrAmbushCorpseWrapped01
@@ -56,7 +56,7 @@ namespace
     };
 
 
-    [[nodiscard]] std::vector<RE::FormID> resolve_form_ids(const std::vector<LocalFromID>& a_forms)
+    [[nodiscard]] std::vector<RE::FormID> resolve_form_ids(std::vector<LocalFromID> const& a_forms)
     {
         std::vector<RE::FormID> results;
         if (RE::TESDataHandler* data_handler = RE::TESDataHandler::GetSingleton())
@@ -85,7 +85,7 @@ namespace
             return false;
 
         RE::FormID const id = base->GetFormID();
-        return std::ranges::any_of(a_ids, [id](const RE::FormID& a_form) { return id == a_form; });
+        return std::ranges::any_of(a_ids, [id](RE::FormID const& a_form) { return id == a_form; });
     }
 }
 
@@ -99,13 +99,13 @@ namespace Util
     {
         if (a_ref)
         {
-            const RE::TESBoundObject* object = a_ref->GetObjectReference();
+            RE::TESBoundObject const* object = a_ref->GetObjectReference();
 
             // For enemies that leave behind an ash pile on death
             if (object->Is(RE::FormType::Activator))
             {
                 RE::ObjectRefHandle ref_handle = a_ref->extraList.GetAshPileRef();
-                if (const RE::TESObjectREFRPtr ptr = ref_handle.get())
+                if (RE::TESObjectREFRPtr const ptr = ref_handle.get())
                     return get_container_object(ptr.get());
             }
 
@@ -121,15 +121,15 @@ namespace Util
         return a_actor->AsActorState()->GetLifeState() == RE::ACTOR_LIFE_STATE::kDead;
     }
 
-    bool is_ash_pile(const RE::TESObjectREFR* a_ref)
+    bool is_ash_pile(RE::TESObjectREFR const* a_ref)
     {
-        static const std::vector<RE::FormID> s_ash_pile_ids = resolve_form_ids(Ash_Piles);
+        static std::vector<RE::FormID> const s_ash_pile_ids = resolve_form_ids(Ash_Piles);
         return is_ref_form_in(a_ref, s_ash_pile_ids);
     }
 
-    bool is_corpse_object(const RE::TESObjectREFR* a_ref)
+    bool is_corpse_object(RE::TESObjectREFR const* a_ref)
     {
-        static const std::vector<RE::FormID> s_static_corpses_ids = resolve_form_ids(Static_Corpses);
+        static std::vector<RE::FormID> const s_static_corpses_ids = resolve_form_ids(Static_Corpses);
         return is_ref_form_in(a_ref, s_static_corpses_ids);
     }
 

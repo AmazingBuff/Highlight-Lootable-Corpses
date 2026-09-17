@@ -76,6 +76,7 @@ public:
     void load() noexcept;
     void save() noexcept;
 
+public:
     constexpr static int Min_Outline_Thickness = 1;
     constexpr static int Max_Outline_Thickness = 5;
 

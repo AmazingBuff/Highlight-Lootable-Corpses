@@ -14,7 +14,7 @@
 
 namespace RE
 {
-	class NiSkinInstance;
+    class NiSkinInstance;
 }
 
 MASK_NAMESPACE_BEGIN

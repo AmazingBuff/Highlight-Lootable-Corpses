@@ -46,7 +46,7 @@ namespace
         return std::clamp(cfg.min_opacity + fade * alpha * (1.0f - cfg.min_opacity), cfg.min_opacity, 1.0f);
     }
 
-    RE::BSGraphics::ViewData const* update_view_data(const RE::NiCamera* camera)
+    RE::BSGraphics::ViewData const* update_view_data(RE::NiCamera const* camera)
     {
         RE::BSGraphics::ViewData const* view_data = nullptr;
         if (RE::BSGraphics::State* state = RE::BSGraphics::State::GetSingleton())
@@ -127,12 +127,12 @@ namespace
         }
 
     private:
-        OverlayDirector()
-            : m_scan_in_flight(false)
-            , m_last_drawn_frame(std::numeric_limits<uint32_t>::max())
-            , m_back_buffer(nullptr)
-            , m_render_target(nullptr)
-            , m_ready(false) {}
+        OverlayDirector() :
+            m_scan_in_flight(false),
+            m_last_drawn_frame(std::numeric_limits<uint32_t>::max()),
+            m_back_buffer(nullptr),
+            m_render_target(nullptr),
+            m_ready(false) {}
 
         void schedule_scan()
         {
@@ -237,7 +237,7 @@ namespace
                         }
                         std::vector<IconMarker> const markers = m_icon_layout.update(candidates,
                             static_cast<float>(cfg.icon_radius), cfg.max_distance, w, h, Max_Corpse_Count);
-                        for (const IconMarker& marker : std::views::reverse(markers))
+                        for (IconMarker const& marker : std::views::reverse(markers))
                             m_icon_overlay.add_marker(marker, { color.r(), color.g(), color.b() });
                         m_icon_overlay.draw(context, m_render_target, m_states);
                         m_icon_overlay.end_frame();
@@ -353,7 +353,7 @@ namespace
         std::shared_ptr<DirectX::DX11::CommonStates> m_states;
         IconOverlay m_icon_overlay;
         IconLayout m_icon_layout;
-        
+
         bool m_ready;
     };
 

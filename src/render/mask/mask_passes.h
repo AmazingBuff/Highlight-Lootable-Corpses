@@ -32,13 +32,13 @@ public:
     bool init(ID3D11Device* device, uint32_t width, uint32_t height);
     void release();
 
-    [[nodiscard]] bool matches(ID3D11Device* device, uint32_t width, uint32_t height) const;
-    [[nodiscard]] ID3D11Device* device() const { return m_ref_device; }
-    [[nodiscard]] ID3D11RenderTargetView* rtv() const { return m_rtv; }
-    [[nodiscard]] ID3D11DepthStencilView* dsv() const { return m_dsv; }
-    [[nodiscard]] ID3D11ShaderResourceView* srv() const { return m_srv; }
-    [[nodiscard]] uint32_t width() const { return m_width; }
-    [[nodiscard]] uint32_t height() const { return m_height; }
+    [[nodiscard]] bool matches(ID3D11Device* device, uint32_t width, uint32_t height) const noexcept;
+    [[nodiscard]] ID3D11Device* device() const noexcept { return m_ref_device; }
+    [[nodiscard]] ID3D11RenderTargetView* rtv() const noexcept { return m_rtv; }
+    [[nodiscard]] ID3D11DepthStencilView* dsv() const noexcept { return m_dsv; }
+    [[nodiscard]] ID3D11ShaderResourceView* srv() const noexcept { return m_srv; }
+    [[nodiscard]] uint32_t width() const noexcept { return m_width; }
+    [[nodiscard]] uint32_t height() const noexcept { return m_height; }
 private:
     ID3D11Device* m_ref_device;
     ID3D11Texture2D* m_texture;
@@ -61,10 +61,10 @@ public:
     bool init(ID3D11Device* device);
     void release();
 
-    [[nodiscard]] ID3D11BlendState* mask_write_blend() const { return m_blend_mask_write; }
-    [[nodiscard]] ID3D11DepthStencilState* depth_nearest() const { return m_depth_nearest; }
-    [[nodiscard]] ID3D11DepthStencilState* depth_none() const { return m_depth_disabled; }
-    [[nodiscard]] ID3D11RasterizerState* cull_none() const { return m_rasterizer; }
+    [[nodiscard]] ID3D11BlendState* mask_write_blend() const noexcept { return m_blend_mask_write; }
+    [[nodiscard]] ID3D11DepthStencilState* depth_nearest() const noexcept { return m_depth_nearest; }
+    [[nodiscard]] ID3D11DepthStencilState* depth_none() const noexcept { return m_depth_disabled; }
+    [[nodiscard]] ID3D11RasterizerState* cull_none() const noexcept { return m_rasterizer; }
 
     // 首个有 draw 的帧自动校准 CB 上传字节取向（地面真值直传预期成立；失败时
     // 转置字节序）：锚点 = 首记录节点的世界原点，经组合矩阵投影与引擎

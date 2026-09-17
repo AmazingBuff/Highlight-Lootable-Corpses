@@ -17,7 +17,7 @@ MASK_NAMESPACE_BEGIN
 // Column-vector projection: replace only the z row so z/w = near / view distance.
 // The w gradient accounts for a uniform scale in the engine projection. Applying
 // this before World/palette multiplication preserves homogeneous skin weights.
-inline bool make_private_depth_projection(DirectX::XMFLOAT4X4& projection, float near_plane, bool orthographic)
+[[nodiscard]] inline bool make_private_depth_projection(DirectX::XMFLOAT4X4& projection, float near_plane, bool orthographic)
 {
     if (orthographic || !std::isfinite(near_plane) || near_plane <= 0.0f)
         return false;

@@ -44,14 +44,14 @@ public:
     };
 
     // input must be a container
-    EvaluateResult evaluate(RE::TESObjectREFR* a_ref);
+    [[nodiscard]] EvaluateResult evaluate(RE::TESObjectREFR* a_ref);
 private:
     LootFilter();
     ~LootFilter();
 
     using func_t = void (*)(RE::Actor*, RE::InventoryChanges*);
 
-    RE::BSTArray<RE::InventoryEntryData> fetch_inventory_items(RE::TESObjectREFR* a_ref, const std::function<bool(RE::TESBoundObject&)>& filter);
+    [[nodiscard]] RE::BSTArray<RE::InventoryEntryData> fetch_inventory_items(RE::TESObjectREFR* a_ref, std::function<bool(RE::TESBoundObject&)> const& filter);
 private:
     REL::Relocation<func_t> m_refresh_enchanted_weapons;
 };

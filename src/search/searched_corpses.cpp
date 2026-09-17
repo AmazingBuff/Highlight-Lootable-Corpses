@@ -53,7 +53,7 @@ void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
 {
     if (a_ref)
     {
-        const RE::FormID form_id = a_ref->GetFormID();
+        RE::FormID const form_id = a_ref->GetFormID();
         if (!m_searched_corpses.contains(form_id))
         {
             m_searched_corpses.insert(form_id);
@@ -74,7 +74,7 @@ bool MarkCorpse::contains(RE::TESObjectREFR* a_ref)
 
 void MarkCorpse::install()
 {
-    const SKSE::SerializationInterface* serialization = SKSE::GetSerializationInterface();
+    SKSE::SerializationInterface const* serialization = SKSE::GetSerializationInterface();
     if (!serialization)
     {
         logger::error("Serialization interface unavailable, searched-corpses persistence disabled"sv);

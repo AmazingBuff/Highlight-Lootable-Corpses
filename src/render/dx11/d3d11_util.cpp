@@ -50,35 +50,35 @@ void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, 
     context->Unmap(buffer, 0);
 }
 
-D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* context)
-    : m_ref_context(context)
-    , m_render_target(nullptr)
-    , m_depth_stencil(nullptr)
-    , m_blend(nullptr)
-    , m_blend_factor{}
-    , m_sample_mask(0)
-    , m_depth(nullptr)
-    , m_stencil_ref(0)
-    , m_rasterizer(nullptr)
-    , m_viewport_count(0)
-    , m_viewports{}
-    , m_input_layout(nullptr)
-    , m_topology(D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)
-    , m_vertex_buffer(nullptr)
-    , m_vertex_stride(0)
-    , m_vertex_offset(0)
-    , m_index_buffer(nullptr)
-    , m_index_format(DXGI_FORMAT_UNKNOWN)
-    , m_index_offset(0)
-    , m_vertex_shader(nullptr)
-    , m_vertex_instances{}
-    , m_vertex_instance_count(8)
-    , m_pixel_shader(nullptr)
-    , m_pixel_instances{}
-    , m_pixel_instance_count(8)
-    , m_vertex_cbs{}
-    , m_pixel_srvs{}
-    , m_pixel_sampler(nullptr) {}
+D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* context) :
+    m_ref_context(context),
+    m_render_target(nullptr),
+    m_depth_stencil(nullptr),
+    m_blend(nullptr),
+    m_blend_factor{},
+    m_sample_mask(0),
+    m_depth(nullptr),
+    m_stencil_ref(0),
+    m_rasterizer(nullptr),
+    m_viewport_count(0),
+    m_viewports{},
+    m_input_layout(nullptr),
+    m_topology(D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED),
+    m_vertex_buffer(nullptr),
+    m_vertex_stride(0),
+    m_vertex_offset(0),
+    m_index_buffer(nullptr),
+    m_index_format(DXGI_FORMAT_UNKNOWN),
+    m_index_offset(0),
+    m_vertex_shader(nullptr),
+    m_vertex_instances{},
+    m_vertex_instance_count(8),
+    m_pixel_shader(nullptr),
+    m_pixel_instances{},
+    m_pixel_instance_count(8),
+    m_vertex_cbs{},
+    m_pixel_srvs{},
+    m_pixel_sampler(nullptr) {}
 
 D3D11StateCapture::~D3D11StateCapture()
 {

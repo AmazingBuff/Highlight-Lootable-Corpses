@@ -15,7 +15,7 @@ public:
     Menu operator=(Menu&&) = delete;
 
     static void register_menu();
-    static bool is_menu_open();
+    [[nodiscard]] static bool is_menu_open();
 };
 
 PLUGIN_NAMESPACE_END

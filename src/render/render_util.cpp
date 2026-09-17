@@ -9,7 +9,7 @@
 PLUGIN_NAMESPACE_BEGIN
 
 
-uint32_t Color::encode() const
+uint32_t Color::encode() const noexcept
 {
     return (static_cast<uint32_t>(m_a * 255.0f) << 24) |
            (static_cast<uint32_t>(m_r * 255.0f) << 16) |

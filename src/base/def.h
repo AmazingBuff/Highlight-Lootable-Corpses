@@ -23,14 +23,14 @@ struct LocalFromID
 };
 
 template<typename T, size_t N>
-constexpr size_t array_size(const T(&)[N])
+constexpr size_t array_size(T const(&)[N])
 {
     return N;
 }
 
 template<typename T, size_t N>
     requires(std::is_integral_v<T>)
-constexpr size_t hash_str(const T(&str)[N], const size_t& seed)
+constexpr size_t hash_str(T const(&str)[N], size_t const& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < N - 1; ++i)
@@ -41,7 +41,7 @@ constexpr size_t hash_str(const T(&str)[N], const size_t& seed)
 
 template<typename T, size_t N>
     requires(std::is_integral_v<T>)
-constexpr size_t hash_str(const std::basic_string_view<T>& str, const size_t& seed)
+constexpr size_t hash_str(std::basic_string_view<T> const& str, size_t const& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < N - 1; ++i)
@@ -52,7 +52,7 @@ constexpr size_t hash_str(const std::basic_string_view<T>& str, const size_t& se
 
 template<typename T>
     requires(std::is_integral_v<T>)
-constexpr size_t hash_str(const T* str, const size_t len, const size_t& seed)
+constexpr size_t hash_str(T const* str, size_t const len, size_t const& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < len; ++i)
@@ -62,7 +62,7 @@ constexpr size_t hash_str(const T* str, const size_t len, const size_t& seed)
 }
 
 template<typename T, typename... Rest>
-constexpr void hash_combine_mul(size_t& seed, const T& val, const Rest&... rest)
+constexpr void hash_combine_mul(size_t& seed, T const& val, Rest const&... rest)
 {
     if constexpr (std::is_convertible_v<T, size_t>)
         seed ^= (static_cast<size_t>(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
@@ -72,7 +72,7 @@ constexpr void hash_combine_mul(size_t& seed, const T& val, const Rest&... rest)
 }
 
 template<typename T>
-constexpr size_t hash_combine(const size_t& seed, const T& val)
+constexpr size_t hash_combine(size_t const& seed, T const& val)
 {
     if constexpr (std::is_convertible_v<T, size_t>)
         return seed ^ (static_cast<size_t>(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
@@ -80,7 +80,7 @@ constexpr size_t hash_combine(const size_t& seed, const T& val)
         return seed ^ (std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
 }
 
-inline size_t hash_combine(const size_t& seed, const void* mem, const size_t& length)
+inline size_t hash_combine(size_t const& seed, void const* mem, size_t const& length)
 {
     uint8_t const* bytes = static_cast<uint8_t const*>(mem);
     size_t hash = seed;

@@ -180,20 +180,20 @@ namespace
 // MaskRenderTarget
 // ---------------------------------------------------------------------------
 
-RenderTarget::RenderTarget()
-    : m_ref_device(nullptr)
-    , m_texture(nullptr)
-    , m_rtv(nullptr)
-    , m_srv(nullptr)
-    , m_width(0)
-    , m_height(0) {}
+RenderTarget::RenderTarget() :
+    m_ref_device(nullptr),
+    m_texture(nullptr),
+    m_rtv(nullptr),
+    m_srv(nullptr),
+    m_width(0),
+    m_height(0) {}
 
 RenderTarget::~RenderTarget()
 {
     release();
 }
 
-bool RenderTarget::matches(ID3D11Device* device, uint32_t width, uint32_t height) const
+bool RenderTarget::matches(ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
 {
     return m_ref_device == device && m_width == width && m_height == height && m_srv && m_dsv;
 }
@@ -278,21 +278,21 @@ bool RenderTarget::init(ID3D11Device* device, uint32_t width, uint32_t height)
 // MaskGeometryPass
 // ---------------------------------------------------------------------------
 
-MaskGeometryPass::MaskGeometryPass()
-    : m_vs_static(nullptr),
-      m_vs_skinned(nullptr),
-      m_ps_mask(nullptr),
-      m_vs_static_blob(nullptr),
-      m_vs_skinned_blob(nullptr),
-      m_per_draw_cb(nullptr),
-      m_palette_cb(nullptr),
-      m_blend_mask_write(nullptr),
-      m_depth_nearest(nullptr),
-      m_depth_disabled(nullptr),
-      m_rasterizer(nullptr),
-      m_ready(false),
-      m_failed(false),
-      m_upload_transposed(false) {}
+MaskGeometryPass::MaskGeometryPass() :
+    m_vs_static(nullptr),
+    m_vs_skinned(nullptr),
+    m_ps_mask(nullptr),
+    m_vs_static_blob(nullptr),
+    m_vs_skinned_blob(nullptr),
+    m_per_draw_cb(nullptr),
+    m_palette_cb(nullptr),
+    m_blend_mask_write(nullptr),
+    m_depth_nearest(nullptr),
+    m_depth_disabled(nullptr),
+    m_rasterizer(nullptr),
+    m_ready(false),
+    m_failed(false),
+    m_upload_transposed(false) {}
 
 MaskGeometryPass::~MaskGeometryPass()
 {
@@ -627,17 +627,17 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
 // 全屏消费 pass
 // ---------------------------------------------------------------------------
 
-FullscreenPass::FullscreenPass()
-    : m_vertex_shader(nullptr),
-      m_pixel_shader(nullptr),
-      m_blend_premul_alpha(nullptr),
-      m_cb(nullptr),
-      m_ready(false),
-      m_failed(false),
-      m_style_buffer(nullptr),
-      m_style_srv(nullptr),
-      m_style_capacity(0),
-      m_styles_valid(false) {}
+FullscreenPass::FullscreenPass() :
+    m_vertex_shader(nullptr),
+    m_pixel_shader(nullptr),
+    m_blend_premul_alpha(nullptr),
+    m_cb(nullptr),
+    m_ready(false),
+    m_failed(false),
+    m_style_buffer(nullptr),
+    m_style_srv(nullptr),
+    m_style_capacity(0),
+    m_styles_valid(false) {}
 
 FullscreenPass::~FullscreenPass()
 {

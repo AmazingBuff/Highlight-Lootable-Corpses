@@ -268,7 +268,7 @@ namespace
     {
         if (!a_node)
             return;
-        
+
         if (a_node->AsGeometry())
         {
             RE::NiBound const& bound = a_node->worldBound;
@@ -304,7 +304,7 @@ namespace
         a_from_collision = false;
         if (!a_ref)
             return false;
-        
+
         RE::NiAVObject* node = a_ref->Get3D();
         if (!node)
             return false;
@@ -324,7 +324,7 @@ namespace
                     return true;
                 }
             }
-        } 
+        }
         else
         {
             std::vector<BodyBox> boxes;
@@ -388,7 +388,7 @@ namespace
                 entry.anchor = { (b_min.x + b_max.x) * 0.5f, (b_min.y + b_max.y) * 0.5f, (b_min.z + b_max.z) * 0.5f };
                 entry.radius = std::max((b_max - b_min).Length() * 0.5f, 10.0f);
             }
-            else if (const RE::NiAVObject* node = actor->Get3D())
+            else if (RE::NiAVObject const* node = actor->Get3D())
             {
                 RE::NiBound const& bound = node->worldBound;
                 if (bound.radius > 0.0f && bound.radius < 10000.0f)
@@ -419,7 +419,7 @@ namespace
             entry.is_ash_pile = is_ash;
             entry.is_static_corpse = is_corpse_obj;
 
-            if (const RE::NiAVObject* node = a_ref->Get3D())
+            if (RE::NiAVObject const* node = a_ref->Get3D())
             {
                 RE::NiBound const& bound = node->worldBound;
                 if (bound.radius > 0.0f && bound.radius < 10000.0f)
@@ -468,7 +468,7 @@ void CorpseScan::search()
         {
             found.push_back(info);
 
-            const RE::FormID form_id = ref->GetFormID();
+            RE::FormID const form_id = ref->GetFormID();
             if (!m_logged_corpses.contains(form_id))
                 logger::info("{} ({:08x}) has been added!", ref->GetDisplayFullName(), form_id);
             m_logged_corpses.insert(form_id);

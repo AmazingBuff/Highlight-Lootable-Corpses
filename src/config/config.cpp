@@ -48,9 +48,9 @@ namespace
             static_cast<std::underlying_type_t<Config::BookType>>(Config::BookType::e_all)));
     }
 
-    const std::string& get_config_path() noexcept
+    std::string const& get_config_path() noexcept
     {
-        static const std::string s_config_path = "Data/SKSE/Plugins/" + std::string(Plugin::Plugin_Name) + ".ini";
+        static std::string const s_config_path = "Data/SKSE/Plugins/" + std::string(Plugin::Plugin_Name) + ".ini";
         return s_config_path;
     }
 }
