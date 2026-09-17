@@ -1,28 +1,22 @@
-// mask 几何 pass：把尸体 mesh 画进离屏 mask RT。
-// 静态 VS 的世界变换已在 CPU 端组合进 ViewProj*World；蒙皮 VS 使用分区调色板
-// 常量缓冲（每分区一次 draw，palette 容量受限，见 mask_types.h）。
-// 尸体索引经 nointerpolation 语义从 VS 传给 PS 写入 B 通道（同一 draw 恒定），
-// MAX 混合在重叠区取较高索引，消费 pass 据此查 per-frame alpha LUT。
-
-// ---- 静态 VS：row_major float4x4 + 尸体索引（80 字节，见 MaskPerDrawCBData）----
+// Static VS: row_major float4x4 + uint object_id (80 bytes; PerDrawCBData).
 cbuffer PerDrawCB : register(b0)
 {
     row_major float4x4 g_world_view_proj;
-    float g_corpse_index;
+    uint g_object_id;
     float3 g_pad;
 };
 
 struct VS_OUT
 {
     float4 pos : SV_Position;
-    nointerpolation float corpse_index : TEXCOORD0;
+    nointerpolation uint object_id : TEXCOORD0;
 };
 
-VS_OUT vs_static_main(float3 a_pos : POSITION)
+VS_OUT vs_static_main(float3 pos : POSITION)
 {
     VS_OUT o;
-    o.pos = mul(g_world_view_proj, float4(a_pos, 1.0f));
-    o.corpse_index = g_corpse_index;
+    o.pos = mul(g_world_view_proj, float4(pos, 1.0f));
+    o.object_id = g_object_id;
     return o;
 }
 
@@ -40,26 +34,19 @@ struct VS_SKIN_IN
     uint4 indices : BLENDINDICES;
 };
 
-VS_OUT vs_skinned_main(VS_SKIN_IN a_in)
+VS_OUT vs_skinned_main(VS_SKIN_IN skin_in)
 {
     float4 p = 0.0f;
     [unroll]
     for (int i = 0; i < 4; ++i)
-        p += a_in.weights[i] * mul(g_bones[a_in.indices[i]], float4(a_in.pos, 1.0f));
+        p += skin_in.weights[i] * mul(g_bones[skin_in.indices[i]], float4(skin_in.pos, 1.0f));
     VS_OUT o;
     o.pos = mul(g_world_view_proj, p);
-    o.corpse_index = g_corpse_index;
+    o.object_id = g_object_id;
     return o;
 }
 
-// ---- mask PS：R/G 恒为 1（覆盖度由消费 pass 取 max(R,G)），B = 尸体索引 ----
-struct PS_IN
+uint ps_main(VS_OUT ps_in) : SV_Target
 {
-    float4 pos : SV_Position;
-    nointerpolation float corpse_index : TEXCOORD0;
-};
-
-float4 ps_main(PS_IN a_in) : SV_Target
-{
-    return float4(1.0f, 1.0f, a_in.corpse_index, 1.0f);
+    return ps_in.object_id;
 }

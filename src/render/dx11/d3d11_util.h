@@ -53,7 +53,7 @@ private:
     ID3D11ClassInstance* m_pixel_instances[8]{};
     std::uint32_t m_pixel_instance_count = 8;
     ID3D11Buffer* m_vertex_cbs[2]{};
-    ID3D11ShaderResourceView* m_pixel_srv = nullptr;
+    ID3D11ShaderResourceView* m_pixel_srvs[2]{};
     ID3D11SamplerState* m_pixel_sampler = nullptr;
 };
 

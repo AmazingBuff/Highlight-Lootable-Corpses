@@ -14,12 +14,12 @@
   Soul Ember、灰烬魔等变体），通过 `ExtraAshPileRef` 关联原始 Actor 判断库存
 - 支持**静态尸体**：干尸/裹尸/烧焦尸体等容器物体（`TreasDraugrAmbushCorpse*`、
   `TreasBurntCorpse*`、`defaultGhostCorpse` 等，含 DLC 变体）
-- 三种显示模式（`DisplayMode`）三选一：`silhouette` 穿墙剪影内部填充、
-  `outline` 剪影外侧描边带、`icon` 尸体屏幕位置的实心小圆图标
+- 三种显示模式（`DisplayMode`）三选一：`silhouette` 按高亮物体之间的逐像素深度选择最近物体的穿墙剪影填充、
+  `outline` 分别提取每个物体的外侧描边并合并（被其他物体遮住的边界仍可见）、`icon` 尸体屏幕位置的实心小圆图标
 - 纯标记，无文字干扰；icon 模式的图标按距离指数衰减（越远越"虚"）
 - 标记位置取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体的包围盒投影，
   与尸体实际位置一致
-- 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不参与深度测试）
+- 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不使用场景深度；剪影仅比较高亮物体之间的深度）
 - 热键一键开关（默认未绑定；可在 MCP 菜单中重绑定，或通过 INI 的 `Hotkey` 键配置）
 - **游戏内可视化调参**：全部选项可在 Mod Control Panel（SKSE Menu Framework）
   的 "Highlight Lootable Corpses > Settings" 页面实时调整并保存到 INI
@@ -133,8 +133,8 @@ cpack --config build/CPackConfig.cmake
   判定可搜刮 = 基类容器条目 + 只读运行时容器数据。
 - **渲染**：钩住 `IDXGISwapChain::Present`（vtable 第 8 槽位，与运行时版本
   无关），在游戏帧渲染完成后用自绘管线（自编译 VS/PS + 动态顶点缓冲）
-  向后台缓冲绘制；绘制期间关闭深度测试与背面剔除，开启预乘 Alpha 混合，绘制后
-  恢复游戏的 RenderTarget / Blend / Depth / Rasterizer 状态。
+  向后台缓冲绘制；剪影使用独立深度缓存选择最近的高亮表面，轮廓逐目标提取后合并，
+  两者均忽略场景深度。最终采用预乘 Alpha 混合，绘制后恢复游戏渲染状态。
 - **投影**：`NiCamera::WorldPtToScreenPt3`（主），失败时兜底
   `BSGraphics::State` 相机数据缓存的 viewProj 矩阵。
 - **线程模型**：扫描经 `SKSE::GetTaskInterface()->AddTask` 派发（可能运行在
@@ -149,3 +149,7 @@ cpack --config build/CPackConfig.cmake
 ## 路线图
 
 - [ ] 可选的屏幕边缘方向箭头（屏幕外尸体提示）
+
+## 功能实现文档
+
+参见[功能文档索引](docs/features/README.md)，其中的 [Mask 渲染](docs/features/mask-rendering.md)说明模式语义、逐目标颜色接口、资源与验证。

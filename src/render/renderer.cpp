@@ -203,7 +203,7 @@ namespace
                             if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
                             {
                                 if (RE::TESObjectREFR* ref = form->AsReference())
-                                    mask_targets.emplace_back(ref, pulse * corpse_alpha(cfg, corpse.distance, color.a()));
+                                    mask_targets.emplace_back(ref, DirectX::XMFLOAT4{ color.r(), color.g(), color.b(), pulse * corpse_alpha(cfg, corpse.distance, color.a())});
                             }
                         }
                         OutlineMask::set_targets(mask_targets);

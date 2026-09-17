@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <DirectXMath.h>
+
 #include <cstdint>
 #include <vector>
 
@@ -19,23 +21,15 @@ namespace RE
 
 PLUGIN_NAMESPACE_BEGIN
 
-// mask 渲染目标：引用 + 距离衰减不透明度
-//（corpse_alpha(distance)，按目标序号填入消费 pass 的 per-frame alpha LUT）。
+// RGB is unpremultiplied; opacity already includes configuration alpha, pulse and fade.
 struct OutlineMaskTarget
 {
     RE::TESObjectREFR* ref;
-    float opacity;
+    DirectX::XMFLOAT4 color;
 };
 
-// 可搜刮尸体的 mesh 描边 mask 渲染器（门面）。
-//
-// 每帧把 set_targets 传入的目标对象的 3D mesh（含 GPU 蒙皮）绘制进一张离屏
-// mask RT（RGBA8_UNORM，无深度缓冲），渲染全程不做深度测试——mask 天然穿墙。
-// silhouette/outline 显示模式由本类按 display_mode 选择消费 pass（内部填充叠加 /
-// 外描边带）。
-//
-// 线程模型：set_targets / render 均在渲染线程（Present 回调）调用；目标列表以
-// RE::NiPointer 保活并用互斥锁保护。
+// Render-thread-only facade. Targets are retained by NiPointer. Silhouettes use
+// private depth; outlines merge independent whole-target masks. Both ignore scene depth.
 class OutlineMask
 {
 public:

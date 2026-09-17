@@ -7,12 +7,12 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 ## Features
 
 - **Lootable-only marking** — only corpses that still contain items are outlined; emptied corpses disappear within one scan cycle (default 500 ms)
-- **See through everything** — outlines are drawn after the scene renders and ignore depth, so grass, bushes, walls, and hills never hide a corpse
+- **See through everything** — highlights are drawn after the scene renders and ignore scene depth, so grass, bushes, walls, and hills never hide a corpse
 - **Ash pile support** — ash piles from reanimated / disintegrated enemies (including DLC variants such as Soul Embers and Ash Spawn) are checked through the original actor they point to
 - **Static corpse support** — container-type corpses such as `TreasDraugrAmbushCorpse*`, `TreasBurntCorpse*`, `defaultGhostCorpse`, including DLC variants
 - **Optional loot filter** — show only corpses whose inventory contains quest items, keys, enchanted gear, high-value items, books, consumables (arrows, potions, scrolls, ingredients, soul gems — filled-only option available)
 - **Distance fade** — the `icon` marker is fully opaque up close and fades smoothly with distance
-- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the wall-penetrating mesh silhouette, `outline` draws a band just outside it, and `icon` shows a small circular marker at the corpse's screen position
+- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the nearest highlighted surface per pixel using private depth, `outline` merges each target's independent outer border so occluded borders remain visible, and `icon` shows a small circular marker at the corpse's screen position
 - **Accurate placement** — marker positions come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint
 - **Hotkey toggle** — optionally turn the overlay on/off with a single key (unbound by default; bind one via the "Hotkey" button in the MCP menu or the `Hotkey` INI key; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
 - **In-game settings menu** — every option can be adjusted live in the Mod Control Panel ("Highlight Lootable Corpses > Settings") and saved to the INI
@@ -109,3 +109,6 @@ ValueConsumables=false
 - [CommonLibSSE-NG](https://github.com/alandtse/CommonLibSSE-NG) by alandtse & contributors
 - [SKSE](https://skse.silverlock.org/) by the SKSE team
 - [SKSE Menu Framework](https://github.com/QTR-Modding/SKSE-Menu-Framework-3) & [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
+## Feature documentation
+
+See the [feature index](docs/features/README.md) and [mask rendering](docs/features/mask-rendering.md) for mode semantics, per-target colors, resource lifetime and validation.

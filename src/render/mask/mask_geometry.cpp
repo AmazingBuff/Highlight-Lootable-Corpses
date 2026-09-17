@@ -15,8 +15,6 @@
 
 MASK_NAMESPACE_BEGIN
 
-void log_skinned_skip_once(bool a_warn, char const* a_node_name, std::string_view a_reason, std::string_view a_details);
-
 namespace
 {
     // ---- 静态 draw 足迹校验常量：世界包围球 / 目标归属 ----
@@ -24,7 +22,6 @@ namespace
     constexpr float Ref_Proximity_Slack = 256.0f;     // draw 足迹到目标 ref 位置的最小邻域（游戏单位）
 
     constexpr std::size_t Max_Draws_Per_Frame = 256;
-    constexpr std::uint32_t Max_Corpse_Index = 255;  // mask B 通道可精确存储的索引上限
 
     constexpr std::size_t Max_Position_Calibrations = 256;   // 标定缓存上限（超出退化不缓存）
     constexpr std::uint32_t Calibration_Sample_Limit = 256;  // 大网格采样上限
@@ -42,40 +39,40 @@ namespace
     // 一次性定位日志：按 key 去重（同 key 只输出一次）。签名容器只被渲染线程访问
     //（Present 回调内），仅首次命中各签名时增长。
     // ---------------------------------------------------------------------------
-    void log_once(bool a_warn, std::string a_key, std::string_view a_message)
+    void log_once(bool warn, std::string key, std::string_view message)
     {
         static std::unordered_set<std::string> s_signatures;
-        if (s_signatures.emplace(std::move(a_key)).second)
+        if (s_signatures.emplace(std::move(key)).second)
         {
-            if (a_warn)
-                logger::warn("{}", a_message);
+            if (warn)
+                logger::warn("{}", message);
             else
-                logger::info("{}", a_message);
+                logger::info("{}", message);
         }
     }
 
-    void log_static_skip_once(RE::FormID a_form_id, char const* a_node_name, std::string_view a_reason, std::string_view a_details)
+    void log_static_skip_once(RE::FormID form_id, char const* node_name, std::string_view reason, std::string_view details)
     {
-        char const* const node = a_node_name ? a_node_name : "?";
+        char const* const node = node_name ? node_name : "?";
         log_once(false,
-            fmt::format("static|{:08X}|{}|{}", a_form_id, node, a_reason),
-            fmt::format("outline mask: skip static draw [{}] target={:08X} node=\"{}\" {}", a_reason, a_form_id, node, a_details));
+            fmt::format("static|{:08X}|{}|{}", form_id, node, reason),
+            fmt::format("outline mask: skip static draw [{}] target={:08X} node=\"{}\" {}", reason, form_id, node, details));
     }
 
-    void log_skinned_info_once(char const* a_node_name, std::string_view a_reason, std::string_view a_details)
+    void log_skinned_info_once(char const* node_name, std::string_view reason, std::string_view details)
     {
-        char const* const node = a_node_name ? a_node_name : "?";
+        char const* const node = node_name ? node_name : "?";
         log_once(false,
-            fmt::format("skinned-info|{}|{}", node, a_reason),
-            fmt::format("outline mask: skinned draw [{}] node=\"{}\" {}", a_reason, node, a_details));
+            fmt::format("skinned-info|{}|{}", node, reason),
+            fmt::format("outline mask: skinned draw [{}] node=\"{}\" {}", reason, node, details));
     }
 
-    void log_skinned_summary_once(char const* a_node_name, std::string_view a_details)
+    void log_skinned_summary_once(char const* node_name, std::string_view details)
     {
-        char const* const node = a_node_name ? a_node_name : "?";
+        char const* const node = node_name ? node_name : "?";
         log_once(false,
             fmt::format("skinned-summary|{}", node),
-            fmt::format("outline mask: skinned collect summary node=\"{}\" {}", node, a_details));
+            fmt::format("outline mask: skinned collect summary node=\"{}\" {}", node, details));
     }
 
     // ---------------------------------------------------------------------------
@@ -91,67 +88,67 @@ namespace
     // SKINNING 块字节数可参数化：蒙皮分区步进未知，需按 8/12 两值试探；
     // 静态路径固定传 12。
     // ---------------------------------------------------------------------------
-    std::uint32_t vertex_size_of_with_skinning(RE::BSGraphics::VertexDesc const& a_desc, std::uint32_t a_skinning_bytes)
+    std::uint32_t vertex_size_of_with_skinning(RE::BSGraphics::VertexDesc const& desc, std::uint32_t skinning_bytes)
     {
-        bool const full = a_desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC);
+        bool const full = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC);
         std::uint32_t size = 0;
-        auto const consider = [&](RE::BSGraphics::Vertex::Attribute a_attr, std::uint32_t a_bytes) {
-            size = std::max(size, a_desc.GetAttributeOffset(a_attr) + a_bytes);
+        auto const consider = [&](RE::BSGraphics::Vertex::Attribute attr, std::uint32_t bytes) {
+            size = std::max(size, desc.GetAttributeOffset(attr) + bytes);
         };
 
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX))
             consider(RE::BSGraphics::Vertex::VA_POSITION, full ? 12u : 8u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_UV))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_UV))
             consider(RE::BSGraphics::Vertex::VA_TEXCOORD0, full ? 8u : 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_UV_2))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_UV_2))
             consider(RE::BSGraphics::Vertex::VA_TEXCOORD1, full ? 8u : 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_NORMAL))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_NORMAL))
             consider(RE::BSGraphics::Vertex::VA_NORMAL, 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_TANGENT))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_TANGENT))
             consider(RE::BSGraphics::Vertex::VA_BINORMAL, 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_COLORS))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_COLORS))
             consider(RE::BSGraphics::Vertex::VA_COLOR, 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_SKINNED))
-            consider(RE::BSGraphics::Vertex::VA_SKINNING, a_skinning_bytes);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_LANDDATA))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_SKINNED))
+            consider(RE::BSGraphics::Vertex::VA_SKINNING, skinning_bytes);
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_LANDDATA))
             consider(RE::BSGraphics::Vertex::VA_LANDDATA, 4u);
-        if (a_desc.HasFlag(RE::BSGraphics::Vertex::VF_EYEDATA))
+        if (desc.HasFlag(RE::BSGraphics::Vertex::VF_EYEDATA))
             consider(RE::BSGraphics::Vertex::VA_EYEDATA, 4u);
 
         return size;
     }
 
-    std::uint32_t vertex_size_of(RE::BSGraphics::VertexDesc const& a_desc)
+    std::uint32_t vertex_size_of(RE::BSGraphics::VertexDesc const& desc)
     {
-        return vertex_size_of_with_skinning(a_desc, 12u);
+        return vertex_size_of_with_skinning(desc, 12u);
     }
 
-    DXGI_FORMAT position_format_of(RE::BSGraphics::VertexDesc const& a_desc)
+    DXGI_FORMAT position_format_of(RE::BSGraphics::VertexDesc const& desc)
     {
-        return a_desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT;
+        return desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT;
     }
 
-    bool is_finite(RE::NiPoint3 const& a_p)
+    bool is_finite(RE::NiPoint3 const& p)
     {
-        return std::isfinite(a_p.x) && std::isfinite(a_p.y) && std::isfinite(a_p.z);
+        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
     }
 
     // XMFLOAT4X4（世界变换）变换 3D 点：列向量消费，含平移（约定见 mask_types.h 矩阵工具注释）。
     // XMVector3Transform 求的是行向量积 p·M，故先转置，等价于 M·p。
-    RE::NiPoint3 transform_point(DirectX::XMFLOAT4X4 const& a_m, RE::NiPoint3 const& a_p)
+    RE::NiPoint3 transform_point(DirectX::XMFLOAT4X4 const& m, RE::NiPoint3 const& p)
     {
-        DirectX::XMMATRIX const transposed = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&a_m));
-        DirectX::XMFLOAT4 const point{ a_p.x, a_p.y, a_p.z, 1.0f };
+        DirectX::XMMATRIX const transposed = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&m));
+        DirectX::XMFLOAT4 const point{ p.x, p.y, p.z, 1.0f };
         DirectX::XMFLOAT4 transformed{};
         DirectX::XMStoreFloat4(&transformed, DirectX::XMVector3Transform(DirectX::XMLoadFloat4(&point), transposed));
         return RE::NiPoint3{ transformed.x, transformed.y, transformed.z };
     }
 
-    float distance_to_point(RE::NiPoint3 const& a_a, RE::NiPoint3 const& a_b)
+    float distance_to_point(RE::NiPoint3 const& a, RE::NiPoint3 const& b)
     {
-        float const dx = a_a.x - a_b.x;
-        float const dy = a_a.y - a_b.y;
-        float const dz = a_a.z - a_b.z;
+        float const dx = a.x - b.x;
+        float const dy = a.y - b.y;
+        float const dz = a.z - b.z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
     }
 
@@ -197,11 +194,11 @@ namespace
 
     // 单点位置解码：调用方须已保证 offset + bytes <= stride（防越界）
     bool decode_position(
-        std::uint8_t const* a_base, std::uint32_t a_stride, std::uint32_t a_offset,
-        std::uint32_t a_bytes, std::uint32_t a_index, RE::NiPoint3& a_out)
+        std::uint8_t const* base, std::uint32_t stride, std::uint32_t offset,
+        std::uint32_t bytes, std::uint32_t index, RE::NiPoint3& out)
     {
-        std::uint8_t const* src = a_base + static_cast<std::size_t>(a_index) * a_stride + a_offset;
-        if (a_bytes == 12)
+        std::uint8_t const* src = base + static_cast<std::size_t>(index) * stride + offset;
+        if (bytes == 12)
         {
             float x = 0.0f;
             float y = 0.0f;
@@ -209,37 +206,37 @@ namespace
             std::memcpy(&x, src + 0, sizeof(float));
             std::memcpy(&y, src + 4, sizeof(float));
             std::memcpy(&z, src + 8, sizeof(float));
-            a_out = RE::NiPoint3{ x, y, z };
+            out = RE::NiPoint3{ x, y, z };
         }
         else
         {
             std::uint16_t half[4]{};
             std::memcpy(half, src, sizeof(half));
-            a_out = RE::NiPoint3{
+            out = RE::NiPoint3{
                 DirectX::PackedVector::XMConvertHalfToFloat(half[0]),
                 DirectX::PackedVector::XMConvertHalfToFloat(half[1]),
                 DirectX::PackedVector::XMConvertHalfToFloat(half[2]),
             };
         }
-        return is_finite(a_out);
+        return is_finite(out);
     }
 
     // 采样解码求模型空间 AABB 的中心/半径与 min/max（采样上限摊平大网格）；任一非有限 → 失败
     bool measure_position(
-        std::uint8_t const* a_base, std::uint32_t a_stride, std::uint32_t a_offset,
-        std::uint32_t a_bytes, std::uint32_t a_vertex_count,
-        RE::NiPoint3& a_center, float& a_radius, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+        std::uint8_t const* base, std::uint32_t stride, std::uint32_t offset,
+        std::uint32_t bytes, std::uint32_t vertex_count,
+        RE::NiPoint3& center, float& radius, RE::NiPoint3& min, RE::NiPoint3& max)
     {
-        std::uint32_t const step = (a_vertex_count > Calibration_Sample_Limit)
-                                       ? (a_vertex_count + Calibration_Sample_Limit - 1) / Calibration_Sample_Limit
+        std::uint32_t const step = (vertex_count > Calibration_Sample_Limit)
+                                       ? (vertex_count + Calibration_Sample_Limit - 1) / Calibration_Sample_Limit
                                        : 1;
         RE::NiPoint3 min_p{};
         RE::NiPoint3 max_p{};
         bool first = true;
-        for (std::uint32_t v = 0; v < a_vertex_count; v += step)
+        for (std::uint32_t v = 0; v < vertex_count; v += step)
         {
             RE::NiPoint3 p{};
-            if (!decode_position(a_base, a_stride, a_offset, a_bytes, v, p))
+            if (!decode_position(base, stride, offset, bytes, v, p))
                 return false;
             if (first)
             {
@@ -259,27 +256,27 @@ namespace
         if (first)
             return false;
 
-        a_center = RE::NiPoint3{ (min_p.x + max_p.x) * 0.5f, (min_p.y + max_p.y) * 0.5f, (min_p.z + max_p.z) * 0.5f };
+        center = RE::NiPoint3{ (min_p.x + max_p.x) * 0.5f, (min_p.y + max_p.y) * 0.5f, (min_p.z + max_p.z) * 0.5f };
         float const dx = max_p.x - min_p.x;
         float const dy = max_p.y - min_p.y;
         float const dz = max_p.z - min_p.z;
-        a_radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
-        a_min = min_p;
-        a_max = max_p;
+        radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+        min = min_p;
+        max = max_p;
         return true;
     }
 
     // 判定并选定位置布局；每个 desc 首次标定输出一条完整证据日志（INFO 成功 /
     // WARN 无吻合）；退化路径一次性 INFO。结果按 desc 缓存（稳态零解码）。
     PositionCalibration calibrate_position_format(
-        RE::BSGraphics::VertexDesc const& a_desc,
-        RE::BSGraphics::TriShape const* a_renderer_data,
-        std::uint32_t a_vertex_count,
-        RE::NiBound const& a_model_bound,
-        std::uint32_t a_stride)
+        RE::BSGraphics::VertexDesc const& desc,
+        RE::BSGraphics::TriShape const* renderer_data,
+        std::uint32_t vertex_count,
+        RE::NiBound const& model_bound,
+        std::uint32_t stride)
     {
         std::uint64_t desc_raw = 0;
-        std::memcpy(&desc_raw, &a_desc, sizeof(desc_raw));
+        std::memcpy(&desc_raw, &desc, sizeof(desc_raw));
 
         static std::vector<std::pair<std::uint64_t, PositionCalibration>> s_calibrations;
         for (auto const& [cached_raw, cached] : s_calibrations)
@@ -288,28 +285,28 @@ namespace
                 return cached;
         }
 
-        std::uint32_t const desc_offset = a_desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION);
-        bool const decodable = a_renderer_data && a_renderer_data->rawVertexData &&
-                               a_desc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX) && a_stride > 0;
+        std::uint32_t const desc_offset = desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION);
+        bool const decodable = renderer_data && renderer_data->rawVertexData &&
+                               desc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX) && stride > 0;
 
         PositionCalibration result{};
         std::string const desc_fields = fmt::format(
             "desc={:#018x} flags={:#06x} stride={} pos={} uv={} nrm={} bin={} col={} verts={} model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f}",
             desc_raw,
-            static_cast<unsigned>(a_desc.GetFlags()),
-            a_stride,
+            static_cast<unsigned>(desc.GetFlags()),
+            stride,
             desc_offset,
-            a_desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_TEXCOORD0),
-            a_desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_NORMAL),
-            a_desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_BINORMAL),
-            a_desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_COLOR),
-            a_vertex_count,
-            a_model_bound.center.x, a_model_bound.center.y, a_model_bound.center.z, a_model_bound.radius);
+            desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_TEXCOORD0),
+            desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_NORMAL),
+            desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_BINORMAL),
+            desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_COLOR),
+            vertex_count,
+            model_bound.center.x, model_bound.center.y, model_bound.center.z, model_bound.radius);
 
         if (!decodable)
         {
             // 无法标定 → 退回 desc 推导（当前行为），一次性 INFO，不跳过
-            result.format = position_format_of(a_desc);
+            result.format = position_format_of(desc);
             result.offset = desc_offset;
             result.state = PositionCalibrationState::kDescFallback;
             log_once(false, fmt::format("calib-pos|{:018x}|fallback", desc_raw),
@@ -332,7 +329,7 @@ namespace
         };
         CandidateResult results[Position_Candidate_Count];
 
-        float const tolerance = 0.5f * std::max(a_model_bound.radius, 1.0f);
+        float const tolerance = 0.5f * std::max(model_bound.radius, 1.0f);
         for (std::size_t i = 0; i < Position_Candidate_Count; ++i)
         {
             PositionCandidate const& cand = Position_Candidates[i];
@@ -340,7 +337,7 @@ namespace
             res.format = cand.format;
             res.offset = cand.from_desc ? desc_offset : 0;
             // 剔除：stride 不足以容纳格式，或偏移+格式越出该顶点步进
-            if (a_stride < cand.bytes || res.offset + cand.bytes > a_stride)
+            if (stride < cand.bytes || res.offset + cand.bytes > stride)
                 continue;
             res.valid = true;
 
@@ -348,15 +345,15 @@ namespace
             float radius = 0.0f;
             RE::NiPoint3 model_min{};
             RE::NiPoint3 model_max{};
-            if (!measure_position(a_renderer_data->rawVertexData, a_stride, res.offset, cand.bytes, a_vertex_count, center, radius, model_min, model_max))
+            if (!measure_position(renderer_data->rawVertexData, stride, res.offset, cand.bytes, vertex_count, center, radius, model_min, model_max))
                 continue;
 
             res.center = center;
             res.radius = radius;
-            res.center_error = distance_to_point(center, a_model_bound.center);
+            res.center_error = distance_to_point(center, model_bound.center);
             res.passed = res.center_error <= tolerance &&
-                         radius >= 0.4f * a_model_bound.radius &&
-                         radius <= 2.5f * a_model_bound.radius;
+                         radius >= 0.4f * model_bound.radius &&
+                         radius <= 2.5f * model_bound.radius;
         }
 
         // 取通过者中中心误差最小者；同分优先 float32（保守：宁可多读字节也不误读半精度）
@@ -459,11 +456,11 @@ namespace
     constexpr std::size_t Skinning_Layout_Count = sizeof(Skinning_Layouts) / sizeof(Skinning_Layouts[0]);
 
     // 按布局编号取候选定义（编号来自缓存布局决策，必命中；防御性返回首项）
-    SkinningLayoutSpec const* find_skinning_layout(std::uint8_t a_id)
+    SkinningLayoutSpec const* find_skinning_layout(std::uint8_t id)
     {
         for (std::size_t i = 0; i < Skinning_Layout_Count; ++i)
         {
-            if (Skinning_Layouts[i].id == a_id)
+            if (Skinning_Layouts[i].id == id)
                 return &Skinning_Layouts[i];
         }
         return &Skinning_Layouts[0];
@@ -505,88 +502,88 @@ namespace
     };
 
     // 单顶点权重四元组解码（R16G16B16A16_FLOAT / R8G8B8A8_UNORM；调用方已保证不越界）
-    void decode_weights(DXGI_FORMAT a_format, std::uint8_t const* a_src, float (&a_out)[4])
+    void decode_weights(DXGI_FORMAT format, std::uint8_t const* src, float (&out)[4])
     {
-        if (a_format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+        if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         {
             std::uint16_t half[4]{};
-            std::memcpy(half, a_src, sizeof(half));
+            std::memcpy(half, src, sizeof(half));
             for (int i = 0; i < 4; ++i)
-                a_out[i] = DirectX::PackedVector::XMConvertHalfToFloat(half[i]);
+                out[i] = DirectX::PackedVector::XMConvertHalfToFloat(half[i]);
         }
         else
         {
             std::uint8_t byte[4]{};
-            std::memcpy(byte, a_src, sizeof(byte));
+            std::memcpy(byte, src, sizeof(byte));
             for (int i = 0; i < 4; ++i)
-                a_out[i] = static_cast<float>(byte[i]) / 255.0f;
+                out[i] = static_cast<float>(byte[i]) / 255.0f;
         }
     }
 
     // 单顶点 4 个骨骼索引解码（R8G8B8A8_UINT；调用方已保证不越界）
-    void decode_indices(std::uint8_t const* a_src, std::uint8_t (&a_out)[4])
+    void decode_indices(std::uint8_t const* src, std::uint8_t (&out)[4])
     {
-        std::memcpy(a_out, a_src, sizeof(a_out));
+        std::memcpy(out, src, sizeof(out));
     }
 
     // 单顶点权重分量是否全部在允许范围内
-    bool weight_components_ok(float const (&a_w)[4])
+    bool weight_components_ok(float const (&w)[4])
     {
         for (int i = 0; i < 4; ++i)
         {
-            if (a_w[i] < Skinned_Weight_Min || a_w[i] > Skinned_Weight_Max)
+            if (w[i] < Skinned_Weight_Min || w[i] > Skinned_Weight_Max)
                 return false;
         }
         return true;
     }
 
     // 在给定网格自身数据上、按给定位置布局与 SKINNING 布局遍历**全部**顶点，填充统计
-    // 并返回结论。索引按全局骨骼下标解释，越界上界为 a_index_bound（调色板长度 P）。
+    // 并返回结论。索引按全局骨骼下标解释，越界上界为 index_bound（调色板长度 P）。
     // 调用方须已保证各读取落在步进内（bounds 过滤）。
     SkinnedMeshVerdict validate_skinned_mesh(
-        std::uint8_t const* a_raw, std::uint32_t a_stride, std::uint32_t a_pos_offset, std::uint32_t a_pos_bytes,
-        SkinningLayoutSpec const& a_spec, std::uint32_t a_weight_offset, std::uint32_t a_index_offset,
-        std::uint32_t a_vertex_count, std::uint32_t a_index_bound, SkinnedMeshStats& a_stats)
+        std::uint8_t const* raw, std::uint32_t stride, std::uint32_t pos_offset, std::uint32_t pos_bytes,
+        SkinningLayoutSpec const& spec, std::uint32_t weight_offset, std::uint32_t index_offset,
+        std::uint32_t vertex_count, std::uint32_t index_bound, SkinnedMeshStats& stats)
     {
-        a_stats = SkinnedMeshStats{};
-        a_stats.index_min = 0xFFFFFFFFu;  // 以哨兵起步，逐索引取 min（顶点数 > 0 由调用方保证）
+        stats = SkinnedMeshStats{};
+        stats.index_min = 0xFFFFFFFFu;  // 以哨兵起步，逐索引取 min（顶点数 > 0 由调用方保证）
         bool first_sample = true;
-        for (std::uint32_t v = 0; v < a_vertex_count; ++v)
+        for (std::uint32_t v = 0; v < vertex_count; ++v)
         {
             RE::NiPoint3 p{};
-            if (!decode_position(a_raw, a_stride, a_pos_offset, a_pos_bytes, v, p))
-                a_stats.position_finite = false;
+            if (!decode_position(raw, stride, pos_offset, pos_bytes, v, p))
+                stats.position_finite = false;
 
-            std::uint8_t const* const base = a_raw + static_cast<std::size_t>(v) * a_stride;
+            std::uint8_t const* const base = raw + static_cast<std::size_t>(v) * stride;
             float w[4]{};
-            decode_weights(a_spec.weight_format, base + a_weight_offset, w);
+            decode_weights(spec.weight_format, base + weight_offset, w);
             std::uint8_t idx[4]{};
-            decode_indices(base + a_index_offset, idx);
+            decode_indices(base + index_offset, idx);
 
             float sum = 0.0f;
             for (int i = 0; i < 4; ++i)
                 sum += w[i];
             if (first_sample)
             {
-                a_stats.weight_sum_min = a_stats.weight_sum_max = sum;
+                stats.weight_sum_min = stats.weight_sum_max = sum;
                 first_sample = false;
             }
             else
             {
-                a_stats.weight_sum_min = std::min(a_stats.weight_sum_min, sum);
-                a_stats.weight_sum_max = std::max(a_stats.weight_sum_max, sum);
+                stats.weight_sum_min = std::min(stats.weight_sum_min, sum);
+                stats.weight_sum_max = std::max(stats.weight_sum_max, sum);
             }
             if (!weight_components_ok(w))
-                ++a_stats.bad_weight_vertices;
+                ++stats.bad_weight_vertices;
 
             bool vertex_out_of_range = false;
             bool vertex_weighted_out_of_range = false;
             for (int i = 0; i < 4; ++i)
             {
                 std::uint32_t const index = idx[i];
-                a_stats.index_min = std::min(a_stats.index_min, index);
-                a_stats.index_max = std::max(a_stats.index_max, index);
-                if (index >= a_index_bound)
+                stats.index_min = std::min(stats.index_min, index);
+                stats.index_max = std::max(stats.index_max, index);
+                if (index >= index_bound)
                 {
                     vertex_out_of_range = true;
                     if (w[i] != 0.0f)  // 该越界槽位带非零权重 → 无法正确渲染
@@ -595,74 +592,74 @@ namespace
             }
             if (vertex_out_of_range)
             {
-                ++a_stats.out_of_range_index_count;
-                if (a_stats.out_of_range_weighted_count == 0)
+                ++stats.out_of_range_index_count;
+                if (stats.out_of_range_weighted_count == 0)
                 {
                     // 记录首个"越界且带非零权重"的槽位（供跳过日志取证）
                     for (int i = 0; i < 4; ++i)
                     {
-                        if (static_cast<std::uint32_t>(idx[i]) >= a_index_bound && w[i] != 0.0f)
+                        if (static_cast<std::uint32_t>(idx[i]) >= index_bound && w[i] != 0.0f)
                         {
-                            a_stats.first_out_of_range_index = static_cast<std::uint32_t>(idx[i]);
-                            a_stats.first_out_of_range_weight = w[i];
+                            stats.first_out_of_range_index = static_cast<std::uint32_t>(idx[i]);
+                            stats.first_out_of_range_weight = w[i];
                             break;
                         }
                     }
                 }
                 if (vertex_weighted_out_of_range)
-                    ++a_stats.out_of_range_weighted_count;
+                    ++stats.out_of_range_weighted_count;
             }
         }
 
-        if (!a_stats.position_finite)
+        if (!stats.position_finite)
             return SkinnedMeshVerdict::kPositionBad;
-        bool const weights_ok = a_stats.bad_weight_vertices == 0 &&
-                                a_stats.weight_sum_min >= Skinned_Weight_Sum_Min &&
-                                a_stats.weight_sum_max <= Skinned_Weight_Sum_Max;
+        bool const weights_ok = stats.bad_weight_vertices == 0 &&
+                                stats.weight_sum_min >= Skinned_Weight_Sum_Min &&
+                                stats.weight_sum_max <= Skinned_Weight_Sum_Max;
         return weights_ok ? SkinnedMeshVerdict::kOk : SkinnedMeshVerdict::kWeightsBad;
     }
 
     // 候选表文本（一次性路径构造；每项含 stride/布局/位置有限性/权重和/越界计数/索引）
     std::string format_skinned_candidate_table(
-        SkinnedLayoutCandidateResult const (&a_candidates)[Max_Skinned_Layout_Candidates],
-        MaskSkinLayout const (&a_skin)[Max_Skinned_Layout_Candidates],
-        std::size_t a_count,
-        std::uint32_t a_index_bound)
+        SkinnedLayoutCandidateResult const (&candidates)[Max_Skinned_Layout_Candidates],
+        MaskSkinLayout const (&skin)[Max_Skinned_Layout_Candidates],
+        std::size_t count,
+        std::uint32_t index_bound)
     {
         std::string table;
-        for (std::size_t i = 0; i < a_count; ++i)
+        for (std::size_t i = 0; i < count; ++i)
         {
-            SkinnedLayoutCandidateResult const& c = a_candidates[i];
+            SkinnedLayoutCandidateResult const& c = candidates[i];
             SkinnedMeshStats const& s = c.stats;
             table += fmt::format(
                 " [{} L{} stride={} w(fmt={:#06x},off={}) i(fmt={:#06x},off={}) {} pos_finite={} wsum=[{:.3f},{:.3f}] wbad={} imax={}/{} oob={}(w{})]",
                 i, static_cast<unsigned>(c.layout), c.stride,
-                static_cast<unsigned>(a_skin[i].weight_format), a_skin[i].weight_offset,
-                static_cast<unsigned>(a_skin[i].index_format), a_skin[i].index_offset,
+                static_cast<unsigned>(skin[i].weight_format), skin[i].weight_offset,
+                static_cast<unsigned>(skin[i].index_format), skin[i].index_offset,
                 c.passed ? "PASS" : (c.bounds_ok ? "fail" : "rejected"),
                 s.position_finite, s.weight_sum_min, s.weight_sum_max, s.bad_weight_vertices,
-                s.index_max, a_index_bound, s.out_of_range_index_count, s.out_of_range_weighted_count);
+                s.index_max, index_bound, s.out_of_range_index_count, s.out_of_range_weighted_count);
         }
         return table;
     }
 
     // 枚举 (步进, SKINNING 布局) 候选并在给定网格自身数据上逐候选校验（全顶点），
-    // 结果写入 a_candidates/a_skin，返回候选数。不读写缓存。
+    // 结果写入 candidates/skin，返回候选数。不读写缓存。
     std::size_t enumerate_skinned_candidates(
-        RE::BSGraphics::VertexDesc const& a_desc,
-        RE::BSGraphics::TriShape const* a_renderer_data,
-        std::uint32_t a_vertex_count,
-        std::uint32_t a_index_bound,
-        std::uint32_t a_pos_offset,
-        std::uint32_t a_pos_bytes,
-        std::uint32_t a_skin_offset,
-        SkinnedLayoutCandidateResult (&a_candidates)[Max_Skinned_Layout_Candidates],
-        MaskSkinLayout (&a_skin)[Max_Skinned_Layout_Candidates])
+        RE::BSGraphics::VertexDesc const& desc,
+        RE::BSGraphics::TriShape const* renderer_data,
+        std::uint32_t vertex_count,
+        std::uint32_t index_bound,
+        std::uint32_t pos_offset,
+        std::uint32_t pos_bytes,
+        std::uint32_t skin_offset,
+        SkinnedLayoutCandidateResult (&candidates)[Max_Skinned_Layout_Candidates],
+        MaskSkinLayout (&skin)[Max_Skinned_Layout_Candidates])
     {
         // 步进候选（SKINNING 8/12 字节，去重）
         std::uint32_t const stride_options[2] = {
-            vertex_size_of_with_skinning(a_desc, 8u),
-            vertex_size_of_with_skinning(a_desc, 12u),
+            vertex_size_of_with_skinning(desc, 8u),
+            vertex_size_of_with_skinning(desc, 12u),
         };
         std::uint32_t strides[2]{};
         std::size_t stride_count = 0;
@@ -675,8 +672,8 @@ namespace
                 strides[stride_count++] = stride;
         }
 
-        bool const raw_available = a_renderer_data && a_renderer_data->rawVertexData && a_vertex_count > 0;
-        std::uint8_t const* const raw = raw_available ? a_renderer_data->rawVertexData : nullptr;
+        bool const raw_available = renderer_data && renderer_data->rawVertexData && vertex_count > 0;
+        std::uint8_t const* const raw = raw_available ? renderer_data->rawVertexData : nullptr;
         std::size_t candidate_count = 0;
         if (!raw_available)
             return 0;
@@ -684,7 +681,7 @@ namespace
         for (std::size_t si = 0; si < stride_count; ++si)
         {
             std::uint32_t const stride = strides[si];
-            std::uint32_t const available = (stride > a_skin_offset) ? (stride - a_skin_offset) : 0u;
+            std::uint32_t const available = (stride > skin_offset) ? (stride - skin_offset) : 0u;
             for (std::size_t li = 0; li < Skinning_Layout_Count; ++li)
             {
                 if (candidate_count >= Max_Skinned_Layout_Candidates)
@@ -694,24 +691,24 @@ namespace
                 if (!eligible)
                     continue;
 
-                std::uint32_t const weight_offset = a_skin_offset + spec.weight_delta;
-                std::uint32_t const index_offset = a_skin_offset + spec.index_delta;
+                std::uint32_t const weight_offset = skin_offset + spec.weight_delta;
+                std::uint32_t const index_offset = skin_offset + spec.index_delta;
                 // 越界防护：位置/权重/索引读取均须落在步进内，否则该候选不可用（不读取）
-                bool const bounds_ok = (a_pos_offset + a_pos_bytes <= stride) &&
+                bool const bounds_ok = (pos_offset + pos_bytes <= stride) &&
                                        (weight_offset + spec.weight_bytes <= stride) &&
                                        (index_offset + 4u <= stride);
 
-                SkinnedLayoutCandidateResult& cr = a_candidates[candidate_count];
+                SkinnedLayoutCandidateResult& cr = candidates[candidate_count];
                 cr.stride = stride;
                 cr.layout = spec.id;
                 cr.bounds_ok = bounds_ok;
-                a_skin[candidate_count] = MaskSkinLayout{ spec.weight_format, weight_offset, spec.index_format, index_offset };
+                skin[candidate_count] = MaskSkinLayout{ spec.weight_format, weight_offset, spec.index_format, index_offset };
 
                 if (bounds_ok)
                 {
                     SkinnedMeshVerdict const verdict = validate_skinned_mesh(
-                        raw, stride, a_pos_offset, a_pos_bytes, spec, weight_offset, index_offset,
-                        a_vertex_count, a_index_bound, cr.stats);
+                        raw, stride, pos_offset, pos_bytes, spec, weight_offset, index_offset,
+                        vertex_count, index_bound, cr.stats);
                     // 索引越界不影响候选通过（由 mask 绘制的完整调色板上传兜底）
                     cr.passed = verdict == SkinnedMeshVerdict::kOk;
                 }
@@ -723,13 +720,13 @@ namespace
     }
 
     SkinnedVertexLayout calibrate_skinned_layout(
-        RE::BSGraphics::VertexDesc const& a_desc,
-        RE::BSGraphics::TriShape const* a_renderer_data,
-        std::uint32_t a_vertex_count,
-        std::uint32_t a_index_bound)
+        RE::BSGraphics::VertexDesc const& desc,
+        RE::BSGraphics::TriShape const* renderer_data,
+        std::uint32_t vertex_count,
+        std::uint32_t index_bound)
     {
         std::uint64_t desc_raw = 0;
-        std::memcpy(&desc_raw, &a_desc, sizeof(desc_raw));
+        std::memcpy(&desc_raw, &desc, sizeof(desc_raw));
 
         static std::vector<std::pair<std::uint64_t, SkinnedVertexLayout>> s_skinned_calibrations;
         for (auto const& [cached_raw, cached] : s_skinned_calibrations)
@@ -739,8 +736,8 @@ namespace
         }
 
         using V = RE::BSGraphics::Vertex;
-        auto const attr_offset = [&a_desc](V::Attribute a_attr) {
-            return a_desc.GetAttributeOffset(a_attr);
+        auto const attr_offset = [&desc](V::Attribute attr) {
+            return desc.GetAttributeOffset(attr);
         };
         std::uint32_t const pos_offset = attr_offset(V::VA_POSITION);
         std::uint32_t const skin_offset = attr_offset(V::VA_SKINNING);
@@ -750,23 +747,23 @@ namespace
         // 属性偏移均为 16，即位置占 16 字节槽位（float32）。----
         std::uint32_t next_offset = 0;
         bool has_next = false;
-        auto const consider_next = [&](bool a_present, std::uint32_t a_offset) {
-            if (!a_present || a_offset <= pos_offset)
+        auto const consider_next = [&](bool present, std::uint32_t offset) {
+            if (!present || offset <= pos_offset)
                 return;
-            if (!has_next || a_offset < next_offset)
+            if (!has_next || offset < next_offset)
             {
-                next_offset = a_offset;
+                next_offset = offset;
                 has_next = true;
             }
         };
-        consider_next(a_desc.HasFlag(V::VF_UV), attr_offset(V::VA_TEXCOORD0));
-        consider_next(a_desc.HasFlag(V::VF_UV_2), attr_offset(V::VA_TEXCOORD1));
-        consider_next(a_desc.HasFlag(V::VF_NORMAL), attr_offset(V::VA_NORMAL));
-        consider_next(a_desc.HasFlag(V::VF_TANGENT), attr_offset(V::VA_BINORMAL));
-        consider_next(a_desc.HasFlag(V::VF_COLORS), attr_offset(V::VA_COLOR));
-        consider_next(a_desc.HasFlag(V::VF_SKINNED), attr_offset(V::VA_SKINNING));
-        consider_next(a_desc.HasFlag(V::VF_LANDDATA), attr_offset(V::VA_LANDDATA));
-        consider_next(a_desc.HasFlag(V::VF_EYEDATA), attr_offset(V::VA_EYEDATA));
+        consider_next(desc.HasFlag(V::VF_UV), attr_offset(V::VA_TEXCOORD0));
+        consider_next(desc.HasFlag(V::VF_UV_2), attr_offset(V::VA_TEXCOORD1));
+        consider_next(desc.HasFlag(V::VF_NORMAL), attr_offset(V::VA_NORMAL));
+        consider_next(desc.HasFlag(V::VF_TANGENT), attr_offset(V::VA_BINORMAL));
+        consider_next(desc.HasFlag(V::VF_COLORS), attr_offset(V::VA_COLOR));
+        consider_next(desc.HasFlag(V::VF_SKINNED), attr_offset(V::VA_SKINNING));
+        consider_next(desc.HasFlag(V::VF_LANDDATA), attr_offset(V::VA_LANDDATA));
+        consider_next(desc.HasFlag(V::VF_EYEDATA), attr_offset(V::VA_EYEDATA));
 
         std::int32_t const gap = has_next ? (static_cast<std::int32_t>(next_offset) - static_cast<std::int32_t>(pos_offset)) : -1;
         bool const gap_degenerate = gap < 8;
@@ -778,13 +775,13 @@ namespace
         else if (gap >= 8)
             result.position_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         else
-            result.position_format = position_format_of(a_desc);  // 退化：无更靠后属性 / gap 过小
+            result.position_format = position_format_of(desc);  // 退化：无更靠后属性 / gap 过小
         std::uint32_t const pos_bytes = (result.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
 
         std::string const desc_fields = fmt::format(
             "desc={:#018x} flags={:#06x} pos={} uv={} nrm={} bin={} col={} skin={} gap={}{} pos_fmt={:#06x} pos_off={} verts={} index_bound={}",
             desc_raw,
-            static_cast<unsigned>(a_desc.GetFlags()),
+            static_cast<unsigned>(desc.GetFlags()),
             pos_offset,
             attr_offset(V::VA_TEXCOORD0),
             attr_offset(V::VA_NORMAL),
@@ -795,15 +792,15 @@ namespace
             gap_degenerate ? " (degenerate: no later attribute, fell back to fullprec flag)" : "",
             static_cast<unsigned>(result.position_format),
             pos_offset,
-            a_vertex_count,
-            a_index_bound);
+            vertex_count,
+            index_bound);
 
         // ---- 候选枚举 + 逐候选在**本网格**数据上校验。全顶点遍历、不再抽样，
         // 且不读写缓存中的任何校验结论。----
         SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates];
         MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates];
         std::size_t const candidate_count = enumerate_skinned_candidates(
-            a_desc, a_renderer_data, a_vertex_count, a_index_bound, pos_offset, pos_bytes, skin_offset,
+            desc, renderer_data, vertex_count, index_bound, pos_offset, pos_bytes, skin_offset,
             candidates, candidate_skin);
 
         if (candidate_count == 0)
@@ -811,7 +808,7 @@ namespace
             result.state = SkinnedCalibrationState::kUnresolved;
             log_once(true, fmt::format("calib-skin|{:018x}|unavailable", desc_raw),
                 fmt::format("outline mask: skinned layout calibration unavailable ({}), draw skipped {}",
-                    (a_renderer_data && a_renderer_data->rawVertexData) ? "geometry has no usable candidate" : "raw vertex data missing",
+                    (renderer_data && renderer_data->rawVertexData) ? "geometry has no usable candidate" : "raw vertex data missing",
                     desc_fields));
             if (s_skinned_calibrations.size() < Max_Skinned_Layout_Calibrations)
                 s_skinned_calibrations.emplace_back(desc_raw, result);
@@ -829,7 +826,7 @@ namespace
             }
         }
 
-        std::string const table = format_skinned_candidate_table(candidates, candidate_skin, candidate_count, a_index_bound);
+        std::string const table = format_skinned_candidate_table(candidates, candidate_skin, candidate_count, index_bound);
 
         if (best < 0)
         {
@@ -871,27 +868,27 @@ namespace
         RE::FormID form_id = 0;
         // 目标 3D 中含蒙皮几何 → 其非蒙皮几何（冰锥等装饰）不画。
         bool has_skinned = false;
-        // 尸体索引（目标序号/255），mask PS 写入 B 通道供 LUT 查表。
-        float corpse_index = 0.0f;
+        // Integral target index; zero-based until the geometry shader upload.
+        std::uint32_t target_index = 0;
     };
 
-    void collect_static(RE::BSGeometry* a_geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& a_geom_rt, TargetContext const& a_target, std::vector<MaskDraw>& a_draws)
+    void collect_static(RE::BSGeometry* geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt, TargetContext const& target, std::vector<MaskDraw>& draws)
     {
         // ---- 目标 3D 含蒙皮几何时，其非蒙皮几何（冰锥等装饰）不属于尸体本体，
         // 一律不画——剪影只反映蒙皮身体。纯静态目标（灰烬堆/静态尸体容器等）
         // has_skinned 为假，行为不变。----
-        if (a_target.has_skinned)
+        if (target.has_skinned)
         {
-            char const* const node_name = a_geom->name.c_str();
+            char const* const node_name = geom->name.c_str();
             log_once(false,
-                fmt::format("static-on-skinned|{}|{:08X}", node_name ? node_name : "?", a_target.form_id),
+                fmt::format("static-on-skinned|{}|{:08X}", node_name ? node_name : "?", target.form_id),
                 fmt::format("outline mask: skip static geometry on skinned corpse (static prop is not part of the body silhouette) target={:08X} node=\"{}\"",
-                    a_target.form_id, node_name ? node_name : "?"));
+                    target.form_id, node_name ? node_name : "?"));
             return;
         }
 
         // ---- 静态路径专属的几何级 GPU 缓冲检查。蒙皮路径不走此门。----
-        if (!a_geom_rt.rendererData || !a_geom_rt.rendererData->vertexBuffer || !a_geom_rt.rendererData->indexBuffer)
+        if (!geom_rt.rendererData || !geom_rt.rendererData->vertexBuffer || !geom_rt.rendererData->indexBuffer)
         {
             logger::debug("outline mask: skip geometry without GPU buffers");
             return;
@@ -900,8 +897,8 @@ namespace
         // ---- 分类守卫：这些 BSTriShape 子类不能按普通静态几何绘制（动态顶点布局 /
         // 实例化第二顶点流 / 子范围索引结构），vertexDesc 数据标志同理——强行绘制
         // 会产生覆盖大半屏幕的垃圾三角形。原因一次性 INFO 记录。----
-        char const* const rtti_name = a_geom->GetRTTI() ? a_geom->GetRTTI()->GetName() : "";
-        char const* const node_name = a_geom->name.c_str();
+        char const* const rtti_name = geom->GetRTTI() ? geom->GetRTTI()->GetName() : "";
+        char const* const node_name = geom->name.c_str();
         char const* exclusion_reason = nullptr;
 
         if (strcmp(rtti_name, "BSDynamicTriShape") == 0)
@@ -912,11 +909,11 @@ namespace
             exclusion_reason = "BSMultiStreamInstanceTriShape (multi-stream instanced, extra streams not bound)";
         else if (strcmp(rtti_name, "BSSubIndexTriShape") == 0)
             exclusion_reason = "BSSubIndexTriShape (decal sub-range index structure)";
-        else if (a_geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_INSTANCEDATA))
+        else if (geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_INSTANCEDATA))
             exclusion_reason = "vertexDesc VF_INSTANCEDATA";
-        else if (a_geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_EYEDATA))
+        else if (geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_EYEDATA))
             exclusion_reason = "vertexDesc VF_EYEDATA";
-        else if (a_geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_LANDDATA))
+        else if (geom_rt.vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_LANDDATA))
             exclusion_reason = "vertexDesc VF_LANDDATA";
 
         if (exclusion_reason)
@@ -926,7 +923,7 @@ namespace
             return;
         }
 
-        RE::BSTriShape* tri = a_geom->AsTriShape();
+        RE::BSTriShape* tri = geom->AsTriShape();
         if (!tri)
         {
             // SSE 场景中的常规几何均为 BSTriShape 家族，其余类型不做 mask
@@ -943,7 +940,7 @@ namespace
             return;
         }
 
-        RE::NiBound const& model_bound = a_geom->GetModelData().modelBound;
+        RE::NiBound const& model_bound = geom->GetModelData().modelBound;
         if (model_bound.radius <= 0.0f)
         {
             log_once(false, "static|invalid-model-bound",
@@ -951,12 +948,12 @@ namespace
             return;
         }
 
-        std::uint32_t const vertex_stride = vertex_size_of(a_geom_rt.vertexDesc);
+        std::uint32_t const vertex_stride = vertex_size_of(geom_rt.vertexDesc);
 
         // ---- 世界包围球校验。modelBound 经节点世界变换外推，3×3 各列范数最大值
         // 作为各向异性缩放上界；非有限/退化/超预算的世界球说明该网格不适合按普通
         // 静态几何画进 mask（效果类/异常数据）。----
-        RE::NiTransform const& world_transform = a_geom->world;
+        RE::NiTransform const& world_transform = geom->world;
         DirectX::XMFLOAT4X4 world{};
         DirectX::XMStoreFloat4x4(&world, DirectX::XMMatrixIdentity());
         for (int row = 0; row < 3; ++row)
@@ -977,7 +974,7 @@ namespace
         float const world_radius = model_bound.radius * scale_max;
         if (!is_finite(world_center) || !std::isfinite(world_radius))
         {
-            log_static_skip_once(a_target.form_id, node_name, "world bound non-finite",
+            log_static_skip_once(target.form_id, node_name, "world bound non-finite",
                 fmt::format("model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
                     model_bound.center.x, model_bound.center.y, model_bound.center.z, model_bound.radius,
                     world_center.x, world_center.y, world_center.z, world_radius));
@@ -985,7 +982,7 @@ namespace
         }
         if (world_radius <= 0.0f || world_radius > Max_Part_World_Radius)
         {
-            log_static_skip_once(a_target.form_id, node_name, "world radius out of range",
+            log_static_skip_once(target.form_id, node_name, "world radius out of range",
                 fmt::format("model_bound r={:.1f} world_radius={:.1f} cap={:.1f}", model_bound.radius, world_radius, Max_Part_World_Radius));
             return;
         }
@@ -994,7 +991,7 @@ namespace
         // 比对，选出格式+偏移并按 desc 缓存（稳态零解码）；无候选吻合 → 跳过该
         // draw（宁可少画不许垃圾涂屏）；无法标定 → 退回 desc 推导。----
         PositionCalibration const calibration = calibrate_position_format(
-            a_geom_rt.vertexDesc, a_geom_rt.rendererData, tri_rt.vertexCount, model_bound, vertex_stride);
+            geom_rt.vertexDesc, geom_rt.rendererData, tri_rt.vertexCount, model_bound, vertex_stride);
         if (calibration.state == PositionCalibrationState::kUnresolved)
             return;
 
@@ -1002,53 +999,52 @@ namespace
         //（比盒判定更宽松；实测零误跳）。逐 mesh 模型 AABB 只服务标定的候选评分，
         // 不进缓存、不参与归属判定（防跨网格污染：同一 desc 的不同网格必须用自身
         // 数据判定）。----
-        float const ref_distance = distance_to_point(a_target.position, world_center);
+        float const ref_distance = distance_to_point(target.position, world_center);
         float const proximity_limit = world_radius + Ref_Proximity_Slack;
         if (ref_distance > proximity_limit)
         {
-            log_static_skip_once(a_target.form_id, node_name, "geometry not at target",
+            log_static_skip_once(target.form_id, node_name, "geometry not at target",
                 fmt::format("distance={:.1f} limit={:.1f} ref=({:.1f},{:.1f},{:.1f}) world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
                     ref_distance, proximity_limit,
-                    a_target.position.x, a_target.position.y, a_target.position.z,
+                    target.position.x, target.position.y, target.position.z,
                     world_center.x, world_center.y, world_center.z, world_radius));
             return;
         }
 
         MaskDraw draw{};
-        draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(a_geom_rt.rendererData->vertexBuffer);
-        draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(a_geom_rt.rendererData->indexBuffer);
-        draw.vertex_desc = a_geom_rt.vertexDesc;
-        draw.node = a_geom;
-        draw.node_ref.reset(a_geom);  // 保活：几何体被卸载时 node/rendererData/VB/IB 仍有效到本帧结束
+        draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(geom_rt.rendererData->vertexBuffer);
+        draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(geom_rt.rendererData->indexBuffer);
+        draw.vertex_desc = geom_rt.vertexDesc;
+        draw.node = geom;
+        draw.node_ref.reset(geom);  // 保活：几何体被卸载时 node/rendererData/VB/IB 仍有效到本帧结束
         draw.vertex_stride = vertex_stride;
         draw.vertex_count = tri_rt.vertexCount;
         draw.triangle_count = tri_rt.triangleCount;
         draw.index_count = static_cast<std::uint32_t>(tri_rt.triangleCount) * 3u;
         draw.position_format = calibration.format;
         draw.position_offset = calibration.offset;
-        draw.corpse_index = a_target.corpse_index;
-        a_draws.push_back(std::move(draw));
+        draw.target_index = target.target_index;
+        draws.push_back(std::move(draw));
     }
 
-    void collect_skinned(RE::BSGeometry* a_geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& a_geom_rt, TargetContext const& a_target, std::vector<MaskDraw>& a_draws)
+    void collect_skinned(RE::BSGeometry* geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt, TargetContext const& target, std::vector<MaskDraw>& draws)
     {
-        char const* const node_name = a_geom->name.c_str();
-        char const* const rtti_name = a_geom->GetRTTI() ? a_geom->GetRTTI()->GetName() : "?";
+        char const* const node_name = geom->name.c_str();
+        char const* const rtti_name = geom->GetRTTI() ? geom->GetRTTI()->GetName() : "?";
 
-        std::size_t const draws_before = a_draws.size();
+        std::size_t const draws_before = draws.size();
 
-        RE::NiSkinInstance* skin = a_geom_rt.skinInstance.get();
+        RE::NiSkinInstance* skin = geom_rt.skinInstance.get();
         RE::NiSkinPartition* skin_partition = skin ? skin->skinPartition.get() : nullptr;
         if (!skin || !skin_partition || !skin->skinData || !skin->skinData->GetBoneData() || !skin->boneWorldTransforms || !skin->bones)
         {
-            // 指名哪些字段为空
             std::string missing;
-            auto const note = [&missing](bool a_null, char const* a_field) {
-                if (a_null)
+            auto const note = [&missing](bool null, char const* field) {
+                if (null)
                 {
                     if (!missing.empty())
                         missing += ", ";
-                    missing += a_field;
+                    missing += field;
                 }
             };
             note(!skin, "skinInstance");
@@ -1059,14 +1055,11 @@ namespace
             note(skin && !skin->bones, "bones");
             log_skinned_skip_once(true, node_name, "skin instance incomplete",
                 fmt::format("missing=[{}] rtti={}", missing, rtti_name ? rtti_name : "?"));
-            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (incomplete skin instance)", a_draws.size() - draws_before));
+            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (incomplete skin instance)", draws.size() - draws_before));
             return;
         }
 
-        // 蒙皮按分区绘制：分区自带重映射顶点缓冲（buffData），调色板每分区一份。
-        // 分区数以 numPartitions 与分区数组实际容量中较小者为准（防损坏数据越界）。
-        std::uint32_t const partition_count = std::min<std::uint32_t>(
-            skin_partition->numPartitions, static_cast<std::uint32_t>(skin_partition->partitions.size()));
+        uint32_t const partition_count = std::min(skin_partition->numPartitions, static_cast<uint32_t>(skin_partition->partitions.size()));
         if (partition_count < skin_partition->numPartitions)
         {
             log_skinned_skip_once(false, node_name, "partition count exceeds array size",
@@ -1086,7 +1079,7 @@ namespace
         {
             log_skinned_skip_once(true, node_name, "skin instance has no rootParent",
                 fmt::format("rtti={} partitions={}", rtti_name ? rtti_name : "?", partition_count));
-            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (no rootParent)", a_draws.size() - draws_before));
+            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (no rootParent)", draws.size() - draws_before));
             return;
         }
 
@@ -1094,8 +1087,8 @@ namespace
         // 全部身体/装备/毛发网格 r=0.0），不得据此跳过。只做一次性 INFO 记录；
         // 包围球仅在引擎确实提供（worldBound.radius > 0）时用作廉价 sanity gate
         //——非有限或超预算才跳过（一次性 WARN）。----
-        RE::NiBound const& model_bound = a_geom->GetModelData().modelBound;
-        RE::NiBound const& world_bound = a_geom->worldBound;
+        RE::NiBound const& model_bound = geom->GetModelData().modelBound;
+        RE::NiBound const& world_bound = geom->worldBound;
         log_skinned_info_once(node_name, "world bound reported",
             fmt::format("model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f}",
                 model_bound.center.x, model_bound.center.y, model_bound.center.z, model_bound.radius,
@@ -1110,7 +1103,7 @@ namespace
                     fmt::format("world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} cap={:.1f} finite={}",
                         world_bound.center.x, world_bound.center.y, world_bound.center.z, world_bound.radius,
                         Max_Part_World_Radius, finite));
-                log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (world bound out of range)", a_draws.size() - draws_before));
+                log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (world bound out of range)", draws.size() - draws_before));
                 return;
             }
         }
@@ -1274,10 +1267,10 @@ namespace
 
             MaskDraw draw{};
             draw.skinned = true;
-            draw.skin = a_geom_rt.skinInstance;
+            draw.skin = geom_rt.skinInstance;
             draw.partition = p;
-            draw.node = a_geom;
-            draw.node_ref.reset(a_geom);  // 保活几何体
+            draw.node = geom;
+            draw.node_ref.reset(geom);  // 保活几何体
             draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(buff->vertexBuffer);
             draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(buff->indexBuffer);
             draw.vertex_desc = buff->vertexDesc;
@@ -1288,17 +1281,16 @@ namespace
             draw.position_format = calibration.position_format;
             draw.position_offset = calibration.position_offset;
             draw.skin_layout = calibration.skin;
-            draw.corpse_index = a_target.corpse_index;
-            a_draws.push_back(std::move(draw));
+            draw.target_index = target.target_index;
+            draws.push_back(std::move(draw));
         }
 
-        log_skinned_summary_once(node_name, fmt::format("skinned draws added={} partitions={}", a_draws.size() - draws_before, partition_count));
+        log_skinned_summary_once(node_name, fmt::format("skinned draws added={} partitions={}", draws.size() - draws_before, partition_count));
     }
 
-    void collect_geometry(RE::BSGeometry* a_geom, TargetContext const& a_target, std::vector<MaskDraw>& a_draws)
+    void collect_geometry(RE::BSGeometry* geom, TargetContext const& target, std::vector<MaskDraw>& draws)
     {
-        // 粒子/线段类不画 mask（非目标形态）
-        switch (a_geom->GetType().get())
+        switch (geom->GetType().get())
         {
         case RE::BSGeometry::Type::kParticles:
         case RE::BSGeometry::Type::kStripParticles:
@@ -1306,83 +1298,63 @@ namespace
         case RE::BSGeometry::Type::kLines:
         case RE::BSGeometry::Type::kDynamicLines:
         case RE::BSGeometry::Type::kInstanceGroup:
-            logger::debug("outline mask: skip particle/line geometry (type {})", static_cast<int>(a_geom->GetType().get()));
+            logger::debug("outline mask: skip particle/line geometry (type {})", static_cast<int>(geom->GetType().get()));
             return;
         default:
             break;
         }
 
-        auto const& geom_rt = a_geom->GetGeometryRuntimeData();
+        RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt = geom->GetGeometryRuntimeData();
 
-        // ---- 效果着色器几何（BSEffectShaderProperty：发光 sprite/拖尾/粒子类 fx
-        // 附件）不是实体表面，顶点数据也不保证按"模型空间实体表面"语义解释——整类
-        // 排除。首次命中 INFO（含首个节点名），此后静默。----
         if (geom_rt.shaderProperty && geom_rt.shaderProperty->GetRTTI() &&
             strcmp(geom_rt.shaderProperty->GetRTTI()->GetName(), "BSEffectShaderProperty") == 0)
         {
             log_once(false, "static|effect-shader",
                 fmt::format("outline mask: skip effect-shader geometry (BSEffectShaderProperty, fx attachment is not part of the corpse silhouette) node=\"{}\"",
-                    a_geom->name.c_str() ? a_geom->name.c_str() : "?"));
+                    geom->name.c_str() ? geom->name.c_str() : "?"));
             return;
         }
 
-        // 几何级 GPU 缓冲检查是静态路径专属——蒙皮路径用 NiSkinPartition::Partition::
-        // buffData（分区自带 VB/IB）。
         if (geom_rt.skinInstance)
-        {
-            collect_skinned(a_geom, geom_rt, a_target, a_draws);
-            return;
-        }
-        collect_static(a_geom, geom_rt, a_target, a_draws);
+            collect_skinned(geom, geom_rt, target, draws);
+        else
+            collect_static(geom, geom_rt, target, draws);
     }
 }
 
-std::uint32_t palette_slot_count(RE::NiSkinInstance const* a_skin)
+std::uint32_t palette_slot_count(RE::NiSkinInstance const* skin)
 {
-    if (!a_skin || !a_skin->skinData)
+    if (!skin || !skin->skinData)
         return 0;
-    std::uint32_t const skin_bones = a_skin->skinData->GetBoneCount();
-    std::uint32_t const matrix_count = a_skin->numMatrices;
+    std::uint32_t const skin_bones = skin->skinData->GetBoneCount();
+    std::uint32_t const matrix_count = skin->numMatrices;
     return std::min(skin_bones, matrix_count);
 }
 
-void log_skinned_skip_once(bool a_warn, char const* a_node_name, std::string_view a_reason, std::string_view a_details)
+void log_skinned_skip_once(bool warn, char const* node_name, std::string_view reason, std::string_view details)
 {
-    char const* const node = a_node_name ? a_node_name : "?";
-    log_once(a_warn,
-        fmt::format("skinned|{}|{}", node, a_reason),
-        fmt::format("outline mask: skip skinned draw [{}] node=\"{}\" {}", a_reason, node, a_details));
+    char const* const node = node_name ? node_name : "?";
+    log_once(warn,
+        fmt::format("skinned|{}|{}", node, reason),
+        fmt::format("outline mask: skip skinned draw [{}] node=\"{}\" {}", reason, node, details));
 }
 
-void collect_mask_draws(std::vector<MaskTarget> const& a_targets, std::vector<MaskDraw>& a_draws)
+void collect_mask_draws(std::vector<MaskTarget> const& targets, std::vector<MaskDraw>& draws)
 {
-    // 目标列表顺序即尸体索引（renderer 构造顺序 = corpses 快照顺序）；超出索引
-    // 槽位的目标 clamp 到最后一个索引并一次性 WARN。
-    static bool s_index_clamp_reported = false;
-    if (a_targets.size() > Max_Corpse_Index + 1 && !s_index_clamp_reported)
+    for (std::size_t ti = 0; ti < targets.size(); ++ti)
     {
-        s_index_clamp_reported = true;
-        logger::warn("outline mask: {} targets exceed the {} corpse-index slots, extras share the last index",
-            a_targets.size(), Max_Corpse_Index + 1);
-    }
-
-    for (std::size_t ti = 0; ti < a_targets.size(); ++ti)
-    {
-        MaskTarget const& target = a_targets[ti];
-        std::size_t const corpse_index = std::min<std::size_t>(ti, Max_Corpse_Index);
+        MaskTarget const& target = targets[ti];
         RE::TESObjectREFR* ref = target.ref.get();
         if (!ref)
             continue;
 
         RE::NiAVObject* root = ref->GetCurrent3D();
         if (!root)
-            continue;  // 3D 未加载（未实例化），常态跳过
+            continue;
 
-        // ---- 先做一次**短路**蒙皮探测（遇到任何蒙皮几何即停），供 collect_static
-        // 判定是否剔除该目标的静态装饰。----
         bool has_skinned = false;
-        RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* a_geom) {
-            if (a_geom->GetGeometryRuntimeData().skinInstance)
+        RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* geom) {
+            if (geom->GetGeometryRuntimeData().skinInstance)
             {
                 has_skinned = true;
                 return RE::BSVisit::BSVisitControl::kStop;
@@ -1392,20 +1364,15 @@ void collect_mask_draws(std::vector<MaskTarget> const& a_targets, std::vector<Ma
 
         TargetContext const target_ctx{
             .position = ref->GetPosition(), .form_id = ref->GetFormID(), .has_skinned = has_skinned,
-            .corpse_index = static_cast<float>(corpse_index) / 255.0f };
+            .target_index = static_cast<std::uint32_t>(ti) };
 
-        RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* a_geom) {
-            if (a_draws.size() >= Max_Draws_Per_Frame)
+        RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* geom) {
+            if (draws.size() >= Max_Draws_Per_Frame)
             {
-                static bool s_draw_cap_reported = false;
-                if (!s_draw_cap_reported)
-                {
-                    s_draw_cap_reported = true;
-                    logger::warn("outline mask: draw cap {} reached, extra geometry dropped", Max_Draws_Per_Frame);
-                }
+                logger::warn("outline mask: draw cap {} reached, extra geometry dropped", Max_Draws_Per_Frame);
                 return RE::BSVisit::BSVisitControl::kStop;
             }
-            collect_geometry(a_geom, target_ctx, a_draws);
+            collect_geometry(geom, target_ctx, draws);
             return RE::BSVisit::BSVisitControl::kContinue;
         });
     }

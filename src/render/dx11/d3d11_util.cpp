@@ -87,8 +87,11 @@ D3D11StateCapture::~D3D11StateCapture()
         if (cb)
             cb->Release();
     }
-    if (m_pixel_srv)
-        m_pixel_srv->Release();
+    for (ID3D11ShaderResourceView* srv : m_pixel_srvs)
+    {
+        if (srv)
+            srv->Release();
+    }
     if (m_pixel_sampler)
         m_pixel_sampler->Release();
 }
@@ -111,7 +114,7 @@ void D3D11StateCapture::capture()
     m_ref_context->VSGetShader(&m_vertex_shader, m_vertex_instances, &m_vertex_instance_count);
     m_ref_context->PSGetShader(&m_pixel_shader, m_pixel_instances, &m_pixel_instance_count);
     m_ref_context->VSGetConstantBuffers(0, 2, m_vertex_cbs);
-    m_ref_context->PSGetShaderResources(0, 1, &m_pixel_srv);
+    m_ref_context->PSGetShaderResources(0, 2, m_pixel_srvs);
     m_ref_context->PSGetSamplers(0, 1, &m_pixel_sampler);
 }
 
@@ -129,7 +132,7 @@ void D3D11StateCapture::restore() const
     m_ref_context->VSSetShader(m_vertex_shader, m_vertex_instances, m_vertex_instance_count);
     m_ref_context->PSSetShader(m_pixel_shader, m_pixel_instances, m_pixel_instance_count);
     m_ref_context->VSSetConstantBuffers(0, 2, m_vertex_cbs);
-    m_ref_context->PSSetShaderResources(0, 1, &m_pixel_srv);
+    m_ref_context->PSSetShaderResources(0, 2, m_pixel_srvs);
     m_ref_context->PSSetSamplers(0, 1, &m_pixel_sampler);
 }
 
