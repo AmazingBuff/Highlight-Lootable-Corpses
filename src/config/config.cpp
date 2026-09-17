@@ -4,6 +4,12 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
+Setting& Setting::instance()
+{
+    static Setting s_instance;
+    return s_instance;
+}
+
 namespace
 {
     std::uint32_t parse_hex(char const* a_value, std::uint32_t a_default) noexcept
@@ -45,8 +51,6 @@ namespace
         static const std::string s_config_path = "Data/SKSE/Plugins/" + std::string(Plugin::Plugin_Name) + ".ini";
         return s_config_path;
     }
-
-    Config g_config;
 }
 
 void Setting::load() noexcept
@@ -58,32 +62,32 @@ void Setting::load() noexcept
     if (SI_Error const rc = ini.LoadFile(path.c_str()); rc < 0)
         logger::info("INI not found at {}, writing defaults", path);
 
-    g_config.enabled = ini.GetBoolValue("General", "Enabled");
-    g_config.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey"));
-    g_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
-    g_config.pulse_duration_ms = ini.GetLongValue("General", "PulseDurationMs");
-    g_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
+    m_config.enabled = ini.GetBoolValue("General", "Enabled");
+    m_config.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey"));
+    m_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
+    m_config.pulse_duration_ms = ini.GetLongValue("General", "PulseDurationMs");
+    m_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
 
-    g_config.display_mode = static_cast<Config::DisplayMode>(ini.GetLongValue("Display", "DisplayMode"));
-    g_config.outline_thickness = ini.GetLongValue("Display", "OutlineThickness");
-    g_config.icon_radius = ini.GetLongValue("Display", "IconRadius");
-    g_config.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor"), 0x00FF66);
-    g_config.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity"));
-    g_config.max_distance = static_cast<float>(ini.GetDoubleValue("Display", "MaxDistance"));
-    g_config.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance"));
-    g_config.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower"));
+    m_config.display_mode = static_cast<Config::DisplayMode>(ini.GetLongValue("Display", "DisplayMode"));
+    m_config.outline_thickness = ini.GetLongValue("Display", "OutlineThickness");
+    m_config.icon_radius = ini.GetLongValue("Display", "IconRadius");
+    m_config.outline_color = parse_hex(ini.GetValue("Display", "OutlineColor"), 0x00FF66);
+    m_config.min_opacity = static_cast<float>(ini.GetDoubleValue("Display", "MinOpacity"));
+    m_config.max_distance = static_cast<float>(ini.GetDoubleValue("Display", "MaxDistance"));
+    m_config.fade_start_distance = static_cast<float>(ini.GetDoubleValue("Display", "FadeStartDistance"));
+    m_config.fade_power = static_cast<float>(ini.GetDoubleValue("Display", "FadePower"));
 
-    g_config.hide_searched_enabled = ini.GetBoolValue("LootFilter", "HideSearchedEnabled");
-    g_config.value_filter_enabled = ini.GetBoolValue("LootFilter", "ValueFilterEnabled");
-    g_config.value_quest_items = ini.GetBoolValue("LootFilter", "ValueQuestItems");
-    g_config.value_keys = ini.GetBoolValue("LootFilter", "ValueKeys");
-    g_config.value_enchanted = ini.GetBoolValue("LootFilter", "ValueEnchanted");
-    g_config.value_high_value = ini.GetBoolValue("LootFilter", "ValueHighValue");
-    g_config.high_value_threshold = ini.GetLongValue("LootFilter", "HighValueThreshold");
-    g_config.book_filter_mode = static_cast<Config::BookType>(ini.GetLongValue("LootFilter", "BookFilterMode"));
-    g_config.value_consumables = ini.GetBoolValue("LootFilter", "ValueConsumables");
+    m_config.hide_searched_enabled = ini.GetBoolValue("LootFilter", "HideSearchedEnabled");
+    m_config.value_filter_enabled = ini.GetBoolValue("LootFilter", "ValueFilterEnabled");
+    m_config.value_quest_items = ini.GetBoolValue("LootFilter", "ValueQuestItems");
+    m_config.value_keys = ini.GetBoolValue("LootFilter", "ValueKeys");
+    m_config.value_enchanted = ini.GetBoolValue("LootFilter", "ValueEnchanted");
+    m_config.value_high_value = ini.GetBoolValue("LootFilter", "ValueHighValue");
+    m_config.high_value_threshold = ini.GetLongValue("LootFilter", "HighValueThreshold");
+    m_config.book_filter_mode = static_cast<Config::BookType>(ini.GetLongValue("LootFilter", "BookFilterMode"));
+    m_config.value_consumables = ini.GetBoolValue("LootFilter", "ValueConsumables");
 
-    sanitize(g_config);
+    sanitize(m_config);
 
     logger::info("Config loaded!");
 }
@@ -99,30 +103,30 @@ void Setting::save() noexcept
 
     std::string body;
     body += section("General");
-    body += option("mod enabled on startup", fmt::format("Enabled={}", g_config.enabled ? "true" : "false"));
-    body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", g_config.hotkey));
-    body += option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(g_config.hotkey_mode)));
-    body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", g_config.pulse_duration_ms));
-    body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
+    body += option("mod enabled on startup", fmt::format("Enabled={}", m_config.enabled ? "true" : "false"));
+    body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", m_config.hotkey));
+    body += option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(m_config.hotkey_mode)));
+    body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", m_config.pulse_duration_ms));
+    body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", m_config.scan_interval_ms));
     body += section("Display");
-    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(g_config.display_mode)));
-    body += option("outline thickness in pixels", fmt::format("OutlineThickness={}", g_config.outline_thickness));
-    body += option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", g_config.icon_radius));
-    body += option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
-    body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_config.min_opacity));
-    body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
-    body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", g_config.fade_start_distance));
-    body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", g_config.fade_power));
+    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
+    body += option("outline thickness in pixels", fmt::format("OutlineThickness={}", m_config.outline_thickness));
+    body += option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", m_config.icon_radius));
+    body += option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", m_config.outline_color));
+    body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", m_config.min_opacity));
+    body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", m_config.max_distance));
+    body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", m_config.fade_start_distance));
+    body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", m_config.fade_power));
     body += section("LootFilter");
-    body += option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", g_config.hide_searched_enabled ? "true" : "false"));
-    body += option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", g_config.value_filter_enabled ? "true" : "false"));
-    body += option("quest items", fmt::format("ValueQuestItems={}", g_config.value_quest_items ? "true" : "false"));
-    body += option("keys", fmt::format("ValueKeys={}", g_config.value_keys ? "true" : "false"));
-    body += option("enchanted equipment", fmt::format("ValueEnchanted={}", g_config.value_enchanted ? "true" : "false"));
-    body += option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", g_config.value_high_value ? "true" : "false"));
-    body += option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", g_config.high_value_threshold));
-    body += option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(g_config.book_filter_mode.underlying())));
-    body += option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", g_config.value_consumables ? "true" : "false"));
+    body += option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", m_config.hide_searched_enabled ? "true" : "false"));
+    body += option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", m_config.value_filter_enabled ? "true" : "false"));
+    body += option("quest items", fmt::format("ValueQuestItems={}", m_config.value_quest_items ? "true" : "false"));
+    body += option("keys", fmt::format("ValueKeys={}", m_config.value_keys ? "true" : "false"));
+    body += option("enchanted equipment", fmt::format("ValueEnchanted={}", m_config.value_enchanted ? "true" : "false"));
+    body += option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", m_config.value_high_value ? "true" : "false"));
+    body += option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", m_config.high_value_threshold));
+    body += option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(m_config.book_filter_mode.underlying())));
+    body += option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", m_config.value_consumables ? "true" : "false"));
 
     std::string const& path = get_config_path();
     std::ofstream file(path, std::ios::binary);
@@ -141,6 +145,11 @@ void Setting::save() noexcept
 
 Config& Setting::get_config() noexcept
 {
-    return g_config;
+    return m_config;
 }
+
+Setting::Setting() : m_config{} {}
+
+Setting::~Setting() = default;
+
 PLUGIN_NAMESPACE_END

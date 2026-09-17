@@ -40,7 +40,7 @@ namespace
             PLUGIN_NAMESPACE::Menu::register_menu();
             break;
         case SKSE::MessagingInterface::kSaveGame:
-            PLUGIN_NAMESPACE::Setting::save();
+            PLUGIN_NAMESPACE::Setting::instance().save();
             break;
         default:
             break;
@@ -57,8 +57,8 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(SKSE::LoadInterface const* a_skse)
 
     SKSE::Init(a_skse);
 
-    PLUGIN_NAMESPACE::Setting::load();
-    PLUGIN_NAMESPACE::MarkCorpse::install();
+    PLUGIN_NAMESPACE::Setting::instance().load();
+    PLUGIN_NAMESPACE::MarkCorpse::instance().install();
 
     SKSE::GetMessagingInterface()->RegisterListener(message_handler);
 

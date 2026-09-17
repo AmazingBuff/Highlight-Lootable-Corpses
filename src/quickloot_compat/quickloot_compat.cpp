@@ -21,14 +21,14 @@ namespace
         if (RE::NiPointer<RE::TESObjectREFR> const ref = a_event->container.get())
         {
           if (RE::TESObjectREFR* r = ref.get(); Util::is_corpse(r))
-                MarkCorpse::mark(Util::get_container_object(r));
+                MarkCorpse::instance().mark(Util::get_container_object(r));
         }
     }
 
     void OnOpeningLootMenu34(QuickLoot::OpeningLootMenuEvent* a_event)
     {
         if (a_event && Util::is_corpse(a_event->container))
-            MarkCorpse::mark(Util::get_container_object(a_event->container));
+            MarkCorpse::instance().mark(Util::get_container_object(a_event->container));
     }
 
 

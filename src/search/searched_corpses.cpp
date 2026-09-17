@@ -7,6 +7,12 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
+MarkCorpse& MarkCorpse::instance()
+{
+    static MarkCorpse s_instance;
+    return s_instance;
+}
+
 namespace
 {
     constexpr std::uint32_t Record_ID = static_cast<uint32_t>(hash_str(Plugin::Plugin_Name.data(), Plugin::Plugin_Name.size(), Amazing_Hash));
@@ -32,14 +38,12 @@ namespace
                 {
                     RE::TESObjectREFR* const object = a_event->objectActivated.get();
                     if (Util::is_corpse(object))
-                        MarkCorpse::mark(Util::get_container_object(object));
+                        MarkCorpse::instance().mark(Util::get_container_object(object));
                 }
             }
             return RE::BSEventNotifyControl::kContinue;
         }
     };
-
-    std::unordered_set<RE::FormID> g_searched_corpses;
 }
 
 void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
@@ -47,9 +51,9 @@ void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
     if (a_ref)
     {
         const RE::FormID form_id = a_ref->GetFormID();
-        if (!g_searched_corpses.contains(form_id))
+        if (!m_searched_corpses.contains(form_id))
         {
-            g_searched_corpses.insert(form_id);
+            m_searched_corpses.insert(form_id);
             logger::info("{} ({:08x}) has been removed!", a_ref->GetDisplayFullName(), form_id);
         }
     }
@@ -57,10 +61,10 @@ void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
 
 bool MarkCorpse::contains(RE::TESObjectREFR* a_ref)
 {
-    if (!a_ref || g_searched_corpses.empty())
+    if (!a_ref || m_searched_corpses.empty())
         return false;
 
-    if (g_searched_corpses.contains(a_ref->GetFormID()))
+    if (m_searched_corpses.contains(a_ref->GetFormID()))
         return true;
     return false;
 }
@@ -78,13 +82,13 @@ void MarkCorpse::install()
 
     serialization->SetSaveCallback([](SKSE::SerializationInterface* a_intfc)
     {
-        std::uint32_t const count = static_cast<std::uint32_t>(g_searched_corpses.size());
+        std::uint32_t const count = static_cast<std::uint32_t>(MarkCorpse::instance().m_searched_corpses.size());
         if (!a_intfc->WriteRecord(Record_ID, Record_Version, &count, sizeof(count)))
         {
             logger::error("Failed to write searched-corpses record header"sv);
             return;
         }
-        for (RE::FormID const& id : g_searched_corpses)
+        for (RE::FormID const& id : MarkCorpse::instance().m_searched_corpses)
         {
             if (!a_intfc->WriteRecordData(&id, sizeof(RE::FormID)))
             {
@@ -97,7 +101,7 @@ void MarkCorpse::install()
 
     serialization->SetLoadCallback([](SKSE::SerializationInterface* a_intfc)
     {
-        g_searched_corpses.clear();
+        MarkCorpse::instance().m_searched_corpses.clear();
 
         std::uint32_t type = 0;
         std::uint32_t version = 0;
@@ -132,7 +136,7 @@ void MarkCorpse::install()
                 RE::FormID resolved = 0;
                 if (a_intfc->ResolveFormID(stored, resolved))
                 {
-                    g_searched_corpses.insert(resolved);
+                    MarkCorpse::instance().m_searched_corpses.insert(resolved);
                     ++kept;
                 }
             }
@@ -142,12 +146,12 @@ void MarkCorpse::install()
 
     serialization->SetRevertCallback([]([[maybe_unused]] SKSE::SerializationInterface* a_intfc)
     {
-        g_searched_corpses.clear();
+        MarkCorpse::instance().m_searched_corpses.clear();
     });
 
     serialization->SetFormDeleteCallback([](RE::VMHandle a_handle)
     {
-        g_searched_corpses.erase(static_cast<RE::FormID>(a_handle & 0xFFFFFFFFu));
+        MarkCorpse::instance().m_searched_corpses.erase(static_cast<RE::FormID>(a_handle & 0xFFFFFFFFu));
     });
 
     logger::info("Registered searched-corpses serialization callbacks"sv);
@@ -156,5 +160,9 @@ void MarkCorpse::install()
     RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(ActivateHandler::get_singleton());
     logger::info("Installed TESActivateEvent sinks"sv);
 }
+
+MarkCorpse::MarkCorpse() = default;
+
+MarkCorpse::~MarkCorpse() = default;
 
 PLUGIN_NAMESPACE_END

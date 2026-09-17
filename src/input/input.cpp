@@ -40,11 +40,11 @@ namespace
             return;
 
         // just hotkey
-        if (uint32_t const& vk = Setting::get_config().hotkey)
+        if (uint32_t const& vk = Setting::instance().get_config().hotkey)
         {
             if (event->IsDown() && key == dik_from_vk(vk))
             {
-                Config& cfg = Setting::get_config();
+                Config& cfg = Setting::instance().get_config();
                 if (cfg.hotkey_mode == Config::HotkeyMode::e_pulse)
                 {
                     if (cfg.enabled)

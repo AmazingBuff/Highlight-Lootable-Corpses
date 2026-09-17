@@ -9,12 +9,12 @@ PLUGIN_NAMESPACE_BEGIN
 class LootFilter
 {
 public:
-    LootFilter() = delete;
-    ~LootFilter() = delete;
     LootFilter(LootFilter const&) = delete;
     LootFilter(LootFilter const&&) = delete;
     LootFilter operator=(LootFilter&) = delete;
     LootFilter operator=(LootFilter&&) = delete;
+
+    static LootFilter& instance();
 
     enum class Category : std::uint16_t
     {
@@ -37,7 +37,16 @@ public:
     };
 
     // input must be a container
-    static EvaluateResult evaluate(RE::TESObjectREFR* a_ref);
+    EvaluateResult evaluate(RE::TESObjectREFR* a_ref);
+private:
+    LootFilter();
+    ~LootFilter();
+
+    using func_t = void (*)(RE::Actor*, RE::InventoryChanges*);
+
+    RE::BSTArray<RE::InventoryEntryData> fetch_inventory_items(RE::TESObjectREFR* a_ref, const std::function<bool(RE::TESBoundObject&)>& filter);
+private:
+    REL::Relocation<func_t> m_refresh_enchanted_weapons;
 };
 
 PLUGIN_NAMESPACE_END

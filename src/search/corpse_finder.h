@@ -7,12 +7,12 @@ PLUGIN_NAMESPACE_BEGIN
 class CorpseScan
 {
 public:
-    CorpseScan() = delete;
-    ~CorpseScan() = delete;
     CorpseScan(CorpseScan const&) = delete;
     CorpseScan(CorpseScan const&&) = delete;
     CorpseScan operator=(CorpseScan&) = delete;
     CorpseScan operator=(CorpseScan&&) = delete;
+
+    static CorpseScan& instance();
 
     struct CorpseInfo
     {
@@ -36,8 +36,16 @@ public:
         std::int32_t best_item_value;
     };
 
-    static void search();
-    [[nodiscard]] static std::vector<CorpseInfo> snapshot();
+    void search();
+    [[nodiscard]] std::vector<CorpseInfo> snapshot();
+private:
+    CorpseScan();
+    ~CorpseScan();
+private:
+    // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
+    std::mutex m_mutex;
+    std::vector<CorpseInfo> m_corpses;
+    std::unordered_set<RE::FormID> m_logged_corpses;
 };
 
 PLUGIN_NAMESPACE_END

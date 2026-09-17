@@ -8,6 +8,12 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
+LootFilter& LootFilter::instance()
+{
+    static LootFilter s_instance;
+    return s_instance;
+}
+
 namespace
 {
     [[nodiscard]] std::int32_t item_value(RE::InventoryEntryData const& a_entry, std::int32_t a_count)
@@ -78,20 +84,17 @@ namespace
 
         return cats;
     }
+}
 
-
-    // fork from QuickLoot IE src/items/inventory.cpp
-    using func_t = void (*)(RE::Actor*, RE::InventoryChanges*);
-    REL::Relocation<func_t> g_refresh_enchanted_weapons{ RELOCATION_ID(50946, 51823) };
-
-    RE::BSTArray<RE::InventoryEntryData> fetch_inventory_items(RE::TESObjectREFR* a_ref, const std::function<bool(RE::TESBoundObject&)>& filter)
-    {
+// fork from QuickLoot IE src/items/inventory.cpp
+RE::BSTArray<RE::InventoryEntryData> LootFilter::fetch_inventory_items(RE::TESObjectREFR* a_ref, const std::function<bool(RE::TESBoundObject&)>& filter)
+{
         RE::InventoryChanges* const changes = a_ref->GetInventoryChanges();
 
 	if (RE::Actor* const actor = a_ref->As<RE::Actor>())
 	{
 	    if (changes)
-	        g_refresh_enchanted_weapons(actor, changes);
+	        m_refresh_enchanted_weapons(actor, changes);
 	}
 
 	std::unordered_map<RE::TESBoundObject*, RE::InventoryEntryData> lookup;
@@ -163,8 +166,6 @@ namespace
         }
 
         return inventory;
-    }
-
 }
 
 LootFilter::EvaluateResult LootFilter::evaluate(RE::TESObjectREFR* a_ref)
@@ -177,7 +178,7 @@ LootFilter::EvaluateResult LootFilter::evaluate(RE::TESObjectREFR* a_ref)
     if (!a_ref)
         return result;
 
-    Config const& cfg = Setting::get_config();
+    Config const& cfg = Setting::instance().get_config();
 
     for (RE::InventoryEntryData const& entry : fetch_inventory_items(a_ref, RE::TESObjectREFR::DEFAULT_INVENTORY_FILTER))
     {
@@ -201,5 +202,9 @@ LootFilter::EvaluateResult LootFilter::evaluate(RE::TESObjectREFR* a_ref)
 
     return result;
 }
+
+LootFilter::LootFilter() : m_refresh_enchanted_weapons{ RELOCATION_ID(50946, 51823) } {}
+
+LootFilter::~LootFilter() = default;
 
 PLUGIN_NAMESPACE_END

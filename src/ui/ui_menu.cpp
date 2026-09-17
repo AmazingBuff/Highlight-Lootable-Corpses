@@ -55,7 +55,7 @@ namespace
     // 直接读写 Config 设置；修改即时生效，渲染线程无锁读取（与 set_enabled 同模式）。
     void render_settings()
     {
-        Config& cfg = Setting::get_config();
+        Config& cfg = Setting::instance().get_config();
 
         ImGuiMCP::Checkbox("Enabled", &cfg.enabled);
 
@@ -154,7 +154,7 @@ namespace
 
         ImGuiMCP::Separator();
 
-        std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::snapshot();
+        std::vector<CorpseScan::CorpseInfo> const corpses = CorpseScan::instance().snapshot();
         float nearest = 0.0f;
         for (auto const& corpse : corpses)
             nearest = nearest == 0.0f ? corpse.distance : std::min(nearest, corpse.distance);
@@ -162,7 +162,7 @@ namespace
         ImGuiMCP::Text("Corpses: %d | Nearest: %.0f units", static_cast<int>(corpses.size()), nearest);
 
         if (ImGuiMCP::Button("Save"))
-            Setting::save();
+            Setting::instance().save();
     }
 }
 

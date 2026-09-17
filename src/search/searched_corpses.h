@@ -9,18 +9,23 @@ PLUGIN_NAMESPACE_BEGIN
 class MarkCorpse
 {
 public:
-    MarkCorpse() = delete;
-    ~MarkCorpse() = delete;
     MarkCorpse(MarkCorpse const&) = delete;
     MarkCorpse(MarkCorpse const&&) = delete;
     MarkCorpse operator=(MarkCorpse&) = delete;
     MarkCorpse operator=(MarkCorpse&&) = delete;
 
+    static MarkCorpse& instance();
+
     // all input must be a corpse with container
-    static void mark(RE::TESObjectREFR* a_ref);
+    void mark(RE::TESObjectREFR* a_ref);
     // all input must be a corpse with container
-    [[nodiscard]] static bool contains(RE::TESObjectREFR* a_ref);
-    static void install();
+    [[nodiscard]] bool contains(RE::TESObjectREFR* a_ref);
+    void install();
+private:
+    MarkCorpse();
+    ~MarkCorpse();
+private:
+    std::unordered_set<RE::FormID> m_searched_corpses;
 };
 
 PLUGIN_NAMESPACE_END

@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "render/render_util.h"
@@ -72,10 +73,35 @@ public:
         std::uint32_t height);
 
     // 绘制全部 draw（调色板蒙皮在此构建）。
-    void draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws) const;
+    void draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws);
 
 private:
+    // InputLayout 缓存键（蒙皮, 精度, 属性偏移, 步进）
+    struct LayoutKey
+    {
+        bool skinned;
+        bool full_prec;
+        std::uint32_t position_format;  // 位置格式为标定结果，须入键防不同格式共用布局
+        std::uint32_t position_offset;
+        std::uint32_t skinning_offset;
+        std::uint32_t stride;
+        // 蒙皮权重/索引布局：标定结果，须入键防不同布局共用同一 InputLayout
+        //（静态 draw 保持默认 0/UNKNOWN）。
+        std::uint32_t weight_format;
+        std::uint32_t weight_offset;
+        std::uint32_t index_format;
+        std::uint32_t index_offset;
+
+        bool operator==(LayoutKey const&) const = default;
+    };
+
     bool create_pipeline(ID3D11Device* device);
+
+    ID3D11InputLayout* get_layout(
+        ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, std::uint32_t stride,
+        DXGI_FORMAT position_format, std::uint32_t position_offset, MaskSkinLayout const* skin_layout);
+
+    void release_layouts();
 
 private:
     ID3D11VertexShader* m_vs_static;
@@ -94,6 +120,10 @@ private:
 
     // 常量缓冲上传字节取向（自动校准；直传预期成立，失败时转置字节序）
     bool m_upload_transposed;
+
+    // InputLayout 缓存：按 (蒙皮, 精度, 属性偏移, 步进) 缓存——属性偏移来自各 mesh 的
+    // vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重（尸体 mesh 布局种类极少）。
+    std::vector<std::pair<LayoutKey, ID3D11InputLayout*>> m_layout_cache;
 };
 
 // Shared full-screen shaders and a private, dynamically sized target style table.

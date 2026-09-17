@@ -13,126 +13,107 @@
 
 MASK_NAMESPACE_BEGIN
 
-namespace
-{
-    // ---------------------------------------------------------------------------
-    // MaskGeometryPass 的 InputLayout 缓存：按 (蒙皮, 精度, 属性偏移, 步进) 缓存——
-    // 属性偏移来自各 mesh 的 vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重
-    //（尸体 mesh 布局种类极少）。
-    // ---------------------------------------------------------------------------
-    struct LayoutKey
-    {
-        bool skinned;
-        bool full_prec;
-        std::uint32_t position_format;  // 位置格式为标定结果，须入键防不同格式共用布局
-        std::uint32_t position_offset;
-        std::uint32_t skinning_offset;
-        std::uint32_t stride;
-        // 蒙皮权重/索引布局：标定结果，须入键防不同布局共用同一 InputLayout
-        //（静态 draw 保持默认 0/UNKNOWN）。
-        std::uint32_t weight_format;
-        std::uint32_t weight_offset;
-        std::uint32_t index_format;
-        std::uint32_t index_offset;
-
-        bool operator==(LayoutKey const&) const = default;
-    };
-    std::vector<std::pair<LayoutKey, ID3D11InputLayout*>> g_layout_cache;
-
-    ID3D11InputLayout* get_layout(
+// ---------------------------------------------------------------------------
+// MaskGeometryPass 的 InputLayout 缓存：按 (蒙皮, 精度, 属性偏移, 步进) 缓存——
+// 属性偏移来自各 mesh 的 vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重
+//（尸体 mesh 布局种类极少）。
+// ---------------------------------------------------------------------------
+ID3D11InputLayout* MaskGeometryPass::get_layout(
     ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, std::uint32_t stride,
     DXGI_FORMAT position_format, std::uint32_t position_offset, MaskSkinLayout const* skin_layout)
+{
+    // 位置格式/偏移：静态路径为标定结果（UNKNOWN 表示按 desc 推导）；蒙皮路径为
+    // 属性偏移间距判定结果（绝不为 UNKNOWN）。
+    DXGI_FORMAT const resolved_format = (position_format == DXGI_FORMAT_UNKNOWN)
+                                            ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT)
+                                            : position_format;
+    std::uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
+                                              ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
+                                              : position_offset;
+    // 蒙皮权重/索引布局由标定结果给出；静态路径无（nullptr）。
+    MaskSkinLayout const skin_layout_ref = skin_layout ? *skin_layout : MaskSkinLayout{};
+    LayoutKey const key{
+        .skinned = skinned,
+        .full_prec = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC),
+        .position_format = static_cast<std::uint32_t>(resolved_format),
+        .position_offset = resolved_offset,
+        .skinning_offset = desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING),
+        .stride = stride,
+        .weight_format = static_cast<std::uint32_t>(skin_layout_ref.weight_format),
+        .weight_offset = skin_layout_ref.weight_offset,
+        .index_format = static_cast<std::uint32_t>(skin_layout_ref.index_format),
+        .index_offset = skin_layout_ref.index_offset,
+    };
+
+    for (auto const& [cached, layout] : m_layout_cache)
     {
-        // 位置格式/偏移：静态路径为标定结果（UNKNOWN 表示按 desc 推导）；蒙皮路径为
-        // 属性偏移间距判定结果（绝不为 UNKNOWN）。
-        DXGI_FORMAT const resolved_format = (position_format == DXGI_FORMAT_UNKNOWN)
-                                                ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT)
-                                                : position_format;
-        std::uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
-                                                  ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
-                                                  : position_offset;
-        // 蒙皮权重/索引布局由标定结果给出；静态路径无（nullptr）。
-        MaskSkinLayout const skin_layout_ref = skin_layout ? *skin_layout : MaskSkinLayout{};
-        LayoutKey const key{
-            .skinned = skinned,
-            .full_prec = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC),
-            .position_format = static_cast<std::uint32_t>(resolved_format),
-            .position_offset = resolved_offset,
-            .skinning_offset = desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING),
-            .stride = stride,
-            .weight_format = static_cast<std::uint32_t>(skin_layout_ref.weight_format),
-            .weight_offset = skin_layout_ref.weight_offset,
-            .index_format = static_cast<std::uint32_t>(skin_layout_ref.index_format),
-            .index_offset = skin_layout_ref.index_offset,
-        };
+        if (cached == key)
+            return layout;
+    }
 
-        for (auto const& [cached, layout] : g_layout_cache)
-        {
-            if (cached == key)
-                return layout;
-        }
-
-        D3D11_INPUT_ELEMENT_DESC elements[3]{};
-        UINT count = 0;
+    D3D11_INPUT_ELEMENT_DESC elements[3]{};
+    UINT count = 0;
+    elements[count++] = {
+        .SemanticName = "POSITION",
+        .SemanticIndex = 0,
+        .Format = resolved_format,
+        .InputSlot = 0,
+        .AlignedByteOffset = resolved_offset,
+        .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+        .InstanceDataStepRate = 0
+    };
+    if (skinned)
+    {
+        // SKINNING 块内布局由自标定给出（权重/索引的格式与字节偏移），
+        // 语义名顺序（BLENDWEIGHT / BLENDINDICES）与蒙皮 VS 一致。
         elements[count++] = {
-            .SemanticName = "POSITION",
+            .SemanticName = "BLENDWEIGHT",
             .SemanticIndex = 0,
-            .Format = resolved_format,
+            .Format = skin_layout_ref.weight_format,
             .InputSlot = 0,
-            .AlignedByteOffset = resolved_offset,
+            .AlignedByteOffset = skin_layout_ref.weight_offset,
             .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
             .InstanceDataStepRate = 0
         };
-        if (skinned)
-        {
-            // SKINNING 块内布局由自标定给出（权重/索引的格式与字节偏移），
-            // 语义名顺序（BLENDWEIGHT / BLENDINDICES）与蒙皮 VS 一致。
-            elements[count++] = {
-                .SemanticName = "BLENDWEIGHT",
-                .SemanticIndex = 0,
-                .Format = skin_layout_ref.weight_format,
-                .InputSlot = 0,
-                .AlignedByteOffset = skin_layout_ref.weight_offset,
-                .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-                .InstanceDataStepRate = 0
-            };
-            elements[count++] = {
-                .SemanticName = "BLENDINDICES",
-                .SemanticIndex = 0,
-                .Format = skin_layout_ref.index_format,
-                .InputSlot = 0,
-                .AlignedByteOffset = skin_layout_ref.index_offset,
-                .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-                .InstanceDataStepRate = 0
-            };
-        }
-
-        ID3D11InputLayout* layout = nullptr;
-        HRESULT const hr = device->CreateInputLayout(elements, count, blob->GetBufferPointer(), blob->GetBufferSize(), &layout);
-        if (FAILED(hr) || !layout)
-        {
-            static bool s_layout_failure_reported = false;
-            if (!s_layout_failure_reported)
-            {
-                s_layout_failure_reported = true;
-                logger::error("outline mask: CreateInputLayout failed ({:X}), affected meshes skipped", static_cast<unsigned int>(hr));
-            }
-            return nullptr;
-        }
-        g_layout_cache.emplace_back(key, layout);
-        return layout;
+        elements[count++] = {
+            .SemanticName = "BLENDINDICES",
+            .SemanticIndex = 0,
+            .Format = skin_layout_ref.index_format,
+            .InputSlot = 0,
+            .AlignedByteOffset = skin_layout_ref.index_offset,
+            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+            .InstanceDataStepRate = 0
+        };
     }
 
-    void release_layouts()
+    ID3D11InputLayout* layout = nullptr;
+    HRESULT const hr = device->CreateInputLayout(elements, count, blob->GetBufferPointer(), blob->GetBufferSize(), &layout);
+    if (FAILED(hr) || !layout)
     {
-        for (ID3D11InputLayout* const val : g_layout_cache | std::views::values)
+        static bool s_layout_failure_reported = false;
+        if (!s_layout_failure_reported)
         {
-            if (val)
-                val->Release();
+            s_layout_failure_reported = true;
+            logger::error("outline mask: CreateInputLayout failed ({:X}), affected meshes skipped", static_cast<unsigned int>(hr));
         }
-        g_layout_cache.clear();
+        return nullptr;
     }
+    m_layout_cache.emplace_back(key, layout);
+    return layout;
+}
 
+void MaskGeometryPass::release_layouts()
+{
+    for (ID3D11InputLayout* const val : m_layout_cache | std::views::values)
+    {
+        if (val)
+            val->Release();
+    }
+    m_layout_cache.clear();
+}
+
+namespace
+{
     struct PerDrawCBData
     {
         DirectX::XMFLOAT4X4 mvp;
@@ -501,7 +482,7 @@ void MaskGeometryPass::calibrate_upload_orientation(
     // 锚点在相机后方/引擎投影失败：下一帧重试（不置位）
 }
 
-void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws) const
+void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws)
 {
     for (MaskDraw const& draw : draws)
     {

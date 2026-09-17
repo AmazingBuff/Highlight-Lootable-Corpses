@@ -5,13 +5,14 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
+CorpseScan& CorpseScan::instance()
+{
+    static CorpseScan s_instance;
+    return s_instance;
+}
+
 namespace
 {
-    // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
-    std::mutex g_mutex;
-    std::vector<CorpseScan::CorpseInfo> g_corpses;
-    std::unordered_set<RE::FormID> g_logged_corpses;
-
     // ---------------------------------------------------------------------------
     // 包围盒计算（参考 Precision 的碰撞体方案）
     //
@@ -360,7 +361,7 @@ namespace
                 !Util::is_corpse_actor(actor))
                 return false;
 
-            LootFilter::EvaluateResult const loot = LootFilter::evaluate(actor);
+            LootFilter::EvaluateResult const loot = LootFilter::instance().evaluate(actor);
             if (!loot.has_items)
                 return false;
 
@@ -401,7 +402,7 @@ namespace
                 return false;
 
             // only container need use owner
-            LootFilter::EvaluateResult loot = LootFilter::evaluate(Util::get_container_object(a_ref));
+            LootFilter::EvaluateResult loot = LootFilter::instance().evaluate(Util::get_container_object(a_ref));
             if (!loot.has_items)
                 return false;
 
@@ -448,7 +449,7 @@ void CorpseScan::search()
     if (!tes || !player)
         return;
 
-    Config const& cfg = Setting::get_config();
+    Config const& cfg = Setting::instance().get_config();
 
     std::vector<CorpseInfo> found;
     found.reserve(64);
@@ -456,7 +457,7 @@ void CorpseScan::search()
     {
         RE::TESObjectREFR* ref = Util::get_container_object(a_ref);
 
-        if (cfg.hide_searched_enabled && MarkCorpse::contains(ref))
+        if (cfg.hide_searched_enabled && MarkCorpse::instance().contains(ref))
             return RE::BSContainer::ForEachResult::kContinue;
 
         if (CorpseInfo info{ .radius = 60.0f }; filter_corpse(a_ref, info))
@@ -464,9 +465,9 @@ void CorpseScan::search()
             found.push_back(info);
 
             const RE::FormID form_id = ref->GetFormID();
-            if (!g_logged_corpses.contains(form_id))
+            if (!m_logged_corpses.contains(form_id))
                 logger::info("{} ({:08x}) has been added!", ref->GetDisplayFullName(), form_id);
-            g_logged_corpses.insert(form_id);
+            m_logged_corpses.insert(form_id);
         }
         return RE::BSContainer::ForEachResult::kContinue;
     });
@@ -480,15 +481,19 @@ void CorpseScan::search()
     });
 
     {
-        std::lock_guard lock(g_mutex);
-        g_corpses.swap(found);
+        std::lock_guard lock(m_mutex);
+        m_corpses.swap(found);
     }
 }
 
 std::vector<CorpseScan::CorpseInfo> CorpseScan::snapshot()
 {
-    std::lock_guard lock(g_mutex);
-    return g_corpses;
+    std::lock_guard lock(m_mutex);
+    return m_corpses;
 }
+
+CorpseScan::CorpseScan() = default;
+
+CorpseScan::~CorpseScan() = default;
 
 PLUGIN_NAMESPACE_END

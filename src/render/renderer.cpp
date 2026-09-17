@@ -135,13 +135,13 @@ namespace
         void schedule_scan()
         {
             std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
-            if (now - m_last_scan >= std::chrono::milliseconds(Setting::get_config().scan_interval_ms) &&
+            if (now - m_last_scan >= std::chrono::milliseconds(Setting::instance().get_config().scan_interval_ms) &&
                 !m_scan_in_flight.exchange(true))
             {
                 m_last_scan = now;
                 SKSE::GetTaskInterface()->AddTask([this]
                 {
-                    CorpseScan::search();
+                    CorpseScan::instance().search();
                     m_scan_in_flight.store(false);
                 });
             }
@@ -172,7 +172,7 @@ namespace
                 return;
             }
 
-            Config const& cfg = Setting::get_config();
+            Config const& cfg = Setting::instance().get_config();
 
             if (!cfg.enabled || cfg.display_mode != Config::DisplayMode::e_icon)
                 m_icon_layout.reset();
@@ -187,7 +187,7 @@ namespace
 
             if (pulse_active || cfg.enabled)
             {
-                std::vector<CorpseScan::CorpseInfo> corpses = CorpseScan::snapshot();
+                std::vector<CorpseScan::CorpseInfo> corpses = CorpseScan::instance().snapshot();
                 float const pulse = pulse_active ? pulse_alpha(PulseTimer::instance().progress()) : 1.0f;
                 if (pulse <= 0.0f || corpses.empty())
                     m_icon_layout.reset();
@@ -252,8 +252,8 @@ namespace
                                     mask_targets.emplace_back(ref, DirectX::XMFLOAT4{ color.r(), color.g(), color.b(), pulse * corpse_alpha(cfg, corpse.distance, color.a())});
                             }
                         }
-                        OutlineMask::set_targets(mask_targets);
-                        OutlineMask::render(device, context, camera, m_render_target, desc.Width, desc.Height);
+                        OutlineMask::instance().set_targets(mask_targets);
+                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.Width, desc.Height);
                     }
                 }
             }
@@ -363,7 +363,7 @@ namespace
 
 void Renderer::install()
 {
-    (void)PresentHook::install(&present_callback);
+    (void)PresentHook::instance().install(&present_callback);
 }
 
 PLUGIN_NAMESPACE_END

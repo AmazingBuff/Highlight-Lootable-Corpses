@@ -58,17 +58,17 @@ struct Config
 class Setting
 {
 public:
-    Setting() = delete;
-    ~Setting() = delete;
     Setting(Setting const&) = delete;
     Setting(Setting const&&) = delete;
     Setting operator=(Setting&) = delete;
     Setting operator=(Setting&&) = delete;
 
-    static Config& get_config() noexcept;
+    static Setting& instance();
 
-    static void load() noexcept;
-    static void save() noexcept;
+    Config& get_config() noexcept;
+
+    void load() noexcept;
+    void save() noexcept;
 
     constexpr static int Min_Outline_Thickness = 1;
     constexpr static int Max_Outline_Thickness = 5;
@@ -90,6 +90,11 @@ public:
 
     constexpr static int Min_Pulse_Duration_Ms = 500;
     constexpr static int Max_Pulse_Duration_Ms = 30000;
+private:
+    Setting();
+    ~Setting();
+private:
+    Config m_config;
 };
 
 PLUGIN_NAMESPACE_END

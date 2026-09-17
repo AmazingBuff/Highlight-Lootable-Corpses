@@ -18,8 +18,21 @@ class PresentHook
 public:
     using Callback = void (STDMETHODCALLTYPE*)(IDXGISwapChain* a_swap_chain);
 
+    static PresentHook& instance();
+
     // 幂等安装；交换链尚未就绪时返回 false 并 WARN（调用方在后续游戏消息中重试）。
-    static bool install(Callback a_on_present);
+    bool install(Callback a_on_present);
+private:
+    PresentHook();
+    ~PresentHook();
+
+    using PresentFunc = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+
+    static HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swap_chain, UINT a_sync_interval, UINT a_flags);
+private:
+    PresentFunc m_original_present;
+    Callback m_callback;
+    bool m_installed;
 };
 
 PLUGIN_NAMESPACE_END
