@@ -11,8 +11,8 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 - **Ash pile support** — ash piles from reanimated / disintegrated enemies (including DLC variants such as Soul Embers and Ash Spawn) are checked through the original actor they point to
 - **Static corpse support** — container-type corpses such as `TreasDraugrAmbushCorpse*`, `TreasBurntCorpse*`, `defaultGhostCorpse`, including DLC variants
 - **Optional loot filter** — show only corpses whose inventory contains quest items, keys, enchanted gear, high-value items, books, consumables (arrows, potions, scrolls, ingredients, soul gems — filled-only option available)
-- **Distance fade** — the `icon` marker is fully opaque up close and fades smoothly with distance
-- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the nearest highlighted surface per pixel using private depth, `outline` merges each target's independent outer border so occluded borders remain visible, and `icon` shows a small circular marker at the corpse's screen position
+- **Distance fade** — the `icon` marker keeps the existing opacity fade and scales smoothly from 1.25x nearby to 0.75x far away
+- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the nearest highlighted surface per pixel using private depth, `outline` merges each target's independent outer border so occluded borders remain visible, and `icon` points downward above the corpse bounds; nearby crowded corpses share a slightly larger double arrow
 - **Accurate placement** — marker positions come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint
 - **Hotkey toggle** — optionally turn the overlay on/off with a single key (unbound by default; bind one via the "Hotkey" button in the MCP menu or the `Hotkey` INI key; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
 - **In-game settings menu** — every option can be adjusted live in the Mod Control Panel ("Highlight Lootable Corpses > Settings") and saved to the INI
@@ -57,8 +57,10 @@ MaxDistance=2000.0
 ScanIntervalMs=500
 
 [Display]
-; corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (small circle at the corpse position, 2)
+; corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (arrows above corpses; nearby crowded targets share a double arrow, 2)
 DisplayMode=0
+; icon base half-width in pixels, range 5-20 (example value; existing key remains compatible)
+IconRadius=10
 ; outline color (RGB hex)
 OutlineColor=00FF66
 ; minimum opacity at max distance
@@ -112,3 +114,5 @@ ValueConsumables=false
 ## Feature documentation
 
 See the [feature index](docs/features/README.md) and [mask rendering](docs/features/mask-rendering.md) for mode semantics, per-target colors, resource lifetime and validation.
+
+See [Icon rendering](docs/features/icon-rendering.md) for thresholds, stable grouping, top anchors and verification. Groups receive a 1.2x size multiplier, capped at 1.5x base size. All candidates participate before selecting the nearest 16 groups. World and height limits prevent unrelated aligned targets from merging, so some screen overlap remains possible. Thresholds need in-game tuning; synthetic WARP checks are not game validation.

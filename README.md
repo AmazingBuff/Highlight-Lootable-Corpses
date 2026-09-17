@@ -15,8 +15,9 @@
 - 支持**静态尸体**：干尸/裹尸/烧焦尸体等容器物体（`TreasDraugrAmbushCorpse*`、
   `TreasBurntCorpse*`、`defaultGhostCorpse` 等，含 DLC 变体）
 - 三种显示模式（`DisplayMode`）三选一：`silhouette` 按高亮物体之间的逐像素深度选择最近物体的穿墙剪影填充、
-  `outline` 分别提取每个物体的外侧描边并合并（被其他物体遮住的边界仍可见）、`icon` 尸体屏幕位置的实心小圆图标
-- 纯标记，无文字干扰；icon 模式的图标按距离指数衰减（越远越"虚"）
+  `outline` 分别提取每个物体的外侧描边并合并（被其他物体遮住的边界仍可见）、`icon` 尸体顶部上方的向下箭头，空间和屏幕上都接近的尸体合并为双箭头
+- 纯标记，无文字干扰；icon 保留距离淡出，同时近处放大、远处缩小；聚合图标额外放大，双箭头区别于单个目标
+- icon 使用带迟滞的有界分组，限制高度差以减少跨楼层合并；所有候选参与分组，最多显示最近的 16 组
 - 标记位置取自 Havok 碰撞体（`GetAabbWorldspace`）与 ragdoll 刚体的包围盒投影，
   与尸体实际位置一致
 - 完全无视草、灌木、墙壁等遮挡（在场景渲染之后绘制，不使用场景深度；剪影仅比较高亮物体之间的深度）
@@ -54,8 +55,10 @@ MaxDistance=2000.0
 ScanIntervalMs=500
 
 [Display]
-; 尸体显示样式：silhouette（穿墙剪影填充，0）| outline（剪影外描边带，1）| icon（尸体位置的小圆图标，2）
+; 尸体显示样式：silhouette（穿墙剪影填充，0）| outline（剪影外描边带，1）| icon（尸体顶部箭头，邻近拥挤目标合并为双箭头，2）
 DisplayMode=0
+; 图标基础半宽（像素，范围 5–20；此处为示例值，原 IconRadius 键仍兼容）
+IconRadius=10
 ; 描边颜色（RGB 十六进制）
 OutlineColor=00FF66
 ; 远处标记最小不透明度
@@ -153,3 +156,5 @@ cpack --config build/CPackConfig.cmake
 ## 功能实现文档
 
 参见[功能文档索引](docs/features/README.md)，其中的 [Mask 渲染](docs/features/mask-rendering.md)说明模式语义、逐目标颜色接口、资源与验证。
+
+Icon 的阈值、缩放、顶部定位和验证范围见 [Icon 渲染](docs/features/icon-rendering.md)。尺寸缩放为基础半宽的 0.75–1.25 倍，分组额外乘 1.2，总上限为 1.5 倍。当前阈值仍需游戏内调节验证；不同高度或相距较远的标记不会仅因屏幕重叠而合并，因此不能保证消除所有覆盖。

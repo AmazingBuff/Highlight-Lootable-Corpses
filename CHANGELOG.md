@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Change icon markers to bordered downward arrows above corpse bounds, with bounded distance scaling and the existing opacity fade; retain the `IconRadius` key as base half-width and label its menu control "Icon Size".
+
 - Change silhouettes to show the nearest highlighted surface per pixel, including intersecting targets, while preserving wall penetration.
 - Add per-target highlight colors while preserving corpse color, pulse and distance fade settings.
 
@@ -11,9 +13,11 @@
 - The toggle hotkey is now unbound by default. Bind one via the new "Hotkey" button in the MCP menu — all keys are bindable (keyboard and mouse), including ESC/F1 (pressing them may close the panel, but the bind still applies; click the button again or wait 5s to cancel). Bind it via the `Hotkey` INI key alternatively. Hotkey toggles stay in sync with the menu's Enabled checkbox and are suspended while the menu is open.
 - The INI is now written with a comment above each option (same style as the configuration reference in the README) and is saved automatically whenever the player makes a save game after changing settings in the MCP menu — pressing "Save to INI" is no longer required (that button still saves immediately).
 - Loot filter category switches now default to **false** (opt-in per category), and their controls are greyed out in the MCP menu while the loot filter is off.
-- **BREAKING:** Replace the corpse box wireframe with a `DisplayMode` setting (`silhouette`, `outline`, or `icon`) in the Display section: `silhouette` fills the wall-penetrating mesh silhouette in `OutlineColor`, `outline` draws a band just outside it, and `icon` shows a small circular marker at the corpse's screen position. The box wireframe is removed. All three modes fade with distance according to `MinOpacity`, `FadeStartDistance`, and `FadePower`.
+- **BREAKING:** Replace the corpse box wireframe with a `DisplayMode` setting (`silhouette`, `outline`, or `icon`) in the Display section: `silhouette` fills the wall-penetrating mesh silhouette in `OutlineColor`, `outline` draws a band just outside it, and `icon` shows a downward arrow above the corpse, with nearby crowded targets sharing a double arrow. The box wireframe is removed. All three modes fade with distance according to `MinOpacity`, `FadeStartDistance`, and `FadePower`.
 
 ### Added
+
+- Add stable icon grouping for corpses close in both world and screen space, shown as larger double arrows with height and group-extent limits; select the nearest 16 groups after grouping all candidates.
 
 - Add an optional "hide searched corpses" mode (`HideSearchedEnabled`, off by default): once the player searches a corpse, it stops being outlined — even if nothing was taken. Searching is always recorded (so corpses searched before enabling the option are hidden too once it is turned on). QuickLoot IE users are covered via its public API (opening the loot menu marks the corpse as searched); QuickLoot IE is an optional dependency and its absence falls back to vanilla activation events only.
 - Add an experimental mesh outline mask renderer: corpse meshes — fully GPU-skinned via per-partition bone matrices — are rendered into an offscreen integer-ID mask (private depth for silhouettes, independent masks for outlines; both ignore scene depth) whenever corpses are in range, and a translucent on-screen overlay shows the silhouette for verification.

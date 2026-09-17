@@ -21,6 +21,7 @@
 #include <cmath>
 #include <limits>
 #include <mutex>
+#include <ranges>
 
 #include <CommonStates.h>
 
@@ -63,6 +64,21 @@ namespace
         return view_data;
     }
 
+    bool project_icon_tip(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data,
+        DirectX::XMFLOAT3 const& point, float width, float height, DirectX::XMFLOAT2& tip)
+    {
+        float px = 0.0f, py = 0.0f, depth = 0.0f;
+        if (project(camera, { point.x, point.y, point.z }, width, height, px, py, depth))
+            return icon_screen_tip(px, py, depth, width, height, tip);
+        if (!view_data)
+            return false;
+        DirectX::SimpleMath::Matrix const& matrix = view_data->viewProjMatrixUnjittered._11 != 0.0f ?
+            view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
+        DirectX::XMFLOAT4 clip;
+        DirectX::XMStoreFloat4(&clip, DirectX::XMVector4Transform(DirectX::XMVectorSet(point.x, point.y, point.z, 1.0f), matrix));
+        return icon_clip_tip(clip, width, height, tip);
+    }
+
     class OverlayDirector
     {
     public:
@@ -76,17 +92,24 @@ namespace
         {
             std::lock_guard<std::mutex> const draw_lock(m_draw_mutex);
 
+            m_icon_overlay.end_frame();
             schedule_scan();
 
             RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
             if (!renderer)
+            {
+                m_icon_layout.reset();
                 return;
+            }
 
             RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
             ID3D11Device* device = reinterpret_cast<ID3D11Device*>(rt.forwarder);
             ID3D11DeviceContext* context = reinterpret_cast<ID3D11DeviceContext*>(rt.context);
             if (!device || !context)
+            {
+                m_icon_layout.reset();
                 return;
+            }
 
             RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
             std::uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
@@ -126,11 +149,11 @@ namespace
 
         void draw(IDXGISwapChain* swap_chain, ID3D11Device* device, ID3D11DeviceContext* context)
         {
-            if (!init(swap_chain, device))
+            if (!init(swap_chain, device) || !update_back_buffer(swap_chain, device))
+            {
+                m_icon_layout.reset();
                 return;
-
-            if (!update_back_buffer(swap_chain, device))
-                return;
+            }
 
             D3D11_TEXTURE2D_DESC desc{};
             m_back_buffer->GetDesc(&desc);
@@ -144,19 +167,30 @@ namespace
                 h = static_cast<float>(screen.height);
             }
             if (w <= 0.0f || h <= 0.0f)
+            {
+                m_icon_layout.reset();
                 return;
+            }
 
             Config const& cfg = Setting::get_config();
+
+            if (!cfg.enabled || cfg.display_mode != Config::DisplayMode::e_icon)
+                m_icon_layout.reset();
 
             bool const pulse_mode = cfg.hotkey_mode == Config::HotkeyMode::e_pulse;
             bool const pulse_active = pulse_mode && cfg.enabled && PulseTimer::instance().active();
             if (pulse_mode && !pulse_active)
+            {
+                m_icon_layout.reset();
                 return;
+            }
 
             if (pulse_active || cfg.enabled)
             {
                 std::vector<CorpseScan::CorpseInfo> corpses = CorpseScan::snapshot();
                 float const pulse = pulse_active ? pulse_alpha(PulseTimer::instance().progress()) : 1.0f;
+                if (pulse <= 0.0f || corpses.empty())
+                    m_icon_layout.reset();
                 if (pulse > 0.f && !corpses.empty())
                 {
                     RE::NiCamera* camera = RE::Main::WorldRootCamera();
@@ -168,7 +202,7 @@ namespace
                     // 包围球（anchor + radius，扫描期由碰撞盒/几何兜底得出）与视锥相交即
                     // 视为可见，与引擎自身剔除同语义；mask 不改场景，剔除纯属性能优化。
                     // 相机缺失（如主菜单态）时跳过剔除，保持既有行为。----
-                    if (camera)
+                    if (camera && cfg.display_mode != Config::DisplayMode::e_icon)
                     {
                         std::erase_if(corpses, [camera](CorpseScan::CorpseInfo const& corpse) {
                             return !camera->PointInFrustum(corpse.anchor, corpse.radius);
@@ -182,15 +216,27 @@ namespace
                     if (cfg.display_mode == Config::DisplayMode::e_icon)
                     {
                         m_icon_overlay.begin_frame(w, h);
+                        std::vector<IconCandidate> candidates;
+                        candidates.reserve(corpses.size());
                         for (CorpseScan::CorpseInfo const& corpse : corpses)
                         {
-                            float px = 0.0f, py = 0.0f, d = 0.0f;
-                            if (!world_to_screen(camera, view_data, corpse.anchor, w, h, px, py, d))
+                            DirectX::XMFLOAT3 const anchor{ corpse.anchor.x, corpse.anchor.y, corpse.anchor.z };
+                            DirectX::XMFLOAT3 const top = icon_anchor(anchor,
+                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
+                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z });
+                            if (!std::isfinite(top.x) || !std::isfinite(top.y) || !std::isfinite(top.z))
+                                continue;
+                            DirectX::XMFLOAT2 tip{};
+                            if (!project_icon_tip(camera, view_data, top, w, h, tip))
                                 continue;
 
                             float const alpha = pulse * corpse_alpha(cfg, corpse.distance, color.a());
-                            m_icon_overlay.add_circle(px, py, static_cast<float>(cfg.icon_radius), { color.r(), color.g(), color.b(), alpha });
+                            candidates.push_back({ corpse.form_id, anchor, tip, corpse.distance, alpha });
                         }
+                        std::vector<IconMarker> const markers = m_icon_layout.update(candidates,
+                            static_cast<float>(cfg.icon_radius), cfg.max_distance, w, h, Max_Corpse_Count);
+                        for (const IconMarker& marker : std::views::reverse(markers))
+                            m_icon_overlay.add_marker(marker, { color.r(), color.g(), color.b() });
                         m_icon_overlay.draw(context, m_render_target, m_states);
                         m_icon_overlay.end_frame();
                     }
@@ -304,6 +350,7 @@ namespace
 
         std::shared_ptr<DirectX::DX11::CommonStates> m_states;
         IconOverlay m_icon_overlay;
+        IconLayout m_icon_layout;
         
         bool m_ready;
     };

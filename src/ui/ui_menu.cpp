@@ -103,7 +103,7 @@ namespace
         if (cfg.display_mode == Config::DisplayMode::e_outline)
             ImGuiMCP::SliderInt("Outline Thickness", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
         else if (cfg.display_mode == Config::DisplayMode::e_icon)
-            ImGuiMCP::SliderInt("Icon Radius", &cfg.icon_radius, Setting::Min_Icon_Radius, Setting::Max_Icon_Radius);
+            ImGuiMCP::SliderInt("Icon Size", &cfg.icon_radius, Setting::Min_Icon_Radius, Setting::Max_Icon_Radius);
 
         Color rgb;
         rgb.decode(cfg.outline_color);

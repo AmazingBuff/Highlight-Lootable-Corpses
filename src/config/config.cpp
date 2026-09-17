@@ -105,9 +105,9 @@ void Setting::save() noexcept
     body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", g_config.pulse_duration_ms));
     body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", g_config.scan_interval_ms));
     body += section("Display");
-    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (small circle at the corpse position, 2)",fmt::format("DisplayMode={}", static_cast<int>(g_config.display_mode)));
+    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(g_config.display_mode)));
     body += option("outline thickness in pixels", fmt::format("OutlineThickness={}", g_config.outline_thickness));
-    body += option("icon radius in pixels", fmt::format("IconRadius={}", g_config.icon_radius));
+    body += option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", g_config.icon_radius));
     body += option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", g_config.outline_color));
     body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", g_config.min_opacity));
     body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", g_config.max_distance));
