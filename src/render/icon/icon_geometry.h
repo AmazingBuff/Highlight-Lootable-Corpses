@@ -21,8 +21,8 @@ inline constexpr std::size_t Icon_Marker_Vertex_Count = 2 * Icon_Arrow_Vertex_Co
 
 struct IconGeometry
 {
-    std::array<IconVertex, Icon_Marker_Vertex_Count> vertices{};
-    std::size_t count = 0;
+    std::array<IconVertex, Icon_Marker_Vertex_Count> vertices;
+    std::size_t count;
 };
 
 [[nodiscard]] IconGeometry icon_geometry(IconMarker const& marker, DirectX::XMFLOAT3 const& color,

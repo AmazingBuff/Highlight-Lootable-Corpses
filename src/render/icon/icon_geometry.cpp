@@ -11,7 +11,7 @@ namespace Amazing::HighlightLootableCorpses
 {
 IconGeometry icon_geometry(IconMarker const& marker, DirectX::XMFLOAT3 const& color, float width, float height)
 {
-    IconGeometry geometry;
+    IconGeometry geometry{};
     if (!std::isfinite(marker.radius) || marker.radius <= 0.0f || !std::isfinite(marker.opacity) || marker.opacity <= 0.0f ||
         !std::isfinite(marker.tip.x) || !std::isfinite(marker.tip.y) || marker.member_count == 0 ||
         !std::isfinite(width) || !std::isfinite(height) || width <= 0.0f || height <= 0.0f ||

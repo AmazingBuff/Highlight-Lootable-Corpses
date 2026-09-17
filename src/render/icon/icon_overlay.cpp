@@ -21,6 +21,15 @@ namespace
     constexpr std::size_t Max_Vertex_Count = Icon_Marker_Vertex_Count * Max_Corpse_Count;
 }
 
+IconOverlay::IconOverlay()
+    : m_vertex_shader(nullptr)
+    , m_pixel_shader(nullptr)
+    , m_input_layout(nullptr)
+    , m_vertex_buffer(nullptr)
+    , m_ready(false)
+    , m_width(0.0f)
+    , m_height(0.0f) {}
+
 bool IconOverlay::init(ID3D11Device* device)
 {
     if (!m_ready)

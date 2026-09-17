@@ -23,7 +23,7 @@ PLUGIN_NAMESPACE_BEGIN
 class IconOverlay
 {
 public:
-    IconOverlay() = default;
+    IconOverlay();
     ~IconOverlay() = default;
 
     bool init(ID3D11Device* device);
@@ -35,14 +35,14 @@ private:
     bool create_pipeline(ID3D11Device* a_device);
     void release_pipeline();
 private:
-    ID3D11VertexShader* m_vertex_shader = nullptr;
-    ID3D11PixelShader* m_pixel_shader = nullptr;
-    ID3D11InputLayout* m_input_layout = nullptr;
-    ID3D11Buffer* m_vertex_buffer = nullptr;
-    bool m_ready = false;
+    ID3D11VertexShader* m_vertex_shader;
+    ID3D11PixelShader* m_pixel_shader;
+    ID3D11InputLayout* m_input_layout;
+    ID3D11Buffer* m_vertex_buffer;
+    bool m_ready;
 
-    float m_width = 0.0f;
-    float m_height = 0.0f;
+    float m_width;
+    float m_height;
 
     std::vector<IconVertex> m_vertices;
 };

@@ -187,9 +187,9 @@ namespace
     {
         // 仅布局决策（format/offset 为 desc 的属性，故可按 desc 缓存）。
         // 逐 mesh 的模型 AABB 只服务候选评分，不进缓存（防跨网格污染）。
-        DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-        std::uint32_t offset = 0;
-        PositionCalibrationState state = PositionCalibrationState::kDescFallback;
+        DXGI_FORMAT format;
+        std::uint32_t offset;
+        PositionCalibrationState state;
     };
 
     // 单点位置解码：调用方须已保证 offset + bytes <= stride（防越界）
@@ -289,7 +289,7 @@ namespace
         bool const decodable = renderer_data && renderer_data->rawVertexData &&
                                desc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX) && stride > 0;
 
-        PositionCalibration result{};
+        PositionCalibration result{ .state = PositionCalibrationState::kDescFallback };
         std::string const desc_fields = fmt::format(
             "desc={:#018x} flags={:#06x} stride={} pos={} uv={} nrm={} bin={} col={} verts={} model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f}",
             desc_raw,
@@ -319,15 +319,15 @@ namespace
 
         struct CandidateResult
         {
-            DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-            std::uint32_t offset = 0;
-            bool valid = false;   // 通过候选剔除（stride/越界）
-            bool passed = false;  // 与 modelBound 吻合
-            RE::NiPoint3 center{};
-            float radius = 0.0f;
-            float center_error = 0.0f;
+            DXGI_FORMAT format;
+            std::uint32_t offset;
+            bool valid;          // 通过候选剔除（stride/越界）
+            bool passed;         // 与 modelBound 吻合
+            RE::NiPoint3 center;
+            float radius;
+            float center_error;
         };
-        CandidateResult results[Position_Candidate_Count];
+        CandidateResult results[Position_Candidate_Count]{};
 
         float const tolerance = 0.5f * std::max(model_bound.radius, 1.0f);
         for (std::size_t i = 0; i < Position_Candidate_Count; ++i)
@@ -427,12 +427,12 @@ namespace
     // 布局决策：缓存只保存这些字段，不含任何逐网格校验结论
     struct SkinnedVertexLayout
     {
-        DXGI_FORMAT position_format = DXGI_FORMAT_UNKNOWN;
-        std::uint32_t position_offset = 0;
-        std::uint32_t stride = 0;
-        std::uint8_t layout_id = 0;  // SKINNING 布局编号（1..4）
-        MaskSkinLayout skin{};
-        SkinnedCalibrationState state = SkinnedCalibrationState::kUnresolved;
+        DXGI_FORMAT position_format;
+        std::uint32_t position_offset;
+        std::uint32_t stride;
+        std::uint8_t layout_id;     // SKINNING 布局编号（1..4）
+        MaskSkinLayout skin;
+        SkinnedCalibrationState state;
     };
 
     // SKINNING 布局候选（顺序即优先级；*_delta 为相对 VA_SKINNING 偏移的字节增量）
@@ -470,16 +470,16 @@ namespace
     // 解释，上界为调色板长度 P
     struct SkinnedMeshStats
     {
-        bool position_finite = true;                    // 选定位置格式下全部顶点有限
-        std::uint32_t index_min = 0;
-        std::uint32_t index_max = 0;
-        std::uint32_t out_of_range_index_count = 0;     // 含 index >= P 槽位的顶点数
-        std::uint32_t out_of_range_weighted_count = 0;  // 其中（该槽位）权重非零的顶点数 → 拒绝
-        std::uint32_t first_out_of_range_index = 0;     // 首个越界索引
-        float first_out_of_range_weight = 0.0f;         // 其权重
-        float weight_sum_min = 0.0f;
-        float weight_sum_max = 0.0f;
-        std::uint32_t bad_weight_vertices = 0;          // 存在权重分量越界的顶点数
+        bool position_finite;                           // 选定位置格式下全部顶点有限
+        std::uint32_t index_min;
+        std::uint32_t index_max;
+        std::uint32_t out_of_range_index_count;         // 含 index >= P 槽位的顶点数
+        std::uint32_t out_of_range_weighted_count;      // 其中（该槽位）权重非零的顶点数 → 拒绝
+        std::uint32_t first_out_of_range_index;         // 首个越界索引
+        float first_out_of_range_weight;                // 其权重
+        float weight_sum_min;
+        float weight_sum_max;
+        std::uint32_t bad_weight_vertices;              // 存在权重分量越界的顶点数
     };
 
     // 逐网格校验结论：位置失败 → 跳过；权重失败 → 换候选；索引越界且非零权重由
@@ -494,11 +494,11 @@ namespace
     // 候选实测结果（布局决策 + 该网格上的校验统计，用于日志表）
     struct SkinnedLayoutCandidateResult
     {
-        std::uint32_t stride = 0;
-        std::uint8_t layout = 0;
-        bool bounds_ok = false;  // 越界剔除（不读取）
-        SkinnedMeshStats stats{};
-        bool passed = false;     // 位置有限 且 权重合格（索引越界不影响通过）
+        std::uint32_t stride;
+        std::uint8_t layout;
+        bool bounds_ok;          // 越界剔除（不读取）
+        SkinnedMeshStats stats;
+        bool passed;             // 位置有限 且 权重合格（索引越界不影响通过）
     };
 
     // 单顶点权重四元组解码（R16G16B16A16_FLOAT / R8G8B8A8_UNORM；调用方已保证不越界）
@@ -545,7 +545,7 @@ namespace
         SkinningLayoutSpec const& spec, std::uint32_t weight_offset, std::uint32_t index_offset,
         std::uint32_t vertex_count, std::uint32_t index_bound, SkinnedMeshStats& stats)
     {
-        stats = SkinnedMeshStats{};
+        stats = SkinnedMeshStats{ .position_finite = true };
         stats.index_min = 0xFFFFFFFFu;  // 以哨兵起步，逐索引取 min（顶点数 > 0 由调用方保证）
         bool first_sample = true;
         for (std::uint32_t v = 0; v < vertex_count; ++v)
@@ -702,6 +702,8 @@ namespace
                 cr.stride = stride;
                 cr.layout = spec.id;
                 cr.bounds_ok = bounds_ok;
+                cr.stats.position_finite = true;
+                cr.passed = false;
                 skin[candidate_count] = MaskSkinLayout{ spec.weight_format, weight_offset, spec.index_format, index_offset };
 
                 if (bounds_ok)
@@ -768,7 +770,7 @@ namespace
         std::int32_t const gap = has_next ? (static_cast<std::int32_t>(next_offset) - static_cast<std::int32_t>(pos_offset)) : -1;
         bool const gap_degenerate = gap < 8;
 
-        SkinnedVertexLayout result{};
+        SkinnedVertexLayout result{ .state = SkinnedCalibrationState::kUnresolved };
         result.position_offset = pos_offset;
         if (gap >= 12)
             result.position_format = DXGI_FORMAT_R32G32B32_FLOAT;
@@ -797,8 +799,8 @@ namespace
 
         // ---- 候选枚举 + 逐候选在**本网格**数据上校验。全顶点遍历、不再抽样，
         // 且不读写缓存中的任何校验结论。----
-        SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates];
-        MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates];
+        SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates]{};
+        MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates]{};
         std::size_t const candidate_count = enumerate_skinned_candidates(
             desc, renderer_data, vertex_count, index_bound, pos_offset, pos_bytes, skin_offset,
             candidates, candidate_skin);
@@ -864,12 +866,12 @@ namespace
     // 一次，逐 geometry 复用。
     struct TargetContext
     {
-        RE::NiPoint3 position{};
-        RE::FormID form_id = 0;
+        RE::NiPoint3 position;
+        RE::FormID form_id;
         // 目标 3D 中含蒙皮几何 → 其非蒙皮几何（冰锥等装饰）不画。
-        bool has_skinned = false;
+        bool has_skinned;
         // Integral target index; zero-based until the geometry shader upload.
-        std::uint32_t target_index = 0;
+        std::uint32_t target_index;
     };
 
     void collect_static(RE::BSGeometry* geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt, TargetContext const& target, std::vector<MaskDraw>& draws)
@@ -1178,7 +1180,7 @@ namespace
             std::uint32_t const pos_bytes = (calibration.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
             SkinningLayoutSpec const* spec = find_skinning_layout(calibration.layout_id);
 
-            SkinnedMeshStats stats{};
+            SkinnedMeshStats stats{ .position_finite = true };
             SkinnedMeshVerdict verdict = validate_skinned_mesh(
                 raw, calibration.stride, calibration.position_offset, pos_bytes, *spec,
                 calibration.skin.weight_offset, calibration.skin.index_offset,
@@ -1194,8 +1196,8 @@ namespace
             if (verdict == SkinnedMeshVerdict::kWeightsBad)
             {
                 // 缓存布局不适用本网格：在本网格数据上重新枚举候选（不写缓存）
-                SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates];
-                MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates];
+                SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates]{};
+                MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates]{};
                 std::uint32_t const skin_offset = buff->vertexDesc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING);
                 std::size_t const candidate_count = enumerate_skinned_candidates(
                     buff->vertexDesc, buff, part.vertices, palette_count, calibration.position_offset, pos_bytes,

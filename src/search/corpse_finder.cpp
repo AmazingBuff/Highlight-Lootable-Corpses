@@ -95,13 +95,13 @@ namespace
     {
         RE::NiPoint3 min;
         RE::NiPoint3 max;
-
-        [[nodiscard]] float volume() const
-        {
-            RE::NiPoint3 const e = max - min;
-            return e.x * e.y * e.z;
-        }
     };
+
+    [[nodiscard]] float body_box_volume(BodyBox const& a_box)
+    {
+        RE::NiPoint3 const e = a_box.max - a_box.min;
+        return e.x * e.y * e.z;
+    }
 
     // 肢解判定阈值：刚体各轴间隔不超过该值视为同一连通主体。相邻骨骼的碰撞盒
     // 彼此贴合或重叠（间隔个位数游戏单位），被肢解飞出的部位通常远离主体上百单位。
@@ -118,7 +118,7 @@ namespace
         std::size_t seed = 0;
         for (std::size_t i = 1; i < a_boxes.size(); ++i)
         {
-            if (a_boxes[i].volume() > a_boxes[seed].volume())
+            if (body_box_volume(a_boxes[i]) > body_box_volume(a_boxes[seed]))
                 seed = i;
         }
 
@@ -352,7 +352,7 @@ namespace
 
         RE::PlayerCharacter* player = RE::PlayerCharacter::GetSingleton();
 
-        CorpseScan::CorpseInfo entry;
+        CorpseScan::CorpseInfo entry{ .radius = 60.0f };
         if (RE::Actor* actor = a_ref->As<RE::Actor>())
         {
             if (actor == player || actor->IsDisabled() || actor->IsDeleted() ||
@@ -459,7 +459,7 @@ void CorpseScan::search()
         if (cfg.hide_searched_enabled && MarkCorpse::contains(ref))
             return RE::BSContainer::ForEachResult::kContinue;
 
-        if (CorpseInfo info; filter_corpse(a_ref, info))
+        if (CorpseInfo info{ .radius = 60.0f }; filter_corpse(a_ref, info))
         {
             found.push_back(info);
 

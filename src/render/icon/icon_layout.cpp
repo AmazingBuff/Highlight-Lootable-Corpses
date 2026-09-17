@@ -82,6 +82,8 @@ bool icon_screen_tip(float px, float py, float depth, float width, float height,
     return tip.y >= 0.0f;
 }
 
+IconLayout::IconLayout() : m_width(0.0f), m_height(0.0f) {}
+
 void IconLayout::reset()
 {
     m_membership.clear();

@@ -42,13 +42,15 @@ struct IconMarker
 class IconLayout
 {
 public:
+    IconLayout();
+
     [[nodiscard]] std::vector<IconMarker> update(std::span<IconCandidate const> candidates,
         float base_radius, float max_distance, float width, float height, std::size_t marker_limit);
     void reset();
 
 private:
     std::unordered_map<std::uint32_t, std::uint32_t> m_membership;
-    float m_width = 0.0f;
-    float m_height = 0.0f;
+    float m_width;
+    float m_height;
 };
 }
