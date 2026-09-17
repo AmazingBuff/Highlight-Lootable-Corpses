@@ -4,11 +4,13 @@
 
 #pragma once
 
+#include "mask_types.h"
+
+#include "Plugin.h"
+
 #include <cstdint>
 #include <string_view>
 #include <vector>
-
-#include "mask_types.h"
 
 namespace RE
 {

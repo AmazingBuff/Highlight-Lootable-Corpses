@@ -5,8 +5,12 @@
 #include "mask_passes.h"
 
 #include "mask_geometry.h"
+
 #include "render/shader_sources.h"
+
 #include "render/dx11/d3d11_util.h"
+
+#include "Plugin.h"
 
 #include <algorithm>
 #include <cstring>

@@ -4,16 +4,20 @@
 
 #include "renderer.h"
 
-#include "dx11/d3d11_util.h"
-#include "mask/outline_mask.h"
 #include "present_hook.h"
 #include "render_util.h"
-#include "icon/icon_overlay.h"
 
 #include "config/config.h"
-#include "../ui/pulse_timer.h"
+#include "dx11/d3d11_util.h"
+#include "icon/icon_overlay.h"
+#include "mask/outline_mask.h"
 #include "search/corpse_finder.h"
 #include "search/searched_corpses.h"
+#include "ui/pulse_timer.h"
+
+#include "Plugin.h"
+
+#include <CommonStates.h>
 
 #include <algorithm>
 #include <atomic>
@@ -22,8 +26,6 @@
 #include <limits>
 #include <mutex>
 #include <ranges>
-
-#include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
 

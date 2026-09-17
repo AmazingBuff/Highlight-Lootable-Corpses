@@ -4,6 +4,8 @@
 
 #include "present_hook.h"
 
+#include "Plugin.h"
+
 #include <RE/Skyrim.h>
 
 PLUGIN_NAMESPACE_BEGIN

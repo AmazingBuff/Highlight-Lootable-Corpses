@@ -6,9 +6,14 @@
 
 #include "icon_geometry.h"
 
+#include "Plugin.h"
+
+#include <CommonStates.h>
+
+#include <DirectXMath.h>
+
 #include <memory>
 #include <vector>
-#include <CommonStates.h>
 
 struct ID3D11Buffer;
 struct ID3D11Device;

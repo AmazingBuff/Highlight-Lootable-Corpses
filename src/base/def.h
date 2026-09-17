@@ -4,9 +4,17 @@
 
 #pragma once
 
-constexpr std::string_view Skyrim_Plugin = "Skyrim.esm"sv;
-constexpr std::string_view Dawnguard_Plugin = "Dawnguard.esm"sv;
-constexpr std::string_view Dragonborn_Plugin = "Dragonborn.esm"sv;
+#include "Plugin.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <string_view>
+#include <type_traits>
+
+constexpr std::string_view Skyrim_Plugin = std::string_view{ "Skyrim.esm" };
+constexpr std::string_view Dawnguard_Plugin = std::string_view{ "Dawnguard.esm" };
+constexpr std::string_view Dragonborn_Plugin = std::string_view{ "Dragonborn.esm" };
 
 struct LocalFromID
 {

@@ -3,11 +3,13 @@
 //
 
 #include "quickloot_compat.h"
-#include "search/searched_corpses.h"
-#include "base/util.h"
 
 #include "QuickLootIE/v3_4/QuickLootAPI.h"
 #include "QuickLootIE/v4_0/QuickLootAPI.h"
+#include "base/util.h"
+#include "search/searched_corpses.h"
+
+#include "Plugin.h"
 
 PLUGIN_NAMESPACE_BEGIN
 

@@ -6,7 +6,10 @@
 
 #include "icon_layout.h"
 
+#include <DirectXMath.h>
+
 #include <array>
+#include <cstddef>
 
 namespace Amazing::HighlightLootableCorpses
 {

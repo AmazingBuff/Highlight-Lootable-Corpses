@@ -4,6 +4,8 @@
 
 #include "d3d11_util.h"
 
+#include "Plugin.h"
+
 #include <d3dcompiler.h>
 
 #include <cstring>

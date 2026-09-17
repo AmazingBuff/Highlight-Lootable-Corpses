@@ -4,6 +4,8 @@
 
 #include "util.h"
 
+#include "Plugin.h"
+
 namespace
 {
     const std::vector<LocalFromID> Ash_Piles =

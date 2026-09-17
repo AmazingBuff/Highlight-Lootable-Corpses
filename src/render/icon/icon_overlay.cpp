@@ -4,15 +4,19 @@
 
 #include "icon_overlay.h"
 
-#include "render/dx11/d3d11_util.h"
 #include "render/shader_sources.h"
+
+#include "render/dx11/d3d11_util.h"
+
+#include "Plugin.h"
+
+#include <CommonStates.h>
+
+#include <d3d11.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#include <d3d11.h>
-#include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
 

@@ -4,6 +4,12 @@
 
 #pragma once
 
+#include "Plugin.h"
+
+#include <RE/Skyrim.h>
+
+#include <unordered_set>
+
 PLUGIN_NAMESPACE_BEGIN
 
 class MarkCorpse

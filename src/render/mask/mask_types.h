@@ -4,8 +4,12 @@
 
 #pragma once
 
-#include <d3d11.h>
+#include "Plugin.h"
+
+#include <RE/Skyrim.h>
+
 #include <DirectXMath.h>
+#include <d3d11.h>
 
 #include <cstddef>
 #include <cstdint>

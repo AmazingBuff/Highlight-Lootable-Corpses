@@ -4,11 +4,14 @@
 
 #include "outline_mask.h"
 
-#include "config/config.h"
-#include "render/dx11/d3d11_util.h"
+#include "mask_depth.h"
 #include "mask_geometry.h"
 #include "mask_passes.h"
-#include "mask_depth.h"
+
+#include "config/config.h"
+#include "render/dx11/d3d11_util.h"
+
+#include "Plugin.h"
 
 #include <algorithm>
 #include <cmath>

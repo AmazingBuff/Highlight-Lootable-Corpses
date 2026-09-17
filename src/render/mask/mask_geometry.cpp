@@ -4,6 +4,8 @@
 
 #include "mask_geometry.h"
 
+#include "Plugin.h"
+
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
 

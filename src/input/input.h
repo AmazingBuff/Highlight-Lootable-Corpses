@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Plugin.h"
+
 PLUGIN_NAMESPACE_BEGIN
 
 class InputManager

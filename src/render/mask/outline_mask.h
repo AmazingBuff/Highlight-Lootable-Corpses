@@ -4,13 +4,15 @@
 
 #pragma once
 
+#include "mask_passes.h"
+#include "mask_types.h"
+
+#include "Plugin.h"
+
 #include <DirectXMath.h>
 
 #include <cstdint>
 #include <vector>
-
-#include "mask_types.h"
-#include "mask_passes.h"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;

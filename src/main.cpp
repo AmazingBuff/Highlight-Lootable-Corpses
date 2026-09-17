@@ -5,6 +5,8 @@
 #include "search/searched_corpses.h"
 #include "ui/ui_menu.h"
 
+#include "Plugin.h"
+
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/msvc_sink.h>
 

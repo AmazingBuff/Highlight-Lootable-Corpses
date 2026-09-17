@@ -4,6 +4,8 @@
 
 #include "render_util.h"
 
+#include "Plugin.h"
+
 PLUGIN_NAMESPACE_BEGIN
 
 

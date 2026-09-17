@@ -4,6 +4,8 @@
 
 #include "pulse_timer.h"
 
+#include "Plugin.h"
+
 #include <chrono>
 #include <mutex>
 

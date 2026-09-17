@@ -4,16 +4,20 @@
 
 #pragma once
 
-#include <d3d11.h>
-#include <DirectXMath.h>
+#include "mask_types.h"
 
+#include "render/render_util.h"
+
+#include "Plugin.h"
+
+#include <DirectXMath.h>
+#include <d3d11.h>
+
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
 #include <vector>
-
-#include "render/render_util.h"
-#include "mask_types.h"
 
 MASK_NAMESPACE_BEGIN
 

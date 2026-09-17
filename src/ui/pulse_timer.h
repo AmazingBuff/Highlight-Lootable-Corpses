@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "Plugin.h"
+
 #include <chrono>
 #include <cstdint>
 #include <mutex>

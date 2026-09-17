@@ -4,8 +4,11 @@
 
 #pragma once
 
+#include "Plugin.h"
+
 #include <d3d11.h>
 
+#include <cstddef>
 #include <cstdint>
 
 PLUGIN_NAMESPACE_BEGIN

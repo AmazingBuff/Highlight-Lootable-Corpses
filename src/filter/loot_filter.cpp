@@ -6,6 +6,8 @@
 
 #include "config/config.h"
 
+#include "Plugin.h"
+
 PLUGIN_NAMESPACE_BEGIN
 
 LootFilter& LootFilter::instance()

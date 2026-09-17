@@ -1,8 +1,12 @@
 #include "ui_menu.h"
-#include "config/config.h"
+
 #include "pulse_timer.h"
-#include "search/corpse_finder.h"
+
+#include "config/config.h"
 #include "render/render_util.h"
+#include "search/corpse_finder.h"
+
+#include "Plugin.h"
 
 #pragma warning(push)
 #pragma warning(disable: 4996 5054 4099 4267 4244 4061 4062)

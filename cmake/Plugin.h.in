@@ -1,5 +1,7 @@
 #pragma once
 
+#include <SKSE/Impl/PCH.h>
+
 #include <string_view>
 
 #define PLUGIN_NAMESPACE Amazing::@PROJECT_NAME@
@@ -15,6 +17,6 @@ namespace Plugin
 		@PROJECT_VERSION_PATCH@u,
 	};
 
-	inline constexpr std::string_view Plugin_Name = "@PROJECT_NAME@"sv;
+	inline constexpr std::string_view Plugin_Name = std::string_view{ "@PROJECT_NAME@" };
 	inline constexpr std::string_view Plugin_Author = "AmazingBuff";
 }
