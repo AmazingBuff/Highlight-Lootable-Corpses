@@ -16,7 +16,7 @@ LootFilter& LootFilter::instance()
 
 namespace
 {
-    [[nodiscard]] std::int32_t item_value(RE::InventoryEntryData const& a_entry, std::int32_t a_count)
+    [[nodiscard]] int32_t item_value(RE::InventoryEntryData const& a_entry, int32_t a_count)
     {
         RE::TESBoundObject* const object = a_entry.object;
         if (!object)
@@ -26,7 +26,7 @@ namespace
         return a_entry.GetValue();
     }
 
-    [[nodiscard]] RE::stl::enumeration<LootFilter::Category> classify_item(RE::InventoryEntryData const& a_entry, std::int32_t a_count, Config const& a_cfg)
+    [[nodiscard]] RE::stl::enumeration<LootFilter::Category> classify_item(RE::InventoryEntryData const& a_entry, int32_t a_count, Config const& a_cfg)
     {
         RE::stl::enumeration<LootFilter::Category> cats = LootFilter::Category::e_none;
         RE::TESBoundObject* const object = a_entry.object;

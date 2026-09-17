@@ -106,9 +106,9 @@ namespace
 
     // 肢解判定阈值：刚体各轴间隔不超过该值视为同一连通主体。相邻骨骼的碰撞盒
     // 彼此贴合或重叠（间隔个位数游戏单位），被肢解飞出的部位通常远离主体上百单位。
-    constexpr float kClusterGap = 40.0f;
+    constexpr float Cluster_Gap = 40.0f;
 
-    // 以体积最大的刚体为种子，把与其邻近（各轴间隔 <= kClusterGap）的刚体迭代聚合
+    // 以体积最大的刚体为种子，把与其邻近（各轴间隔 <= Cluster_Gap）的刚体迭代聚合
     // 成连通块，输出该块的 AABB 并集。完整尸体各部位相邻 → 结果与全量并集一致；
     // 被肢解（骷髅解体/部位被击飞）时只保留最大部位所在的主体，零散部位不参与包围盒。
     [[nodiscard]] bool largest_cluster_bounds(std::vector<BodyBox> const& a_boxes, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
@@ -116,8 +116,8 @@ namespace
         if (a_boxes.empty())
             return false;
 
-        std::size_t seed = 0;
-        for (std::size_t i = 1; i < a_boxes.size(); ++i)
+        size_t seed = 0;
+        for (size_t i = 1; i < a_boxes.size(); ++i)
         {
             if (body_box_volume(a_boxes[i]) > body_box_volume(a_boxes[seed]))
                 seed = i;
@@ -132,15 +132,15 @@ namespace
         while (grew)
         {
             grew = false;
-            for (std::size_t i = 0; i < a_boxes.size(); ++i)
+            for (size_t i = 0; i < a_boxes.size(); ++i)
             {
                 if (in_cluster[i])
                     continue;
                 BodyBox const& box = a_boxes[i];
                 bool const near_cluster =
-                    box.min.x - kClusterGap <= a_max.x && box.max.x + kClusterGap >= a_min.x &&
-                    box.min.y - kClusterGap <= a_max.y && box.max.y + kClusterGap >= a_min.y &&
-                    box.min.z - kClusterGap <= a_max.z && box.max.z + kClusterGap >= a_min.z;
+                    box.min.x - Cluster_Gap <= a_max.x && box.max.x + Cluster_Gap >= a_min.x &&
+                    box.min.y - Cluster_Gap <= a_max.y && box.max.y + Cluster_Gap >= a_min.y &&
+                    box.min.z - Cluster_Gap <= a_max.z && box.max.z + Cluster_Gap >= a_min.z;
                 if (!near_cluster)
                     continue;
                 in_cluster[i] = true;

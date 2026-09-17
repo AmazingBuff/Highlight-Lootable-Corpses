@@ -51,13 +51,13 @@ public:
     // 碰巧绑定的渲染目标）。
     // a_width/a_height 为后备缓冲尺寸（mask RT 与其同尺寸，变化时重建）。
     void render(ID3D11Device* a_device, ID3D11DeviceContext* a_context, RE::NiCamera* a_camera,
-        ID3D11RenderTargetView* a_overlay_target, std::uint32_t a_width, std::uint32_t a_height);
+        ID3D11RenderTargetView* a_overlay_target, uint32_t a_width, uint32_t a_height);
 private:
     OutlineMask();
     ~OutlineMask();
 
     void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
-        ID3D11RenderTargetView* overlay_target, std::uint32_t width, std::uint32_t height);
+        ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height);
 private:
     // 门面状态（渲染线程独占）
     std::vector<Mask::MaskTarget> m_targets;

@@ -39,7 +39,7 @@ ID3DBlob* compile_shader(char const* source, char const* entry, char const* targ
     return blob;
 }
 
-void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, std::size_t bytes)
+void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, size_t bytes)
 {
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))

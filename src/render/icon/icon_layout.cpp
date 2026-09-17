@@ -37,7 +37,7 @@ namespace
     {
         IconCandidate candidate;
         float radius;
-        std::uint32_t previous_group;
+        uint32_t previous_group;
     };
 
     bool compatible(Member const& a, Member const& b)
@@ -103,7 +103,7 @@ bool icon_clip_tip(DirectX::XMFLOAT4 const& clip, float width, float height, Dir
 }
 
 std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candidates,
-    float base_radius, float max_distance, float width, float height, std::size_t marker_limit)
+    float base_radius, float max_distance, float width, float height, size_t marker_limit)
 {
     if (width != m_width || height != m_height)
         reset();
@@ -122,7 +122,7 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
                 !std::isfinite(candidate.tip.x) || !std::isfinite(candidate.tip.y) ||
                 candidate.tip.x < 0.0f || candidate.tip.x >= width || candidate.tip.y < 0.0f || candidate.tip.y >= height)
                 continue;
-            std::unordered_map<std::uint32_t, std::uint32_t>::const_iterator const previous = m_membership.find(candidate.form_id);
+            std::unordered_map<uint32_t, uint32_t>::const_iterator const previous = m_membership.find(candidate.form_id);
             members.push_back({ candidate, radius, previous == m_membership.end() ? 0 : previous->second });
         }
     }
@@ -135,17 +135,17 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
         return a.candidate.form_id < b.candidate.form_id;
     });
 
-    std::vector<std::vector<std::size_t>> retained;
-    std::size_t previous_begin = 0;
-    for (std::size_t index = 0; index < members.size(); ++index)
+    std::vector<std::vector<size_t>> retained;
+    size_t previous_begin = 0;
+    for (size_t index = 0; index < members.size(); ++index)
     {
         if (index == 0 || members[index].previous_group == 0 || members[index].previous_group != members[index - 1].previous_group)
             previous_begin = retained.size();
         bool joined = false;
-        for (std::size_t slot = previous_begin; slot < retained.size(); ++slot)
+        for (size_t slot = previous_begin; slot < retained.size(); ++slot)
         {
-            std::vector<std::size_t>& group = retained[slot];
-            if (std::ranges::all_of(group, [&](std::size_t other) { return compatible(members[index], members[other]); }))
+            std::vector<size_t>& group = retained[slot];
+            if (std::ranges::all_of(group, [&](size_t other) { return compatible(members[index], members[other]); }))
             {
                 group.push_back(index);
                 joined = true;
@@ -156,15 +156,15 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
             retained.push_back({ index });
     }
 
-    std::vector<std::vector<std::size_t>> groups;
-    for (std::vector<std::size_t> const& incoming : retained)
+    std::vector<std::vector<size_t>> groups;
+    for (std::vector<size_t> const& incoming : retained)
     {
         bool joined = false;
-        for (std::vector<std::size_t>& group : groups)
+        for (std::vector<size_t>& group : groups)
         {
-            bool const fits = std::ranges::all_of(incoming, [&](std::size_t index)
+            bool const fits = std::ranges::all_of(incoming, [&](size_t index)
             {
-                return std::ranges::all_of(group, [&](std::size_t other) { return compatible(members[index], members[other]); });
+                return std::ranges::all_of(group, [&](size_t other) { return compatible(members[index], members[other]); });
             });
             if (fits)
             {
@@ -180,13 +180,13 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
     m_membership.clear();
     std::vector<IconMarker> markers;
     markers.reserve(groups.size());
-    for (std::vector<std::size_t> const& group : groups)
+    for (std::vector<size_t> const& group : groups)
     {
         double cx = 0.0, cy = 0.0, cz = 0.0;
         float distance = std::numeric_limits<float>::max();
         float opacity = 0.0f;
-        std::size_t representative = members.size();
-        for (std::size_t index : group)
+        size_t representative = members.size();
+        for (size_t index : group)
         {
             Member const& member = members[index];
             cx += member.candidate.anchor.x;
@@ -203,7 +203,7 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
             double const count = static_cast<double>(group.size());
             DirectX::XMFLOAT3 const centroid{ static_cast<float>(cx / count), static_cast<float>(cy / count), static_cast<float>(cz / count) };
             double closest = std::numeric_limits<double>::max();
-            for (std::size_t index : group)
+            for (size_t index : group)
             {
                 double const squared = distance_squared(members[index].candidate.anchor, centroid);
                 if (squared < closest || (squared == closest && members[index].candidate.form_id < members[representative].candidate.form_id))
@@ -214,15 +214,15 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
             }
         }
         IconCandidate const& target = members[representative].candidate;
-        for (std::size_t index : group)
+        for (size_t index : group)
             m_membership.emplace(members[index].candidate.form_id, target.form_id);
         markers.push_back({ target.form_id, group.size(), target.tip,
             icon_radius(base_radius, distance, max_distance, group.size() > 1), opacity });
     }
-    std::unordered_map<std::uint32_t, float> group_distances;
+    std::unordered_map<uint32_t, float> group_distances;
     for (Member const& member : members)
     {
-        std::uint32_t const group = m_membership.at(member.candidate.form_id);
+        uint32_t const group = m_membership.at(member.candidate.form_id);
         auto const [entry, inserted] = group_distances.emplace(group, member.candidate.distance);
         if (!inserted)
             entry->second = std::min(entry->second, member.candidate.distance);

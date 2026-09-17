@@ -20,7 +20,7 @@ public:
 
     static PulseTimer& instance();
 
-    void trigger(std::uint32_t duration_ms);
+    void trigger(uint32_t duration_ms);
     void reset();
     [[nodiscard]] bool active();
     [[nodiscard]] float progress();
@@ -30,7 +30,7 @@ private:
 private:
     std::mutex m_mutex;
     std::chrono::steady_clock::time_point m_start_time;
-    std::uint32_t m_duration_ms;
+    uint32_t m_duration_ms;
     bool m_active;
 };
 

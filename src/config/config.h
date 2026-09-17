@@ -6,7 +6,7 @@ struct Config
 {
     bool enabled;
     uint32_t hotkey;
-    enum class HotkeyMode : std::uint8_t
+    enum class HotkeyMode : uint8_t
     {
         e_constant = 0,
         e_pulse    = 1
@@ -16,7 +16,7 @@ struct Config
     int pulse_duration_ms;
     int scan_interval_ms;
 
-    enum class DisplayMode : std::uint8_t
+    enum class DisplayMode : uint8_t
     {
         e_silhouette = 0,
         e_outline    = 1,

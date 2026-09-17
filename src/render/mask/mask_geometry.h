@@ -20,7 +20,7 @@ MASK_NAMESPACE_BEGIN
 // 调色板长度 P = min(skinData 骨骼数, skin 世界矩阵数)。顶点骨骼索引是 skin 骨骼
 // 数组的**全局下标**，故调色板按全局下标空间构建，P 为其有效长度。
 // 唯一权威实现，供蒙皮收集（校验上界/守卫）与 mask 绘制（调色板构建/守卫）共用。
-[[nodiscard]] std::uint32_t palette_slot_count(RE::NiSkinInstance const* a_skin);
+[[nodiscard]] uint32_t palette_slot_count(RE::NiSkinInstance const* a_skin);
 
 // 蒙皮路径放弃/失败出口的定位日志——按 (节点名, 原因) 签名一次性输出（附数值），
 // 同签名不重复。mask 子系统内共用。

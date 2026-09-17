@@ -24,7 +24,7 @@ OutlineMask& OutlineMask::instance()
 }
 
 void OutlineMask::render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
-    ID3D11RenderTargetView* overlay_target, std::uint32_t width, std::uint32_t height)
+    ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height)
 {
         if (!device || !context || !camera || !overlay_target || width == 0 || height == 0)
         return;
@@ -117,9 +117,9 @@ void OutlineMask::render_impl(ID3D11Device* device, ID3D11DeviceContext* context
     {
         // Collection appends all meshes of a target contiguously, in target order.
         std::span<Mask::MaskDraw const> const all_draws(draws);
-        for (std::size_t begin = 0; begin < draws.size();)
+        for (size_t begin = 0; begin < draws.size();)
         {
-            std::size_t end = begin + 1;
+            size_t end = begin + 1;
             while (end < draws.size() && draws[end].target_index == draws[begin].target_index)
                 ++end;
             draw_mask(all_draws.subspan(begin, end - begin));
@@ -145,7 +145,7 @@ void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
 }
 
 void OutlineMask::render(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
-    ID3D11RenderTargetView* overlay_target, std::uint32_t width, std::uint32_t height)
+    ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height)
 {
     // Present 回调边界内禁止异常外泄：任何未预期失败记日志并跳过本帧
     try

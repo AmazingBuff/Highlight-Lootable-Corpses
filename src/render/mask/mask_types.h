@@ -18,8 +18,8 @@ MASK_NAMESPACE_BEGIN
 // ---------------------------------------------------------------------------
 // 蒙皮调色板常量缓冲预算（矩阵/draw）；128×64B = 8KB。
 // ---------------------------------------------------------------------------
-inline constexpr std::size_t Max_Palette_Bones = 128;
-inline constexpr std::size_t Palette_CB_Bytes = Max_Palette_Bones * 64;
+inline constexpr size_t Max_Palette_Bones = 128;
+inline constexpr size_t Palette_CB_Bytes = Max_Palette_Bones * 64;
 static_assert(Palette_CB_Bytes == Max_Palette_Bones * sizeof(float) * 16, "palette CB layout must be float4x4 slots");
 
 // mask RT 清屏色
@@ -30,9 +30,9 @@ inline constexpr float Mask_Clear_Color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 struct MaskSkinLayout
 {
     DXGI_FORMAT weight_format;
-    std::uint32_t weight_offset;
+    uint32_t weight_offset;
     DXGI_FORMAT index_format;
-    std::uint32_t index_offset;
+    uint32_t index_offset;
 };
 
 // mask 渲染目标（引用 + 距离衰减不透明度，按目标序号即尸体索引）
@@ -53,18 +53,18 @@ struct MaskDraw
     RE::BSGraphics::VertexDesc vertex_desc;
     RE::NiAVObject* node;  // 静态路径的世界变换来源（借用，生存期见 node_ref）
     RE::NiPointer<RE::BSGeometry> node_ref;  // 保活静态路径的几何体（及其 GPU 缓冲）
-    std::uint32_t vertex_stride;
-    std::uint32_t vertex_count;
-    std::uint32_t triangle_count;
-    std::uint32_t index_count;
+    uint32_t vertex_stride;
+    uint32_t vertex_count;
+    uint32_t triangle_count;
+    uint32_t index_count;
     // 位置属性布局：静态路径写入 calibrate_position_format 结果（UNKNOWN 表示按
     // desc 推导）；蒙皮路径写入属性偏移间距判定结果（绝不为 UNKNOWN）。
     DXGI_FORMAT position_format;
-    std::uint32_t position_offset;
+    uint32_t position_offset;
     bool skinned;                            // true：按分区 draw，调色板蒙皮
     RE::NiPointer<RE::NiSkinInstance> skin;  // 保活蒙皮实例（骨骼世界矩阵）
-    std::uint32_t partition;
-    std::uint32_t target_index;
+    uint32_t partition;
+    uint32_t target_index;
     // 蒙皮权重/索引布局：仅蒙皮 draw 写入标定结果；静态 draw 保持默认值。
     MaskSkinLayout skin_layout;
 };

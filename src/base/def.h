@@ -14,15 +14,15 @@ struct LocalFromID
     std::string_view plugin_name;
 };
 
-template<typename Tp, size_t N>
-constexpr size_t array_size(const Tp(&)[N])
+template<typename T, size_t N>
+constexpr size_t array_size(const T(&)[N])
 {
     return N;
 }
 
-template<typename Tp, size_t N>
-    requires(std::is_integral_v<Tp>)
-constexpr size_t hash_str(const Tp(&str)[N], const size_t& seed)
+template<typename T, size_t N>
+    requires(std::is_integral_v<T>)
+constexpr size_t hash_str(const T(&str)[N], const size_t& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < N - 1; ++i)
@@ -31,9 +31,9 @@ constexpr size_t hash_str(const Tp(&str)[N], const size_t& seed)
     return hash;
 }
 
-template<typename Tp, size_t N>
-    requires(std::is_integral_v<Tp>)
-constexpr size_t hash_str(const std::basic_string_view<Tp>& str, const size_t& seed)
+template<typename T, size_t N>
+    requires(std::is_integral_v<T>)
+constexpr size_t hash_str(const std::basic_string_view<T>& str, const size_t& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < N - 1; ++i)
@@ -42,9 +42,9 @@ constexpr size_t hash_str(const std::basic_string_view<Tp>& str, const size_t& s
     return hash;
 }
 
-template<typename Tp>
-    requires(std::is_integral_v<Tp>)
-constexpr size_t hash_str(const Tp* str, const size_t len, const size_t& seed)
+template<typename T>
+    requires(std::is_integral_v<T>)
+constexpr size_t hash_str(const T* str, const size_t len, const size_t& seed)
 {
     size_t hash = seed;
     for (size_t i = 0; i < len; ++i)
@@ -53,23 +53,23 @@ constexpr size_t hash_str(const Tp* str, const size_t len, const size_t& seed)
     return hash;
 }
 
-template<typename Tp, typename... Rest>
-constexpr void hash_combine_mul(size_t& seed, const Tp& val, const Rest&... rest)
+template<typename T, typename... Rest>
+constexpr void hash_combine_mul(size_t& seed, const T& val, const Rest&... rest)
 {
-    if constexpr (std::is_convertible_v<Tp, size_t>)
+    if constexpr (std::is_convertible_v<T, size_t>)
         seed ^= (static_cast<size_t>(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
     else
-        seed ^= (std::hash<Tp>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+        seed ^= (std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
     (hash_combine_mul(seed, rest), ...);
 }
 
-template<typename Tp>
-constexpr size_t hash_combine(const size_t& seed, const Tp& val)
+template<typename T>
+constexpr size_t hash_combine(const size_t& seed, const T& val)
 {
-    if constexpr (std::is_convertible_v<Tp, size_t>)
+    if constexpr (std::is_convertible_v<T, size_t>)
         return seed ^ (static_cast<size_t>(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
     else
-        return seed ^ (std::hash<Tp>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+        return seed ^ (std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
 }
 
 inline size_t hash_combine(const size_t& seed, const void* mem, const size_t& length)

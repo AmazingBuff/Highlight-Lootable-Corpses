@@ -12,7 +12,7 @@ Setting& Setting::instance()
 
 namespace
 {
-    std::uint32_t parse_hex(char const* a_value, std::uint32_t a_default) noexcept
+    uint32_t parse_hex(char const* a_value, uint32_t a_default) noexcept
     {
         if (!a_value || !*a_value)
             return a_default;
@@ -63,7 +63,7 @@ void Setting::load() noexcept
         logger::info("INI not found at {}, writing defaults", path);
 
     m_config.enabled = ini.GetBoolValue("General", "Enabled");
-    m_config.hotkey = static_cast<std::uint32_t>(ini.GetLongValue("General", "Hotkey"));
+    m_config.hotkey = static_cast<uint32_t>(ini.GetLongValue("General", "Hotkey"));
     m_config.hotkey_mode = static_cast<Config::HotkeyMode>(ini.GetLongValue("General", "HotkeyMode"));
     m_config.pulse_duration_ms = ini.GetLongValue("General", "PulseDurationMs");
     m_config.scan_interval_ms = ini.GetLongValue("General", "ScanIntervalMs");
@@ -94,39 +94,39 @@ void Setting::load() noexcept
 
 void Setting::save() noexcept
 {
-    static auto const section = [](std::string_view a_name) {
+    static auto const s_section = [](std::string_view a_name) {
         return fmt::format("[{}]\n", a_name);
     };
-    static auto const option = [](std::string_view a_comment, std::string_view a_kv) {
+    static auto const s_option = [](std::string_view a_comment, std::string_view a_kv) {
         return fmt::format("; {}\n{}\n", a_comment, a_kv);
     };
 
     std::string body;
-    body += section("General");
-    body += option("mod enabled on startup", fmt::format("Enabled={}", m_config.enabled ? "true" : "false"));
-    body += option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", m_config.hotkey));
-    body += option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(m_config.hotkey_mode)));
-    body += option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", m_config.pulse_duration_ms));
-    body += option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", m_config.scan_interval_ms));
-    body += section("Display");
-    body += option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
-    body += option("outline thickness in pixels", fmt::format("OutlineThickness={}", m_config.outline_thickness));
-    body += option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", m_config.icon_radius));
-    body += option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", m_config.outline_color));
-    body += option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", m_config.min_opacity));
-    body += option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", m_config.max_distance));
-    body += option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", m_config.fade_start_distance));
-    body += option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", m_config.fade_power));
-    body += section("LootFilter");
-    body += option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", m_config.hide_searched_enabled ? "true" : "false"));
-    body += option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", m_config.value_filter_enabled ? "true" : "false"));
-    body += option("quest items", fmt::format("ValueQuestItems={}", m_config.value_quest_items ? "true" : "false"));
-    body += option("keys", fmt::format("ValueKeys={}", m_config.value_keys ? "true" : "false"));
-    body += option("enchanted equipment", fmt::format("ValueEnchanted={}", m_config.value_enchanted ? "true" : "false"));
-    body += option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", m_config.value_high_value ? "true" : "false"));
-    body += option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", m_config.high_value_threshold));
-    body += option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(m_config.book_filter_mode.underlying())));
-    body += option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", m_config.value_consumables ? "true" : "false"));
+    body += s_section("General");
+    body += s_option("mod enabled on startup", fmt::format("Enabled={}", m_config.enabled ? "true" : "false"));
+    body += s_option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", m_config.hotkey));
+    body += s_option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(m_config.hotkey_mode)));
+    body += s_option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", m_config.pulse_duration_ms));
+    body += s_option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", m_config.scan_interval_ms));
+    body += s_section("Display");
+    body += s_option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
+    body += s_option("outline thickness in pixels", fmt::format("OutlineThickness={}", m_config.outline_thickness));
+    body += s_option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", m_config.icon_radius));
+    body += s_option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", m_config.outline_color));
+    body += s_option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", m_config.min_opacity));
+    body += s_option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", m_config.max_distance));
+    body += s_option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", m_config.fade_start_distance));
+    body += s_option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", m_config.fade_power));
+    body += s_section("LootFilter");
+    body += s_option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", m_config.hide_searched_enabled ? "true" : "false"));
+    body += s_option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", m_config.value_filter_enabled ? "true" : "false"));
+    body += s_option("quest items", fmt::format("ValueQuestItems={}", m_config.value_quest_items ? "true" : "false"));
+    body += s_option("keys", fmt::format("ValueKeys={}", m_config.value_keys ? "true" : "false"));
+    body += s_option("enchanted equipment", fmt::format("ValueEnchanted={}", m_config.value_enchanted ? "true" : "false"));
+    body += s_option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", m_config.value_high_value ? "true" : "false"));
+    body += s_option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", m_config.high_value_threshold));
+    body += s_option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(m_config.book_filter_mode.underlying())));
+    body += s_option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", m_config.value_consumables ? "true" : "false"));
 
     std::string const& path = get_config_path();
     std::ofstream file(path, std::ios::binary);

@@ -19,15 +19,15 @@ MASK_NAMESPACE_BEGIN
 //（尸体 mesh 布局种类极少）。
 // ---------------------------------------------------------------------------
 ID3D11InputLayout* MaskGeometryPass::get_layout(
-    ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, std::uint32_t stride,
-    DXGI_FORMAT position_format, std::uint32_t position_offset, MaskSkinLayout const* skin_layout)
+    ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
+    DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout)
 {
     // 位置格式/偏移：静态路径为标定结果（UNKNOWN 表示按 desc 推导）；蒙皮路径为
     // 属性偏移间距判定结果（绝不为 UNKNOWN）。
     DXGI_FORMAT const resolved_format = (position_format == DXGI_FORMAT_UNKNOWN)
                                             ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT)
                                             : position_format;
-    std::uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
+    uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
                                               ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
                                               : position_offset;
     // 蒙皮权重/索引布局由标定结果给出；静态路径无（nullptr）。
@@ -35,13 +35,13 @@ ID3D11InputLayout* MaskGeometryPass::get_layout(
     LayoutKey const key{
         .skinned = skinned,
         .full_prec = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC),
-        .position_format = static_cast<std::uint32_t>(resolved_format),
+        .position_format = static_cast<uint32_t>(resolved_format),
         .position_offset = resolved_offset,
         .skinning_offset = desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING),
         .stride = stride,
-        .weight_format = static_cast<std::uint32_t>(skin_layout_ref.weight_format),
+        .weight_format = static_cast<uint32_t>(skin_layout_ref.weight_format),
         .weight_offset = skin_layout_ref.weight_offset,
-        .index_format = static_cast<std::uint32_t>(skin_layout_ref.index_format),
+        .index_format = static_cast<uint32_t>(skin_layout_ref.index_format),
         .index_offset = skin_layout_ref.index_offset,
     };
 
@@ -117,7 +117,7 @@ namespace
     struct PerDrawCBData
     {
         DirectX::XMFLOAT4X4 mvp;
-        std::uint32_t object_id;
+        uint32_t object_id;
         float pad[3];
     };
     static_assert(sizeof(PerDrawCBData) == 80);
@@ -129,10 +129,10 @@ namespace
 
     bool draw_fullscreen_triangle(
         ID3D11DeviceContext* context, ID3D11RenderTargetView* target, ID3D11ShaderResourceView* mask_srv,
-        std::uint32_t width, std::uint32_t height,
+        uint32_t width, uint32_t height,
         ID3D11VertexShader* vs, ID3D11PixelShader* ps, ID3D11BlendState* blend,
         ID3D11DepthStencilState* depth_none, ID3D11RasterizerState* cull_none,
-        ID3D11Buffer* cb0, void const* cb0_data, std::size_t cb0_bytes,
+        ID3D11Buffer* cb0, void const* cb0_data, size_t cb0_bytes,
         ID3D11ShaderResourceView* style_srv)
     {
         if (!target || !mask_srv || !vs || !ps || !blend || !cb0 || !style_srv)
@@ -189,7 +189,7 @@ RenderTarget::~RenderTarget()
     release();
 }
 
-bool RenderTarget::matches(ID3D11Device* device, std::uint32_t width, std::uint32_t height) const
+bool RenderTarget::matches(ID3D11Device* device, uint32_t width, uint32_t height) const
 {
     return m_ref_device == device && m_width == width && m_height == height && m_srv && m_dsv;
 }
@@ -226,7 +226,7 @@ void RenderTarget::release()
     m_ref_device = nullptr;
 }
 
-bool RenderTarget::init(ID3D11Device* device, std::uint32_t width, std::uint32_t height)
+bool RenderTarget::init(ID3D11Device* device, uint32_t width, uint32_t height)
 {
     D3D11_TEXTURE2D_DESC td{};
     td.Width = width;
@@ -430,7 +430,7 @@ void MaskGeometryPass::release()
 
 void MaskGeometryPass::calibrate_upload_orientation(
     RE::NiCamera* camera, DirectX::XMFLOAT4X4 const& view_proj, std::vector<MaskDraw> const& draws,
-    std::uint32_t width, std::uint32_t height)
+    uint32_t width, uint32_t height)
 {
     static bool s_checked = false;
     if (s_checked || draws.empty() || !draws.front().node)
@@ -539,9 +539,9 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
             // P = min(skinData 骨骼数, numMatrices) 为其有效长度；不使用 part.bones
             //（分区局部）。未用槽位填充 palette[P-1] 的副本（防越界读取未定义内容），
             // 整块上传 Max_Palette_Bones 个矩阵。
-            std::uint32_t const skin_bones = skin->skinData->GetBoneCount();
-            std::uint32_t const matrix_count = skin->numMatrices;
-            std::uint32_t const palette_count = palette_slot_count(skin);
+            uint32_t const skin_bones = skin->skinData->GetBoneCount();
+            uint32_t const matrix_count = skin->numMatrices;
+            uint32_t const palette_count = palette_slot_count(skin);
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
                 log_skinned_skip_once(true, draw.node ? draw.node->name.c_str() : nullptr, "palette slot count out of range",
@@ -552,7 +552,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
 
             DirectX::XMFLOAT4X4 palette[Max_Palette_Bones];
             bool palette_ok = true;
-            for (std::uint32_t i = 0; i < palette_count; ++i)
+            for (uint32_t i = 0; i < palette_count; ++i)
             {
                 // i < numMatrices 与 i < GetBoneCount() 由 P 的定义保证（防越界读取）
                 if (!skin->boneWorldTransforms[i])
@@ -588,13 +588,13 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
                     fmt::format("partition={} P={} skin_bones={} numMatrices={}", draw.partition, palette_count, skin_bones, matrix_count));
                 continue;
             }
-            for (std::size_t k = palette_count; k < Max_Palette_Bones; ++k)
+            for (size_t k = palette_count; k < Max_Palette_Bones; ++k)
                 palette[k] = palette[palette_count - 1];
-            std::size_t const palette_bytes = Max_Palette_Bones * sizeof(DirectX::XMFLOAT4X4);
+            size_t const palette_bytes = Max_Palette_Bones * sizeof(DirectX::XMFLOAT4X4);
             if (m_upload_transposed)
             {
                 DirectX::XMFLOAT4X4 palette_upload[Max_Palette_Bones];
-                for (std::size_t k = 0; k < Max_Palette_Bones; ++k)
+                for (size_t k = 0; k < Max_Palette_Bones; ++k)
                     DirectX::XMStoreFloat4x4(&palette_upload[k], DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&palette[k])));
                 update_constant_buffer(context, m_palette_cb, palette_upload, palette_bytes);
             }
@@ -792,8 +792,8 @@ bool SilhouettePass::draw(
     ID3D11DeviceContext* context,
     ID3D11RenderTargetView* target,
     ID3D11ShaderResourceView* mask_srv,
-    std::uint32_t width,
-    std::uint32_t height,
+    uint32_t width,
+    uint32_t height,
     ID3D11DepthStencilState* depth_none,
     ID3D11RasterizerState* cull_none) const
 {
@@ -866,8 +866,8 @@ bool OutlinePass::draw(
     ID3D11DeviceContext* context,
     ID3D11RenderTargetView* target,
     ID3D11ShaderResourceView* mask_srv,
-    std::uint32_t width,
-    std::uint32_t height,
+    uint32_t width,
+    uint32_t height,
     int thickness,
     ID3D11DepthStencilState* depth_none,
     ID3D11RasterizerState* cull_none) const

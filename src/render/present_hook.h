@@ -30,7 +30,7 @@ private:
 
     static HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swap_chain, UINT a_sync_interval, UINT a_flags);
 private:
-    PresentFunc m_original_present;
+    PresentFunc m_ref_original_present;
     Callback m_callback;
     bool m_installed;
 };

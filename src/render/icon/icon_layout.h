@@ -16,7 +16,7 @@ namespace Amazing::HighlightLootableCorpses
 {
 struct IconCandidate
 {
-    std::uint32_t form_id;
+    uint32_t form_id;
     DirectX::XMFLOAT3 anchor;
     DirectX::XMFLOAT2 tip;
     float distance;
@@ -25,8 +25,8 @@ struct IconCandidate
 
 struct IconMarker
 {
-    std::uint32_t representative;
-    std::size_t member_count;
+    uint32_t representative;
+    size_t member_count;
     DirectX::XMFLOAT2 tip;
     float radius;
     float opacity;
@@ -45,11 +45,11 @@ public:
     IconLayout();
 
     [[nodiscard]] std::vector<IconMarker> update(std::span<IconCandidate const> candidates,
-        float base_radius, float max_distance, float width, float height, std::size_t marker_limit);
+        float base_radius, float max_distance, float width, float height, size_t marker_limit);
     void reset();
 
 private:
-    std::unordered_map<std::uint32_t, std::uint32_t> m_membership;
+    std::unordered_map<uint32_t, uint32_t> m_membership;
     float m_width;
     float m_height;
 };

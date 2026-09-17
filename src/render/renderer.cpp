@@ -112,7 +112,7 @@ namespace
             }
 
             RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
-            std::uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
+            uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
 
             bool const skip_draw = (frame != 0) && (frame == m_last_drawn_frame);
             if (!skip_draw)
@@ -127,7 +127,7 @@ namespace
     private:
         OverlayDirector()
             : m_scan_in_flight(false)
-            , m_last_drawn_frame(std::numeric_limits<std::uint32_t>::max())
+            , m_last_drawn_frame(std::numeric_limits<uint32_t>::max())
             , m_back_buffer(nullptr)
             , m_render_target(nullptr)
             , m_ready(false) {}

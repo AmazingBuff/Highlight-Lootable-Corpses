@@ -33,7 +33,7 @@ public:
 
         // 战利品筛选（扫描期由 LootFilter::evaluate 计算）：命中的价值分类位掩码与最高单件价值
         RE::stl::enumeration<LootFilter::Category> loot_categories;
-        std::int32_t best_item_value;
+        int32_t best_item_value;
     };
 
     void search();

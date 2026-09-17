@@ -14,7 +14,7 @@ PulseTimer& PulseTimer::instance()
     return s_instance;
 }
 
-void PulseTimer::trigger(std::uint32_t duration_ms)
+void PulseTimer::trigger(uint32_t duration_ms)
 {
     std::lock_guard const lock(m_mutex);
     m_start_time = std::chrono::steady_clock::now();

@@ -13,7 +13,7 @@ PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    std::string hotkey_name(std::uint32_t a_vk)
+    std::string hotkey_name(uint32_t a_vk)
     {
         if (a_vk == 0)
             return "None";
@@ -69,7 +69,7 @@ namespace
             Config::HotkeyMode::e_pulse,
         };
         static constexpr char const* s_hotkey_mode_names[] = { "Constant", "Pulse" };
-        std::size_t hk_index = static_cast<std::size_t>(cfg.hotkey_mode);
+        size_t hk_index = static_cast<size_t>(cfg.hotkey_mode);
         if (ImGuiMCP::Button(fmt::format("Hotkey Mode: {}", s_hotkey_mode_names[hk_index]).c_str()))
         {
             hk_index = (hk_index + 1) % std::size(s_hotkey_modes);
@@ -94,7 +94,7 @@ namespace
             Config::DisplayMode::e_icon,
         };
         static constexpr char const* s_display_mode_names[] = { "Silhouette", "Outline", "Icon" };
-        std::size_t mode_index = static_cast<std::size_t>(cfg.display_mode);
+        size_t mode_index = static_cast<size_t>(cfg.display_mode);
         if (ImGuiMCP::Button(fmt::format("Display Mode: {}", s_display_mode_names[mode_index]).c_str()))
         {
             mode_index = (mode_index + 1) % std::size(s_display_modes);

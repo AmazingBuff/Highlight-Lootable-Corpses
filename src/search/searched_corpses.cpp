@@ -15,16 +15,16 @@ MarkCorpse& MarkCorpse::instance()
 
 namespace
 {
-    constexpr std::uint32_t Record_ID = static_cast<uint32_t>(hash_str(Plugin::Plugin_Name.data(), Plugin::Plugin_Name.size(), Amazing_Hash));
-    constexpr std::uint32_t Record_Version = Plugin::Plugin_Version[0];
+    constexpr uint32_t Record_ID = static_cast<uint32_t>(hash_str(Plugin::Plugin_Name.data(), Plugin::Plugin_Name.size(), Amazing_Hash));
+    constexpr uint32_t Record_Version = Plugin::Plugin_Version[0];
 
     class ActivateHandler final : public RE::BSTEventSink<RE::TESActivateEvent>
     {
     public:
-        static ActivateHandler* get_singleton()
+        static ActivateHandler* instance()
         {
-            static ActivateHandler instance;
-            return &instance;
+            static ActivateHandler s_instance;
+            return &s_instance;
         }
 
         RE::BSEventNotifyControl ProcessEvent(
@@ -82,7 +82,7 @@ void MarkCorpse::install()
 
     serialization->SetSaveCallback([](SKSE::SerializationInterface* a_intfc)
     {
-        std::uint32_t const count = static_cast<std::uint32_t>(MarkCorpse::instance().m_searched_corpses.size());
+        uint32_t const count = static_cast<uint32_t>(MarkCorpse::instance().m_searched_corpses.size());
         if (!a_intfc->WriteRecord(Record_ID, Record_Version, &count, sizeof(count)))
         {
             logger::error("Failed to write searched-corpses record header"sv);
@@ -103,9 +103,9 @@ void MarkCorpse::install()
     {
         MarkCorpse::instance().m_searched_corpses.clear();
 
-        std::uint32_t type = 0;
-        std::uint32_t version = 0;
-        std::uint32_t length = 0;
+        uint32_t type = 0;
+        uint32_t version = 0;
+        uint32_t length = 0;
         while (a_intfc->GetNextRecordInfo(type, version, length))
         {
             if (type != Record_ID)
@@ -117,15 +117,15 @@ void MarkCorpse::install()
                 continue;
             }
 
-            std::uint32_t count = 0;
-            if (length < sizeof(std::uint32_t) || !a_intfc->ReadRecordData(count))
+            uint32_t count = 0;
+            if (length < sizeof(uint32_t) || !a_intfc->ReadRecordData(count))
             {
                 logger::error("Corrupt searched-corpses record header"sv);
                 continue;
             }
 
-            std::uint32_t kept = 0;
-            for (std::uint32_t i = 0; i < count; ++i)
+            uint32_t kept = 0;
+            for (uint32_t i = 0; i < count; ++i)
             {
                 RE::FormID stored = 0;
                 if (!a_intfc->ReadRecordData(stored))
@@ -157,7 +157,7 @@ void MarkCorpse::install()
     logger::info("Registered searched-corpses serialization callbacks"sv);
 
 
-    RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(ActivateHandler::get_singleton());
+    RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(ActivateHandler::instance());
     logger::info("Installed TESActivateEvent sinks"sv);
 }
 

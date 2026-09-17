@@ -33,8 +33,8 @@ public:
     [[nodiscard]] ID3D11RenderTargetView* rtv() const { return m_rtv; }
     [[nodiscard]] ID3D11DepthStencilView* dsv() const { return m_dsv; }
     [[nodiscard]] ID3D11ShaderResourceView* srv() const { return m_srv; }
-    [[nodiscard]] std::uint32_t width() const { return m_width; }
-    [[nodiscard]] std::uint32_t height() const { return m_height; }
+    [[nodiscard]] uint32_t width() const { return m_width; }
+    [[nodiscard]] uint32_t height() const { return m_height; }
 private:
     ID3D11Device* m_ref_device;
     ID3D11Texture2D* m_texture;
@@ -69,8 +69,8 @@ public:
         RE::NiCamera* camera,
         DirectX::XMFLOAT4X4 const& view_proj,
         std::vector<MaskDraw> const& draws,
-        std::uint32_t width,
-        std::uint32_t height);
+        uint32_t width,
+        uint32_t height);
 
     // 绘制全部 draw（调色板蒙皮在此构建）。
     void draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws);
@@ -81,16 +81,16 @@ private:
     {
         bool skinned;
         bool full_prec;
-        std::uint32_t position_format;  // 位置格式为标定结果，须入键防不同格式共用布局
-        std::uint32_t position_offset;
-        std::uint32_t skinning_offset;
-        std::uint32_t stride;
+        uint32_t position_format;  // 位置格式为标定结果，须入键防不同格式共用布局
+        uint32_t position_offset;
+        uint32_t skinning_offset;
+        uint32_t stride;
         // 蒙皮权重/索引布局：标定结果，须入键防不同布局共用同一 InputLayout
         //（静态 draw 保持默认 0/UNKNOWN）。
-        std::uint32_t weight_format;
-        std::uint32_t weight_offset;
-        std::uint32_t index_format;
-        std::uint32_t index_offset;
+        uint32_t weight_format;
+        uint32_t weight_offset;
+        uint32_t index_format;
+        uint32_t index_offset;
 
         bool operator==(LayoutKey const&) const = default;
     };
@@ -98,8 +98,8 @@ private:
     bool create_pipeline(ID3D11Device* device);
 
     ID3D11InputLayout* get_layout(
-        ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, std::uint32_t stride,
-        DXGI_FORMAT position_format, std::uint32_t position_offset, MaskSkinLayout const* skin_layout);
+        ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
+        DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout);
 
     void release_layouts();
 
@@ -150,7 +150,7 @@ protected:
 
     ID3D11Buffer* m_style_buffer;
     ID3D11ShaderResourceView* m_style_srv;
-    std::size_t m_style_capacity;
+    size_t m_style_capacity;
     bool m_styles_valid;
 };
 
@@ -164,8 +164,8 @@ public:
         ID3D11DeviceContext* context,
         ID3D11RenderTargetView* target,
         ID3D11ShaderResourceView* mask_srv,
-        std::uint32_t width,
-        std::uint32_t height,
+        uint32_t width,
+        uint32_t height,
         ID3D11DepthStencilState* depth_none,
         ID3D11RasterizerState* cull_none) const;
 };
@@ -180,8 +180,8 @@ public:
         ID3D11DeviceContext* context,
         ID3D11RenderTargetView* target,
         ID3D11ShaderResourceView* mask_srv,
-        std::uint32_t width,
-        std::uint32_t height,
+        uint32_t width,
+        uint32_t height,
         int thickness,
         ID3D11DepthStencilState* depth_none,
         ID3D11RasterizerState* cull_none) const;

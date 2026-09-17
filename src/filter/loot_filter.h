@@ -16,7 +16,7 @@ public:
 
     static LootFilter& instance();
 
-    enum class Category : std::uint16_t
+    enum class Category : uint16_t
     {
         e_none              = 0,
         e_quest             = 1 << 0,
@@ -33,7 +33,7 @@ public:
     {
         bool has_items;
         RE::stl::enumeration<Category> categories;
-        std::int32_t best_item_value;
+        int32_t best_item_value;
     };
 
     // input must be a container

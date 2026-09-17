@@ -7,12 +7,12 @@ PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    std::uint32_t dik_from_vk(std::uint32_t vk)
+    uint32_t dik_from_vk(uint32_t vk)
     {
         return vk > 0xFFu ? 0u : MapVirtualKeyA(vk, MAPVK_VK_TO_VSC);
     }
 
-    bool macro_key_code(RE::ButtonEvent const& event, std::uint32_t& out)
+    bool macro_key_code(RE::ButtonEvent const& event, uint32_t& out)
     {
         switch (event.device.get())
         {
@@ -35,7 +35,7 @@ namespace
         if (Menu::is_menu_open())
             return;
 
-        std::uint32_t key = 0;
+        uint32_t key = 0;
         if (!macro_key_code(*event, key))
             return;
 
@@ -64,10 +64,10 @@ namespace
         InputHandler() = default;
         ~InputHandler() override = default;
     public:
-        static InputHandler* get_singleton()
+        static InputHandler* instance()
         {
-            static InputHandler instance;
-            return &instance;
+            static InputHandler s_instance;
+            return &s_instance;
         }
 
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* event, RE::BSTEventSource<RE::InputEvent*>*) override
@@ -88,7 +88,7 @@ namespace
 
 void InputManager::install()
 {
-    RE::BSInputDeviceManager::GetSingleton()->AddEventSink(InputHandler::get_singleton());
+    RE::BSInputDeviceManager::GetSingleton()->AddEventSink(InputHandler::instance());
 
     logger::info("Installed input handler!");
 }
