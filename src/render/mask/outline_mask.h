@@ -47,11 +47,13 @@ public:
 
     void set_targets(std::vector<OutlineMaskTarget> const& a_targets);
 
-    // 由 Present 回调调用：收集 a_camera 视角下的几何并渲染 mask，随后按当前
-    // display_mode 把填充/描边叠加到 a_overlay_target 上——调用方须传 Present
-    // 将展示的后备缓冲的 RTV（契约与 icon 路径一致，不依赖引擎 Present 时刻
-    // 碰巧绑定的渲染目标）。
-    // a_width/a_height 为后备缓冲尺寸（mask RT 与其同尺寸，变化时重建）。
+    // Called from the Present callback: collect the geometry visible from a_camera and render the
+    // mask, then blend the fill/outline onto a_overlay_target according to the current display_mode
+    // - the caller must pass the RTV of the back buffer Present will show (the contract matches the
+    // icon path and does not rely on whichever render target happens to be bound at the engine's
+    // Present moment).
+    // a_width/a_height are the back-buffer dimensions (the mask RT has the same size and is
+    // recreated when they change).
     void render(ID3D11Device* a_device, ID3D11DeviceContext* a_context, RE::NiCamera* a_camera,
         ID3D11RenderTargetView* a_overlay_target, uint32_t a_width, uint32_t a_height);
 private:
@@ -61,7 +63,7 @@ private:
     void render_impl(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
         ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height);
 private:
-    // 门面状态（渲染线程独占）
+    // Facade state (owned exclusively by the render thread)
     std::vector<Mask::MaskTarget> m_targets;
     Mask::RenderTarget m_mask_rt;
     Mask::MaskGeometryPass m_geometry_pass;

@@ -19,27 +19,28 @@ MASK_NAMESPACE_BEGIN
 
 namespace
 {
-    // ---- 静态 draw 足迹校验常量：世界包围球 / 目标归属 ----
-    constexpr float Max_Part_World_Radius = 1024.0f;  // 世界包围球半径上限（游戏单位）
-    constexpr float Ref_Proximity_Slack = 256.0f;     // draw 足迹到目标 ref 位置的最小邻域（游戏单位）
+    // ---- Constants of the static draw footprint checks: world bounding sphere / target ownership ----
+    constexpr float Max_Part_World_Radius = 1024.0f;  // upper bound on the world bounding-sphere radius (game units)
+    constexpr float Ref_Proximity_Slack = 256.0f;     // minimum neighbourhood of the draw footprint around the target ref position (game units)
 
     constexpr size_t Max_Draws_Per_Frame = 256;
 
-    constexpr size_t Max_Position_Calibrations = 256;   // 标定缓存上限（超出退化不缓存）
-    constexpr uint32_t Calibration_Sample_Limit = 256;  // 大网格采样上限
+    constexpr size_t Max_Position_Calibrations = 256;   // calibration cache cap (past it, no caching on the degraded path)
+    constexpr uint32_t Calibration_Sample_Limit = 256;  // sampling cap for large meshes
 
-    constexpr size_t Max_Skinned_Layout_Calibrations = 256;  // 蒙皮标定缓存上限（超出退化不缓存）
-    constexpr size_t Max_Skinned_Layout_Candidates = 4;      // 每步进最多 2 个 SKINNING 布局 × 2 步进
+    constexpr size_t Max_Skinned_Layout_Calibrations = 256;  // skinned calibration cache cap (past it, no caching on the degraded path)
+    constexpr size_t Max_Skinned_Layout_Candidates = 4;      // at most 2 SKINNING layouts per stride × 2 strides
 
-    // 权重校验阈值（SSE 顶点权重和约定为 1，阈值已刻意放宽）
+    // Weight validation thresholds (SSE vertex weights are expected to sum to 1, so the thresholds are deliberately loose)
     constexpr float Skinned_Weight_Min = -0.001f;
     constexpr float Skinned_Weight_Max = 1.001f;
     constexpr float Skinned_Weight_Sum_Min = 0.98f;
     constexpr float Skinned_Weight_Sum_Max = 1.02f;
 
     // ---------------------------------------------------------------------------
-    // 一次性定位日志：按 key 去重（同 key 只输出一次）。签名容器只被渲染线程访问
-    //（Present 回调内），仅首次命中各签名时增长。
+    // One-shot diagnostic logging: deduplicated by key (a given key is emitted once). The signature
+    // container is only touched by the render thread (inside the Present callback) and only grows
+    // the first time each signature is hit.
     // ---------------------------------------------------------------------------
     void log_once(bool warn, std::string key, std::string_view message)
     {
@@ -78,17 +79,18 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // 顶点布局：由 vertexDesc 推导步进与属性格式。
-    // CLibNG 的 VertexDesc::GetSize() 对半精度位置固定按 16 字节计（仅全精度成立）、
-    // UV 固定按 4 字节计（全精度为 8），与真实步进不符；改为"各属性 offset+size
-    // 取最大值"——offset 直接来自引擎写入的 desc（权威布局），属性大小为 SSE
-    // 固定格式：
+    // Vertex layout: derive the stride and the attribute formats from vertexDesc.
+    // CLibNG's VertexDesc::GetSize() always counts a half-precision position as 16 bytes (which only
+    // holds for full precision) and UV as 4 bytes (8 for full precision), so it does not match the
+    // real stride; instead take "the maximum of offset+size over all attributes" - offset comes
+    // straight from the desc the engine wrote (the authoritative layout) and the attribute sizes are
+    // the fixed SSE formats:
     //   POSITION   FULLPREC ? R32G32B32(12) : R16G16B16A16(8)
     //   TEXCOORDn  FULLPREC ? R32G32(8)     : R16G16(4)
-    //   NORMAL/TANGENT/COLOR/EYEDATA/LANDDATA 4 字节
-    //   SKINNING   权重 4×f16(8) + 索引 4×u8(4)，权重在前
-    // SKINNING 块字节数可参数化：蒙皮分区步进未知，需按 8/12 两值试探；
-    // 静态路径固定传 12。
+    //   NORMAL/TANGENT/COLOR/EYEDATA/LANDDATA 4 bytes
+    //   SKINNING   weights 4×f16(8) + indices 4×u8(4), weights first
+    // The SKINNING block byte count is parameterisable: the skinned partition stride is unknown, so
+    // both 8 and 12 have to be probed; the static path always passes 12.
     // ---------------------------------------------------------------------------
     uint32_t vertex_size_of_with_skinning(RE::BSGraphics::VertexDesc const& desc, uint32_t skinning_bytes)
     {
@@ -135,8 +137,10 @@ namespace
         return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
     }
 
-    // XMFLOAT4X4（世界变换）变换 3D 点：列向量消费，含平移（约定见 mask_types.h 矩阵工具注释）。
-    // XMVector3Transform 求的是行向量积 p·M，故先转置，等价于 M·p。
+    // Transform a 3D point with an XMFLOAT4X4 world transform: column-vector consumption, translation
+    // included (for the convention see the matrix helper comment in mask_types.h).
+    // XMVector3Transform computes the row-vector product p·M, so transpose first, which is
+    // equivalent to M·p.
     RE::NiPoint3 transform_point(DirectX::XMFLOAT4X4 const& m, RE::NiPoint3 const& p)
     {
         DirectX::XMMATRIX const transposed = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&m));
@@ -155,21 +159,22 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // 位置属性格式标定：desc 的 VF_FULLPREC 不可靠（0x1b/0x3b 未置位，但位置实为
-    // float32 全精度 16 字节槽位——按 half4 声明会让 D3D11 把每个 float32 的前
-    // 8 字节当 4 个 half 读，位置全乱、三角形被拉到整屏）。故不再假定格式，而是
-    // 用 rawVertexData 实测解码，与引擎 modelBound（模型空间地面真值）比对，选出
-    // 吻合的 (格式, 字节偏移)，按 desc 缓存。
+    // Position attribute format calibration: VF_FULLPREC in the desc is unreliable (0x1b/0x3b leave
+    // the flag clear although the position really is a float32 full-precision 16-byte slot -
+    // declaring it as half4 makes D3D11 read the first 8 bytes of every float32 as 4 halves, which
+    // scrambles all positions and stretches the triangles over the whole screen). So the format is no
+    // longer assumed: rawVertexData is decoded for real and compared against the engine modelBound
+    // (the model-space ground truth) to select the matching (format, byte offset), cached per desc.
     // ---------------------------------------------------------------------------
 
     struct PositionCandidate
     {
         DXGI_FORMAT format;
         uint32_t bytes;
-        bool from_desc;  // true：偏移取 desc 的 VA_POSITION；false：偏移 0
+        bool from_desc;  // true: offset taken from the desc's VA_POSITION; false: offset 0
     };
 
-    // 候选表（float32 在前：同分优先保守的全精度读法；集中定义，不散落魔法数）
+    // Candidate table (float32 first: on a tie prefer the conservative full-precision reading; defined in one place, no scattered magic numbers)
     constexpr PositionCandidate Position_Candidates[] = {
         { DXGI_FORMAT_R32G32B32_FLOAT, 12, true },
         { DXGI_FORMAT_R32G32B32_FLOAT, 12, false },
@@ -180,21 +185,21 @@ namespace
 
     enum class PositionCalibrationState : uint8_t
     {
-        e_measured,       // 实测通过，使用标定结果
-        e_desc_fallback,  // 无法标定（raw 缺失等）→ 退回 desc 推导，不跳过
-        e_unresolved,     // 无候选吻合 → 跳过该 draw（宁可少画不许垃圾涂屏）
+        e_measured,       // measured successfully, the calibration result is used
+        e_desc_fallback,  // cannot calibrate (raw data missing, etc.) → fall back to desc derivation, do not skip
+        e_unresolved,     // no candidate matched → skip this draw (better to draw too little than to smear garbage over the screen)
     };
 
     struct PositionCalibration
     {
-        // 仅布局决策（format/offset 为 desc 的属性，故可按 desc 缓存）。
-        // 逐 mesh 的模型 AABB 只服务候选评分，不进缓存（防跨网格污染）。
+        // Layout decision only (format/offset are desc attributes, so they can be cached per desc).
+        // The per-mesh model AABB only feeds candidate scoring and never enters the cache (to prevent cross-mesh pollution).
         DXGI_FORMAT format;
         uint32_t offset;
         PositionCalibrationState state;
     };
 
-    // 单点位置解码：调用方须已保证 offset + bytes <= stride（防越界）
+    // Decode a single position: the caller must already guarantee offset + bytes <= stride (bounds safety)
     bool decode_position(
         uint8_t const* base, uint32_t stride, uint32_t offset,
         uint32_t bytes, uint32_t index, RE::NiPoint3& out)
@@ -223,7 +228,7 @@ namespace
         return is_finite(out);
     }
 
-    // 采样解码求模型空间 AABB 的中心/半径与 min/max（采样上限摊平大网格）；任一非有限 → 失败
+    // Sample-decode the model-space AABB centre/radius and min/max (the sample cap flattens large meshes); any non-finite value → failure
     bool measure_position(
         uint8_t const* base, uint32_t stride, uint32_t offset,
         uint32_t bytes, uint32_t vertex_count,
@@ -268,8 +273,9 @@ namespace
         return true;
     }
 
-    // 判定并选定位置布局；每个 desc 首次标定输出一条完整证据日志（INFO 成功 /
-    // WARN 无吻合）；退化路径一次性 INFO。结果按 desc 缓存（稳态零解码）。
+    // Decide and select the position layout; the first calibration of each desc emits one complete
+    // evidence log line (INFO on success / WARN on no match); the degraded path logs INFO once. The
+    // result is cached per desc (zero decoding in steady state).
     PositionCalibration calibrate_position_format(
         RE::BSGraphics::VertexDesc const& desc,
         RE::BSGraphics::TriShape const* renderer_data,
@@ -307,7 +313,7 @@ namespace
 
         if (!decodable)
         {
-            // 无法标定 → 退回 desc 推导（当前行为），一次性 INFO，不跳过
+            // Cannot calibrate → fall back to desc derivation (the current behaviour), log INFO once, do not skip
             result.format = position_format_of(desc);
             result.offset = desc_offset;
             result.state = PositionCalibrationState::e_desc_fallback;
@@ -323,8 +329,8 @@ namespace
         {
             DXGI_FORMAT format;
             uint32_t offset;
-            bool valid;          // 通过候选剔除（stride/越界）
-            bool passed;         // 与 modelBound 吻合
+            bool valid;          // survived candidate culling (stride/bounds)
+            bool passed;         // matched modelBound
             RE::NiPoint3 center;
             float radius;
             float center_error;
@@ -338,7 +344,7 @@ namespace
             CandidateResult& res = results[i];
             res.format = cand.format;
             res.offset = cand.from_desc ? desc_offset : 0;
-            // 剔除：stride 不足以容纳格式，或偏移+格式越出该顶点步进
+            // Cull: the stride cannot hold the format, or offset+format runs past this vertex stride
             if (stride < cand.bytes || res.offset + cand.bytes > stride)
                 continue;
             res.valid = true;
@@ -358,7 +364,7 @@ namespace
                          radius <= 2.5f * model_bound.radius;
         }
 
-        // 取通过者中中心误差最小者；同分优先 float32（保守：宁可多读字节也不误读半精度）
+        // Take the passing candidate with the smallest centre error; on a tie prefer float32 (conservative: read too many bytes rather than misread half precision)
         int best = -1;
         for (size_t i = 0; i < Position_Candidate_Count; ++i)
         {
@@ -410,34 +416,39 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // 蒙皮分区顶点布局标定：蒙皮分区步进（SKINNING 块字节数）与位置布局均无权威
-    // 定义可核，故与静态路径同法——用分区自带 rawVertexData 实测解码，与几何
-    // modelBound（模型空间地面真值，覆盖网格全部顶点，分区是其子集）比对。
-    // 位置格式由属性偏移间距判定（gap = 下一个更靠后属性的偏移 - 位置偏移）：
-    // 证据：flags 0x5b/0x9/0x1b/0x3b 的位置后紧邻属性偏移均为 16，即位置占
-    // 16 字节槽位（float32）。候选为 位置格式 × 位置偏移 × 步进 的三维组合。
-    // 结果按分区 desc 原始值独立缓存（与静态 s_calibrations 分离，判据不同）；
-    // 无候选通过或 rawVertexData 缺失 → e_unresolved，调用方跳过并告警。
+    // Skinned partition vertex layout calibration: neither the skinned partition stride (the
+    // SKINNING block byte count) nor the position layout has an authoritative definition to check
+    // against, so the static path's method is reused - decode the partition's own rawVertexData for
+    // real and compare it with the geometry modelBound (the model-space ground truth, which covers
+    // every vertex of the mesh and of which the partition is a subset).
+    // The position format is determined by the attribute offset spacing (gap = offset of the next
+    // later attribute - position offset): the evidence is that for flags 0x5b/0x9/0x1b/0x3b the
+    // attribute immediately after the position always has offset 16, i.e. the position occupies a
+    // 16-byte slot (float32). A candidate is a three-dimensional combination of position format ×
+    // position offset × stride.
+    // Results are cached independently per raw partition desc value (kept apart from the static
+    // s_calibrations because the criteria differ); if no candidate passes or rawVertexData is
+    // missing → e_unresolved, and the caller skips the draw and warns.
     // ---------------------------------------------------------------------------
 
     enum class SkinnedCalibrationState : uint8_t
     {
-        e_measured,    // 实测通过，使用标定结果
-        e_unresolved,  // 无候选通过/无法标定 → 跳过该 draw
+        e_measured,    // measured successfully, the calibration result is used
+        e_unresolved,  // no candidate passed / cannot calibrate → skip this draw
     };
 
-    // 布局决策：缓存只保存这些字段，不含任何逐网格校验结论
+    // Layout decision: the cache stores only these fields and no per-mesh validation verdict
     struct SkinnedVertexLayout
     {
         DXGI_FORMAT position_format;
         uint32_t position_offset;
         uint32_t stride;
-        uint8_t layout_id;     // SKINNING 布局编号（1..4）
+        uint8_t layout_id;     // SKINNING layout id (1..4)
         MaskSkinLayout skin;
         SkinnedCalibrationState state;
     };
 
-    // SKINNING 布局候选（顺序即优先级；*_delta 为相对 VA_SKINNING 偏移的字节增量）
+    // SKINNING layout candidates (the order is the priority; *_delta is the byte increment relative to the VA_SKINNING offset)
     struct SkinningLayoutSpec
     {
         uint8_t id;
@@ -448,7 +459,7 @@ namespace
         uint32_t index_delta;
     };
 
-    // ①/② 用于可用字节 A>=12；③/④ 用于 A==8
+    // 1/2 are used when the available bytes A>=12; 3/4 are used when A==8
     constexpr SkinningLayoutSpec Skinning_Layouts[] = {
         { 1, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 0, DXGI_FORMAT_R8G8B8A8_UINT, 8 },
         { 2, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 4, DXGI_FORMAT_R8G8B8A8_UINT, 0 },
@@ -457,7 +468,7 @@ namespace
     };
     constexpr size_t Skinning_Layout_Count = sizeof(Skinning_Layouts) / sizeof(Skinning_Layouts[0]);
 
-    // 按布局编号取候选定义（编号来自缓存布局决策，必命中；防御性返回首项）
+    // Look up a candidate definition by layout id (the id comes from a cached layout decision so it always hits; return the first entry defensively)
     SkinningLayoutSpec const* find_skinning_layout(uint8_t id)
     {
         for (size_t i = 0; i < Skinning_Layout_Count; ++i)
@@ -468,42 +479,43 @@ namespace
         return &Skinning_Layouts[0];
     }
 
-    // 逐网格校验统计：对每个网格在自身数据上全顶点遍历得出；索引按全局骨骼下标
-    // 解释，上界为调色板长度 P
+    // Per-mesh validation statistics: produced by a full vertex traversal over each mesh's own data;
+    // indices are interpreted as global bone indices bounded by the palette length P
     struct SkinnedMeshStats
     {
-        bool position_finite;                           // 选定位置格式下全部顶点有限
+        bool position_finite;                           // all vertices finite under the selected position format
         uint32_t index_min;
         uint32_t index_max;
-        uint32_t out_of_range_index_count;         // 含 index >= P 槽位的顶点数
-        uint32_t out_of_range_weighted_count;      // 其中（该槽位）权重非零的顶点数 → 拒绝
-        uint32_t first_out_of_range_index;         // 首个越界索引
-        float first_out_of_range_weight;                // 其权重
+        uint32_t out_of_range_index_count;         // number of vertices holding an index >= P slot
+        uint32_t out_of_range_weighted_count;      // of those, the number of vertices whose (that slot's) weight is non-zero → reject
+        uint32_t first_out_of_range_index;         // first out-of-range index
+        float first_out_of_range_weight;                // its weight
         float weight_sum_min;
         float weight_sum_max;
-        uint32_t bad_weight_vertices;              // 存在权重分量越界的顶点数
+        uint32_t bad_weight_vertices;              // number of vertices with an out-of-range weight component
     };
 
-    // 逐网格校验结论：位置失败 → 跳过；权重失败 → 换候选；索引越界且非零权重由
-    // 调用方据 stats 判定为跳过，索引越界但零权重照常绘制
+    // Per-mesh validation verdict: position failure → skip; weight failure → switch candidate; an
+    // out-of-range index with a non-zero weight is turned into a skip by the caller from the stats,
+    // while an out-of-range index with a zero weight is drawn as usual
     enum class SkinnedMeshVerdict : uint8_t
     {
         e_ok,
-        e_position_bad,  // 位置非有限 → 跳过该网格
-        e_weights_bad,   // 权重和/分量不合 → 缓存布局不适用本网格，重新枚举候选
+        e_position_bad,  // positions non-finite → skip this mesh
+        e_weights_bad,   // weight sum/components invalid → the cached layout does not fit this mesh, re-enumerate candidates
     };
 
-    // 候选实测结果（布局决策 + 该网格上的校验统计，用于日志表）
+    // Candidate measurement result (layout decision plus the validation statistics on this mesh, used for the log table)
     struct SkinnedLayoutCandidateResult
     {
         uint32_t stride;
         uint8_t layout;
-        bool bounds_ok;          // 越界剔除（不读取）
+        bool bounds_ok;          // bounds culling (no read performed)
         SkinnedMeshStats stats;
-        bool passed;             // 位置有限 且 权重合格（索引越界不影响通过）
+        bool passed;             // positions finite and weights valid (an out-of-range index does not affect passing)
     };
 
-    // 单顶点权重四元组解码（R16G16B16A16_FLOAT / R8G8B8A8_UNORM；调用方已保证不越界）
+    // Decode the weight quadruple of a single vertex (R16G16B16A16_FLOAT / R8G8B8A8_UNORM; the caller already guarantees the read stays in bounds)
     void decode_weights(DXGI_FORMAT format, uint8_t const* src, float (&out)[4])
     {
         if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
@@ -522,13 +534,13 @@ namespace
         }
     }
 
-    // 单顶点 4 个骨骼索引解码（R8G8B8A8_UINT；调用方已保证不越界）
+    // Decode the 4 bone indices of a single vertex (R8G8B8A8_UINT; the caller already guarantees the read stays in bounds)
     void decode_indices(uint8_t const* src, uint8_t (&out)[4])
     {
         std::memcpy(out, src, sizeof(out));
     }
 
-    // 单顶点权重分量是否全部在允许范围内
+    // Whether all weight components of a single vertex are within the allowed range
     bool weight_components_ok(float const (&w)[4])
     {
         for (int i = 0; i < 4; ++i)
@@ -539,16 +551,17 @@ namespace
         return true;
     }
 
-    // 在给定网格自身数据上、按给定位置布局与 SKINNING 布局遍历**全部**顶点，填充统计
-    // 并返回结论。索引按全局骨骼下标解释，越界上界为 index_bound（调色板长度 P）。
-    // 调用方须已保证各读取落在步进内（bounds 过滤）。
+    // Traverse **all** vertices of the given mesh's own data under the given position layout and
+    // SKINNING layout, fill in the statistics and return the verdict. Indices are interpreted as
+    // global bone indices with index_bound (the palette length P) as the out-of-range bound. The
+    // caller must already guarantee that every read stays within the stride (bounds filtering).
     SkinnedMeshVerdict validate_skinned_mesh(
         uint8_t const* raw, uint32_t stride, uint32_t pos_offset, uint32_t pos_bytes,
         SkinningLayoutSpec const& spec, uint32_t weight_offset, uint32_t index_offset,
         uint32_t vertex_count, uint32_t index_bound, SkinnedMeshStats& stats)
     {
         stats = SkinnedMeshStats{ .position_finite = true };
-        stats.index_min = 0xFFFFFFFFu;  // 以哨兵起步，逐索引取 min（顶点数 > 0 由调用方保证）
+        stats.index_min = 0xFFFFFFFFu;  // start from a sentinel and take the min over the indices (vertex count > 0 is guaranteed by the caller)
         bool first_sample = true;
         for (uint32_t v = 0; v < vertex_count; ++v)
         {
@@ -588,7 +601,7 @@ namespace
                 if (index >= index_bound)
                 {
                     vertex_out_of_range = true;
-                    if (w[i] != 0.0f)  // 该越界槽位带非零权重 → 无法正确渲染
+                    if (w[i] != 0.0f)  // this out-of-range slot carries a non-zero weight → it cannot render correctly
                         vertex_weighted_out_of_range = true;
                 }
             }
@@ -597,7 +610,7 @@ namespace
                 ++stats.out_of_range_index_count;
                 if (stats.out_of_range_weighted_count == 0)
                 {
-                    // 记录首个"越界且带非零权重"的槽位（供跳过日志取证）
+                    // Record the first "out-of-range with non-zero weight" slot (as evidence for the skip log)
                     for (int i = 0; i < 4; ++i)
                     {
                         if (static_cast<uint32_t>(idx[i]) >= index_bound && w[i] != 0.0f)
@@ -621,7 +634,7 @@ namespace
         return weights_ok ? SkinnedMeshVerdict::e_ok : SkinnedMeshVerdict::e_weights_bad;
     }
 
-    // 候选表文本（一次性路径构造；每项含 stride/布局/位置有限性/权重和/越界计数/索引）
+    // Candidate table text (built on the one-shot path; each entry holds stride/layout/position finiteness/weight sum/out-of-range counts/index)
     std::string format_skinned_candidate_table(
         SkinnedLayoutCandidateResult const (&candidates)[Max_Skinned_Layout_Candidates],
         MaskSkinLayout const (&skin)[Max_Skinned_Layout_Candidates],
@@ -645,8 +658,9 @@ namespace
         return table;
     }
 
-    // 枚举 (步进, SKINNING 布局) 候选并在给定网格自身数据上逐候选校验（全顶点），
-    // 结果写入 candidates/skin，返回候选数。不读写缓存。
+    // Enumerate (stride, SKINNING layout) candidates and validate each of them on the given mesh's
+    // own data (all vertices); the results are written to candidates/skin and the candidate count is
+    // returned. The cache is neither read nor written.
     size_t enumerate_skinned_candidates(
         RE::BSGraphics::VertexDesc const& desc,
         RE::BSGraphics::TriShape const* renderer_data,
@@ -658,7 +672,7 @@ namespace
         SkinnedLayoutCandidateResult (&candidates)[Max_Skinned_Layout_Candidates],
         MaskSkinLayout (&skin)[Max_Skinned_Layout_Candidates])
     {
-        // 步进候选（SKINNING 8/12 字节，去重）
+        // Stride candidates (SKINNING 8/12 bytes, deduplicated)
         uint32_t const stride_options[2] = {
             vertex_size_of_with_skinning(desc, 8u),
             vertex_size_of_with_skinning(desc, 12u),
@@ -687,7 +701,7 @@ namespace
             for (size_t li = 0; li < Skinning_Layout_Count; ++li)
             {
                 if (candidate_count >= Max_Skinned_Layout_Candidates)
-                    break;  // 防御：候选数组写满即停（当前枚举最多命中其容量）
+                    break;  // defensive: stop once the candidate array is full (the current enumeration never exceeds its capacity)
                 SkinningLayoutSpec const& spec = Skinning_Layouts[li];
                 bool const eligible = (spec.id <= 2) ? (available >= 12u) : (available == 8u);
                 if (!eligible)
@@ -695,7 +709,7 @@ namespace
 
                 uint32_t const weight_offset = skin_offset + spec.weight_delta;
                 uint32_t const index_offset = skin_offset + spec.index_delta;
-                // 越界防护：位置/权重/索引读取均须落在步进内，否则该候选不可用（不读取）
+                // Bounds safety: the position/weight/index reads must all stay within the stride, otherwise the candidate is unusable (nothing is read)
                 bool const bounds_ok = (pos_offset + pos_bytes <= stride) &&
                                        (weight_offset + spec.weight_bytes <= stride) &&
                                        (index_offset + 4u <= stride);
@@ -713,7 +727,7 @@ namespace
                     SkinnedMeshVerdict const verdict = validate_skinned_mesh(
                         raw, stride, pos_offset, pos_bytes, spec, weight_offset, index_offset,
                         vertex_count, index_bound, cr.stats);
-                    // 索引越界不影响候选通过（由 mask 绘制的完整调色板上传兜底）
+                    // An out-of-range index does not affect the candidate passing (the complete palette upload performed by the mask draw covers it)
                     cr.passed = verdict == SkinnedMeshVerdict::e_ok;
                 }
 
@@ -746,9 +760,10 @@ namespace
         uint32_t const pos_offset = attr_offset(V::VA_POSITION);
         uint32_t const skin_offset = attr_offset(V::VA_SKINNING);
 
-        // ---- 位置格式由属性偏移间距判定（gap = 下一个更靠后属性的偏移 - 位置偏移）。
-        // 证据：static 标定与蒙皮标定日志中 flags 0x5b/0x9/0x1b/0x3b 的位置后紧邻
-        // 属性偏移均为 16，即位置占 16 字节槽位（float32）。----
+        // ---- The position format is determined by the attribute offset spacing (gap = offset of the
+        // next later attribute - position offset). Evidence: in the static and skinned calibration
+        // logs, for flags 0x5b/0x9/0x1b/0x3b the attribute immediately after the position always has
+        // offset 16, i.e. the position occupies a 16-byte slot (float32). ----
         uint32_t next_offset = 0;
         bool has_next = false;
         auto const consider_next = [&](bool present, uint32_t offset) {
@@ -779,7 +794,7 @@ namespace
         else if (gap >= 8)
             result.position_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         else
-            result.position_format = position_format_of(desc);  // 退化：无更靠后属性 / gap 过小
+            result.position_format = position_format_of(desc);  // degenerate: no later attribute / gap too small
         uint32_t const pos_bytes = (result.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
 
         std::string const desc_fields = fmt::format(
@@ -799,8 +814,9 @@ namespace
             vertex_count,
             index_bound);
 
-        // ---- 候选枚举 + 逐候选在**本网格**数据上校验。全顶点遍历、不再抽样，
-        // 且不读写缓存中的任何校验结论。----
+        // ---- Candidate enumeration plus per-candidate validation on **this mesh's** data. Full
+        // vertex traversal, no more sampling, and no validation verdict is read from or written to
+        // the cache. ----
         SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates]{};
         MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates]{};
         size_t const candidate_count = enumerate_skinned_candidates(
@@ -819,7 +835,7 @@ namespace
             return result;
         }
 
-        // 取第一个全部通过的候选（优先级即枚举顺序：步进顺序 × 布局 1..4）
+        // Take the first candidate that passes everything (the priority is the enumeration order: stride order × layouts 1..4)
         int64_t best = -1;
         for (size_t i = 0; i < candidate_count; ++i)
         {
@@ -854,23 +870,23 @@ namespace
                     desc_fields, table));
         }
 
-        // 缓存只写入布局决策（result 结构内不含任何逐网格统计）
+        // Only the layout decision is written to the cache (the result struct holds no per-mesh statistics)
         if (s_skinned_calibrations.size() < Max_Skinned_Layout_Calibrations)
             s_skinned_calibrations.emplace_back(desc_raw, result);
         return result;
     }
 
     // ---------------------------------------------------------------------------
-    // 几何收集
+    // Geometry collection
     // ---------------------------------------------------------------------------
 
-    // 静态 draw 校验所需的目标上下文：位置与 form id 在 collect_draws 处按目标取
-    // 一次，逐 geometry 复用。
+    // Target context needed by the static draw checks: the position and the form id are taken once
+    // per target in collect_draws and reused for every geometry.
     struct TargetContext
     {
         RE::NiPoint3 position;
         RE::FormID form_id;
-        // 目标 3D 中含蒙皮几何 → 其非蒙皮几何（冰锥等装饰）不画。
+        // The target 3D contains skinned geometry → its non-skinned geometry (icicles and similar decoration) is not drawn.
         bool has_skinned;
         // Integral target index; zero-based until the geometry shader upload.
         uint32_t target_index;
@@ -878,9 +894,10 @@ namespace
 
     void collect_static(RE::BSGeometry* geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt, TargetContext const& target, std::vector<MaskDraw>& draws)
     {
-        // ---- 目标 3D 含蒙皮几何时，其非蒙皮几何（冰锥等装饰）不属于尸体本体，
-        // 一律不画——剪影只反映蒙皮身体。纯静态目标（灰烬堆/静态尸体容器等）
-        // has_skinned 为假，行为不变。----
+        // ---- When the target 3D contains skinned geometry, its non-skinned geometry (icicles and
+        // similar decoration) is not part of the corpse body and is never drawn - the silhouette only
+        // reflects the skinned body. For a purely static target (ash pile / static corpse container
+        // and the like) has_skinned is false and the behaviour is unchanged. ----
         if (target.has_skinned)
         {
             char const* const node_name = geom->name.c_str();
@@ -891,16 +908,17 @@ namespace
             return;
         }
 
-        // ---- 静态路径专属的几何级 GPU 缓冲检查。蒙皮路径不走此门。----
+        // ---- Geometry-level GPU buffer check specific to the static path. The skinned path does not pass this gate. ----
         if (!geom_rt.rendererData || !geom_rt.rendererData->vertexBuffer || !geom_rt.rendererData->indexBuffer)
         {
             logger::debug("outline mask: skip geometry without GPU buffers");
             return;
         }
 
-        // ---- 分类守卫：这些 BSTriShape 子类不能按普通静态几何绘制（动态顶点布局 /
-        // 实例化第二顶点流 / 子范围索引结构），vertexDesc 数据标志同理——强行绘制
-        // 会产生覆盖大半屏幕的垃圾三角形。原因一次性 INFO 记录。----
+        // ---- Classification guard: these BSTriShape subclasses cannot be drawn as ordinary static
+        // geometry (dynamic vertex layout / instanced second vertex stream / sub-range index
+        // structure), and the same holds for the vertexDesc data flags - forcing a draw produces
+        // garbage triangles covering most of the screen. The reason is logged once at INFO. ----
         char const* const rtti_name = geom->GetRTTI() ? geom->GetRTTI()->GetName() : "";
         char const* const node_name = geom->name.c_str();
         char const* exclusion_reason = nullptr;
@@ -930,7 +948,7 @@ namespace
         RE::BSTriShape* tri = geom->AsTriShape();
         if (!tri)
         {
-            // SSE 场景中的常规几何均为 BSTriShape 家族，其余类型不做 mask
+            // Regular geometry in a SSE scene is always of the BSTriShape family; other types are not masked
             logger::debug("outline mask: skip non-BSTriShape geometry");
             return;
         }
@@ -954,9 +972,10 @@ namespace
 
         uint32_t const vertex_stride = vertex_size_of(geom_rt.vertexDesc);
 
-        // ---- 世界包围球校验。modelBound 经节点世界变换外推，3×3 各列范数最大值
-        // 作为各向异性缩放上界；非有限/退化/超预算的世界球说明该网格不适合按普通
-        // 静态几何画进 mask（效果类/异常数据）。----
+        // ---- World bounding-sphere validation. modelBound is extrapolated through the node world
+        // transform and the largest column norm of the 3×3 block serves as the anisotropic scale
+        // upper bound; a non-finite/degenerate/over-budget world sphere means the mesh is not suitable
+        // to be drawn into the mask as ordinary static geometry (effect-type/anomalous data). ----
         RE::NiTransform const& world_transform = geom->world;
         DirectX::XMFLOAT4X4 world{};
         DirectX::XMStoreFloat4x4(&world, DirectX::XMMatrixIdentity());
@@ -991,18 +1010,20 @@ namespace
             return;
         }
 
-        // ---- 位置格式标定：不假定 VF_FULLPREC，按 rawVertexData 实测与 modelBound
-        // 比对，选出格式+偏移并按 desc 缓存（稳态零解码）；无候选吻合 → 跳过该
-        // draw（宁可少画不许垃圾涂屏）；无法标定 → 退回 desc 推导。----
+        // ---- Position format calibration: VF_FULLPREC is not assumed; rawVertexData is measured and
+        // compared against modelBound to select the format+offset, cached per desc (zero decoding in
+        // steady state); no candidate matches → skip this draw (better to draw too little than to
+        // smear garbage over the screen); cannot calibrate → fall back to desc derivation. ----
         PositionCalibration const calibration = calibrate_position_format(
             geom_rt.vertexDesc, geom_rt.rendererData, tri_rt.vertexCount, model_bound, vertex_stride);
         if (calibration.state == PositionCalibrationState::e_unresolved)
             return;
 
-        // ---- 归属校验——mask 只画"在目标处"的几何。统一使用引擎元数据世界包围球
-        //（比盒判定更宽松；实测零误跳）。逐 mesh 模型 AABB 只服务标定的候选评分，
-        // 不进缓存、不参与归属判定（防跨网格污染：同一 desc 的不同网格必须用自身
-        // 数据判定）。----
+        // ---- Ownership check - the mask only draws geometry that is "at the target". The engine
+        // metadata world bounding sphere is used uniformly (looser than a box test; empirically zero
+        // false skips). The per-mesh model AABB only feeds calibration candidate scoring and neither
+        // enters the cache nor takes part in the ownership test (to prevent cross-mesh pollution:
+        // different meshes with the same desc must be judged on their own data). ----
         float const ref_distance = distance_to_point(target.position, world_center);
         float const proximity_limit = world_radius + Ref_Proximity_Slack;
         if (ref_distance > proximity_limit)
@@ -1020,7 +1041,7 @@ namespace
         draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(geom_rt.rendererData->indexBuffer);
         draw.vertex_desc = geom_rt.vertexDesc;
         draw.node = geom;
-        draw.node_ref.reset(geom);  // 保活：几何体被卸载时 node/rendererData/VB/IB 仍有效到本帧结束
+        draw.node_ref.reset(geom);  // keep alive: if the geometry is unloaded, node/rendererData/VB/IB stay valid until the end of this frame
         draw.vertex_stride = vertex_stride;
         draw.vertex_count = tri_rt.vertexCount;
         draw.triangle_count = tri_rt.triangleCount;
@@ -1087,10 +1108,11 @@ namespace
             return;
         }
 
-        // ---- 弃用 modelBound 前提。引擎管理的蒙皮网格 modelBound 实为 0（实测：
-        // 全部身体/装备/毛发网格 r=0.0），不得据此跳过。只做一次性 INFO 记录；
-        // 包围球仅在引擎确实提供（worldBound.radius > 0）时用作廉价 sanity gate
-        //——非有限或超预算才跳过（一次性 WARN）。----
+        // ---- The modelBound premise is dropped. For engine-managed skinned meshes modelBound is
+        // actually 0 (measured: every body/equipment/hair mesh has r=0.0), so it must not be used to
+        // skip. It is only recorded once at INFO; the bounding sphere serves as a cheap sanity gate
+        // only when the engine really provides one (worldBound.radius > 0) - only a non-finite or
+        // over-budget value skips (once, at WARN). ----
         RE::NiBound const& model_bound = geom->GetModelData().modelBound;
         RE::NiBound const& world_bound = geom->worldBound;
         log_skinned_info_once(node_name, "world bound reported",
@@ -1117,7 +1139,7 @@ namespace
             RE::NiSkinPartition::Partition const& part = skin_partition->partitions[p];
             RE::BSGraphics::TriShape* const buff = part.buffData;
 
-            // 分区被拒——指名具体条件 + 分区序号 + vertices/triangles
+            // The partition is rejected - name the exact condition plus the partition ordinal and vertices/triangles
             char const* reject = nullptr;
             if (!buff)
                 reject = "partition buffData missing";
@@ -1138,16 +1160,16 @@ namespace
 
             if (part.strips != 0)
             {
-                // 条带分区（stripLengths 索引布局）不能按三角形列表绘制——跳过防错
+                // A strip partition (stripLengths index layout) cannot be drawn as a triangle list - skip to avoid errors
                 log_skinned_skip_once(false, node_name, "partition is a triangle strip",
                     fmt::format("partition={} strips={} vertices={} triangles={}", p, part.strips, part.vertices, part.triangles));
                 continue;
             }
 
-            // ---- 调色板按**全局骨骼索引空间**构建（顶点索引即 skin 骨骼数组下标：
-            // 实测 numBones=10/index_max=61/skin_bones=61）。有效长度
-            // P = min(GetBoneCount(), numMatrices)。part.bones/numBones 此后仅供诊断
-            // 日志，不参与任何判定。----
+            // ---- The palette is built in **global bone index space** (a vertex index is a subscript
+            // into the skin bone array: measured numBones=10/index_max=61/skin_bones=61). Its valid
+            // length is P = min(GetBoneCount(), numMatrices). From here on part.bones/numBones only
+            // feed diagnostic logs and take part in no decision. ----
             uint32_t const skin_bone_count = skin->skinData->GetBoneCount();
             uint32_t const matrix_count = skin->numMatrices;
             uint32_t const palette_count = palette_slot_count(skin);
@@ -1166,18 +1188,20 @@ namespace
                 continue;
             }
 
-            // ---- 位置格式按属性偏移间距判定；步进与 SKINNING（权重/索引）布局按
-            // 网格自身顶点数据自标定；无解则跳过（不得退回 UNKNOWN 位置格式或硬编码
-            // 蒙皮顺序）。----
+            // ---- The position format is determined by the attribute offset spacing; the stride and the
+            // SKINNING (weight/index) layout are self-calibrated from the mesh's own vertex data; with no
+            // solution the draw is skipped (it must not fall back to an UNKNOWN position format or a
+            // hard-coded skinning order). ----
             SkinnedVertexLayout calibration = calibrate_skinned_layout(
                 buff->vertexDesc, buff, part.vertices, palette_count);
             if (calibration.state != SkinnedCalibrationState::e_measured)
                 continue;
 
-            // ---- 逐网格校验**对本网格**执行（不复用他网格结论，全顶点遍历）；索引按
-            // 全局下标、上界为 P。位置失败 → 跳过；权重不合 → 重新枚举候选（不写
-            // 缓存）；索引越界且带非零权重 → 跳过；越界但该槽位权重为 0 → 照常绘制
-            //（副本填充使其为无操作），仅在诊断中计数。----
+            // ---- Per-mesh validation runs **on this mesh** (no verdict is reused from another mesh,
+            // full vertex traversal); indices are global with P as the bound. Position failure → skip;
+            // weights invalid → re-enumerate candidates (without writing the cache); an out-of-range
+            // index with a non-zero weight → skip; out of range but the slot's weight is 0 → drawn as
+            // usual (the replica fill makes it a no-op) and only counted in the diagnostics. ----
             uint8_t const* const raw = buff->rawVertexData;
             uint32_t const pos_bytes = (calibration.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
             SkinningLayoutSpec const* spec = find_skinning_layout(calibration.layout_id);
@@ -1197,7 +1221,7 @@ namespace
             }
             if (verdict == SkinnedMeshVerdict::e_weights_bad)
             {
-                // 缓存布局不适用本网格：在本网格数据上重新枚举候选（不写缓存）
+                // The cached layout does not fit this mesh: re-enumerate candidates on this mesh's data (without writing the cache)
                 SkinnedLayoutCandidateResult candidates[Max_Skinned_Layout_Candidates]{};
                 MaskSkinLayout candidate_skin[Max_Skinned_Layout_Candidates]{};
                 uint32_t const skin_offset = buff->vertexDesc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING);
@@ -1243,7 +1267,7 @@ namespace
                         static_cast<unsigned>(calibration.skin.index_format), calibration.skin.index_offset));
             }
 
-            // 每个蒙皮网格首次一条诊断 INFO（含 P/skin_bones/numMatrices 与越界计数）
+            // One diagnostic INFO per skinned mesh, emitted once (with P/skin_bones/numMatrices and the out-of-range counts)
             log_skinned_info_once(node_name, "mesh diagnostics",
                 fmt::format("rtti={} verts={} numBones={} P={} skin_bones={} numMatrices={} index=[{},{}] oob={} oob_weighted={} wsum=[{:.3f},{:.3f}] wbad={} pos(fmt={:#06x},off={}) stride={} layout={}",
                     rtti_name ? rtti_name : "?", part.vertices, part.numBones, palette_count,
@@ -1253,8 +1277,9 @@ namespace
                     static_cast<unsigned>(calibration.position_format), calibration.position_offset,
                     calibration.stride, static_cast<unsigned>(calibration.layout_id)));
 
-            // 索引 >= P 且**带非零权重** → 无法正确渲染，跳过 + WARN（整块副本填充只对
-            // 零权重槽位是无操作，故零权重越界不在此列，仅在诊断中计数）。
+            // index >= P **with a non-zero weight** → it cannot render correctly, skip + WARN (the
+            // whole-block replica fill is a no-op only for zero-weight slots, so a zero-weight
+            // out-of-range index is not included here and is only counted in the diagnostics).
             if (stats.out_of_range_weighted_count > 0)
             {
                 log_skinned_skip_once(true, node_name, "bone index exceeds palette bounds with non-zero weight",
@@ -1274,7 +1299,7 @@ namespace
             draw.skin = geom_rt.skinInstance;
             draw.partition = p;
             draw.node = geom;
-            draw.node_ref.reset(geom);  // 保活几何体
+            draw.node_ref.reset(geom);  // keep the geometry alive
             draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(buff->vertexBuffer);
             draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(buff->indexBuffer);
             draw.vertex_desc = buff->vertexDesc;

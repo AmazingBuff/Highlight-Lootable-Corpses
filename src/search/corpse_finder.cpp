@@ -18,20 +18,26 @@ CorpseScan& CorpseScan::instance()
 namespace
 {
     // ---------------------------------------------------------------------------
-    // 包围盒计算（参考 Precision 的碰撞体方案）
+    // Bounding box computation (follows Precision's collision-body approach)
     //
-    // Havok 物理空间使用"米"为单位，游戏单位 = havok 单位 × 世界尺度逆（≈70）。
-    // 每个刚体的世界 AABB 直接调引擎函数 bhkRigidBody::GetAabbWorldspace()，
-    // 对 box/capsule/convex/mopp 等所有形状类型都准确（即游戏真正的碰撞盒）。
+    // Havok physics space is measured in metres: game units = havok units × world scale inverse (≈70).
+    // A rigid body's world AABB comes straight from the engine function
+    // bhkRigidBody::GetAabbWorldspace(), which is accurate for all shape types - box/capsule/
+    // convex/mopp and so on (i.e. the game's real collision boxes).
     //
-    // - 普通状态（含灰烬堆）：遍历 3D 树上的碰撞对象（bhkCollisionObject）；
-    // - ragdoll 尸体：根碰撞体已移出 Havok 世界（变换停在死亡瞬间），改走
-    //   Precision 同款路径 —— hkbRagdollDriver → hkaRagdollInstance → rigidBodies，
-    //   取 ragdoll 刚体的世界 AABB；
-    // - 肢解处理：两条路径的刚体 AABB 都经 largest_cluster_bounds 聚合——
-    //   以体积最大的刚体为种子，只保留与其相邻的连通主体。完整尸体各部位
-    //   彼此相邻（结果与全量并集一致），被肢解后飞散的零碎部位不参与包围盒；
-    // - 都没有时：退化为"只取几何节点"的 worldBound 包围球累加。
+    // - Ordinary state (ash piles included): walk the collision objects on the 3D tree
+    //   (bhkCollisionObject);
+    // - ragdoll corpse: the root collision body has been moved out of the Havok world (its
+    //   transform froze at the moment of death), so take Precision's path instead -
+    //   hkbRagdollDriver → hkaRagdollInstance → rigidBodies - and read the ragdoll rigid bodies'
+    //   world AABBs;
+    // - dismemberment handling: the rigid-body AABBs from both paths are aggregated by
+    //   largest_cluster_bounds - the largest body by volume is the seed and only the connected mass
+    //   adjacent to it is kept. On an intact corpse every part is adjacent to the next (the result
+    //   equals the full union), while the scattered parts flying off after dismemberment do not
+    //   enter the bounding box;
+    // - when neither yields anything: degrade to accumulating the worldBound bounding spheres of
+    //   the geometry nodes only.
     // ---------------------------------------------------------------------------
 
     [[nodiscard]] float hk_x(RE::hkVector4 const& a_v) { return a_v.quad.m128_f32[0]; }
@@ -43,7 +49,7 @@ namespace
         return { hk_x(a_v), hk_y(a_v), hk_z(a_v) };
     }
 
-    // Havok 世界尺度逆：米 → 游戏单位（引擎全局，Precision 同款地址）
+    // Havok world scale inverse: metres → game units (engine global, the same address as Precision)
     [[nodiscard]] float world_scale_inverse()
     {
         static REL::Relocation<float*> s_world_scale_inverse{ RELOCATION_ID(230692, 187407) };
@@ -51,7 +57,7 @@ namespace
         return scale ? *scale : 70.0f;
     }
 
-    // Havok 世界变换（hkTransform，米）→ NiTransform（游戏单位）
+    // Havok world transform (hkTransform, metres) → NiTransform (game units)
     [[nodiscard]] RE::NiTransform hk_transform_to_ni(RE::hkTransform const& a_t)
     {
         RE::NiTransform out;
@@ -81,7 +87,7 @@ namespace
         a_max.z = std::max(a_max.z, a_p.z);
     }
 
-    // 单个 Havok 刚体的世界 AABB（GetAabbWorldspace，havok 米 → 游戏单位）
+    // World AABB of a single Havok rigid body (GetAabbWorldspace, havok metres → game units)
     [[nodiscard]] bool rigid_body_aabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (!a_body)
@@ -95,7 +101,7 @@ namespace
         return a_min.x <= a_max.x && a_min.y <= a_max.y && a_min.z <= a_max.z;
     }
 
-    // 单个刚体 AABB（世界坐标，游戏单位）
+    // AABB of a single rigid body (world coordinates, game units)
     struct BodyBox
     {
         RE::NiPoint3 min;
@@ -108,13 +114,16 @@ namespace
         return e.x * e.y * e.z;
     }
 
-    // 肢解判定阈值：刚体各轴间隔不超过该值视为同一连通主体。相邻骨骼的碰撞盒
-    // 彼此贴合或重叠（间隔个位数游戏单位），被肢解飞出的部位通常远离主体上百单位。
+    // Dismemberment threshold: rigid bodies whose per-axis gap does not exceed this value count as
+    // one connected mass. Adjacent bones' collision boxes touch or overlap (a single-digit gap in
+    // game units), while parts blasted off by dismemberment usually sit hundreds of units away.
     constexpr float Cluster_Gap = 40.0f;
 
-    // 以体积最大的刚体为种子，把与其邻近（各轴间隔 <= Cluster_Gap）的刚体迭代聚合
-    // 成连通块，输出该块的 AABB 并集。完整尸体各部位相邻 → 结果与全量并集一致；
-    // 被肢解（骷髅解体/部位被击飞）时只保留最大部位所在的主体，零散部位不参与包围盒。
+    // Seed with the largest rigid body by volume and iteratively aggregate the bodies adjacent to
+    // it (per-axis gap <= Cluster_Gap) into one connected component, then output that component's
+    // AABB union. On an intact corpse every part is adjacent → the result equals the full union;
+    // after dismemberment (a skeleton falling apart / a part being blasted off) only the mass that
+    // holds the largest part is kept and the scattered parts do not enter the bounding box.
     [[nodiscard]] bool largest_cluster_bounds(std::vector<BodyBox> const& a_boxes, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (a_boxes.empty())
@@ -156,10 +165,13 @@ namespace
         return true;
     }
 
-    // 递归遍历 3D 节点树，收集"已加入 Havok 世界"的碰撞对象（普通状态/灰烬堆）：
-    // - 世界 AABB：GetAabbWorldspace 逐刚体收集，随后由 largest_cluster_bounds 聚类；
-    // - OBB：体积最大的盒形碰撞体（通常是 Actor 根部碰撞盒）的世界 8 角点，
-    //   由形状半边长（米）与身体世界变换算出。
+    // Recursively walk the 3D node tree and collect the collision objects that are "in the Havok
+    // world" (ordinary state / ash piles):
+    // - world AABB: collected per rigid body with GetAabbWorldspace, then clustered by
+    //   largest_cluster_bounds;
+    // - OBB: the world 8 corners of the largest box-shaped collision body by volume (usually the
+    //   Actor's root collision box), computed from the shape half extents (metres) and the body's
+    //   world transform.
     void collect_collision_objects(
         RE::NiAVObject* a_node,
         std::vector<BodyBox>& a_boxes,
@@ -178,7 +190,7 @@ namespace
                 {
                     if (rb->world)
                     {
-                        // 在 Havok 世界里 → 变换实时有效
+                        // in the Havok world → the transform is live
                         BodyBox body_box;
                         if (rigid_body_aabb(body, body_box.min, body_box.max))
                         {
@@ -222,9 +234,11 @@ namespace
         }
     }
 
-    // ragdoll 尸体：Precision 同款 —— 收集动画图里 ragdoll 实例的所有刚体 AABB，
-    // 再经 largest_cluster_bounds 取最大连通主体（肢解后只框最大部位所在主体）。
-    // 这些刚体（hkaRagdollInstance::rigidBodies）就是尸体各部位的实际碰撞体。
+    // ragdoll corpse: the same as Precision - collect the AABBs of all rigid bodies of the ragdoll
+    // instance in the animation graph, then take the largest connected mass through
+    // largest_cluster_bounds (after dismemberment only the mass holding the largest part is
+    // framed). These rigid bodies (hkaRagdollInstance::rigidBodies) are the corpse parts' actual
+    // collision bodies.
     [[nodiscard]] bool compute_ragdoll_bounds(RE::Actor* a_actor, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         RE::BSAnimationGraphManagerPtr anim_graph_manager;
@@ -251,7 +265,7 @@ namespace
                 if (!rb)
                     continue;
 
-                // hkpRigidBody::userData 指向它的 bhkRigidBody 包装（Precision 同款用法）
+                // hkpRigidBody::userData points at its bhkRigidBody wrapper (the same use as Precision)
                 RE::bhkRigidBody* wrapper = reinterpret_cast<RE::bhkRigidBody*>(rb->userData);
                 BodyBox body_box;
                 if (rigid_body_aabb(wrapper, body_box.min, body_box.max))
@@ -261,9 +275,10 @@ namespace
         return largest_cluster_bounds(boxes, a_min, a_max);
     }
 
-    // 兜底：只取"几何节点"的 worldBound 包围球累加。
-    // 相比旧实现（所有节点都累加，根节点的大球把盒子撑大一圈），
-    // 几何节点球更贴合尸体实际轮廓。
+    // Fallback: accumulate only the worldBound bounding spheres of the geometry nodes.
+    // Compared with the old implementation (which accumulated every node, so the root node's large
+    // sphere inflated the box by a margin), the geometry-node spheres hug the corpse's actual
+    // outline more closely.
     void expand_geometry_bounds(RE::NiAVObject* a_node, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
     {
         if (!a_node)
@@ -289,8 +304,9 @@ namespace
         }
     }
 
-    // 综合入口：ragdoll → ragdoll 刚体；否则 → 3D 树上的碰撞对象；最后几何兜底。
-    // 返回 true 表示得到了有效的世界 AABB。
+    // Combined entry point: ragdoll → the ragdoll rigid bodies; otherwise → the collision objects
+    // on the 3D tree; and finally the geometry fallback. Returning true means a valid world AABB
+    // was obtained.
     [[nodiscard]] bool compute_bounds(
         RE::TESObjectREFR* a_ref,
         bool a_ragdoll,
@@ -374,7 +390,7 @@ namespace
 
             entry.form_id = actor->GetFormID();
             entry.anchor = pos;
-            entry.anchor.z += 40.0f;  // 默认锚点抬高到尸体中部
+            entry.anchor.z += 40.0f;  // raise the default anchor to the middle of the corpse
             entry.radius = 60.0f;
             entry.distance = dist;
             entry.loot_categories = loot.categories;

@@ -197,13 +197,18 @@ namespace
                 {
                     RE::NiCamera* camera = RE::Main::WorldRootCamera();
 
-                    // ---- CPU 端视锥剔除：范围扫描（max_distance）不区分朝向，而相机视锥
-                    // 只覆盖屏幕方向；视野外尸体的叠加本就不可见（mask 几何会被 GPU 裁剪、
-                    // icon 的 world_to_screen 会拒绝），提前丢弃可省掉本帧的 3D 遍历、布局
-                    // 标定与全部 draw。相交判据用引擎原生 NiCamera::PointInFrustum——
-                    // 包围球（anchor + radius，扫描期由碰撞盒/几何兜底得出）与视锥相交即
-                    // 视为可见，与引擎自身剔除同语义；mask 不改场景，剔除纯属性能优化。
-                    // 相机缺失（如主菜单态）时跳过剔除，保持既有行为。----
+                    // ---- CPU-side frustum culling: the range scan (max_distance) ignores direction
+                    // while the camera frustum only covers the screen direction; the overlay of a
+                    // corpse outside the view is invisible anyway (mask geometry is clipped by the
+                    // GPU and the icon's world_to_screen rejects it), so discarding it early saves
+                    // this frame's 3D traversal, layout calibration and all the draws. The
+                    // intersection test uses the engine's own NiCamera::PointInFrustum - a bounding
+                    // sphere (anchor + radius, produced during the scan from collision boxes or the
+                    // geometry fallback) intersecting the frustum counts as visible, the same
+                    // semantics as the engine's own culling; the mask does not change the scene, so
+                    // this culling is purely a performance optimization.
+                    // When the camera is missing (main-menu state, for example) culling is skipped
+                    // and the existing behaviour is kept. ----
                     if (camera && cfg.display_mode != Config::DisplayMode::e_icon)
                     {
                         std::erase_if(corpses, [camera](CorpseScan::CorpseInfo const& corpse) {

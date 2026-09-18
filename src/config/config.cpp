@@ -26,7 +26,7 @@ namespace
 
     void sanitize(Config& a_settings) noexcept
     {
-        a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = 不绑定
+        a_settings.hotkey = a_settings.hotkey > 0xFEu ? 0u : a_settings.hotkey;  // 0 = not bound
         a_settings.hotkey_mode = a_settings.hotkey_mode > Config::HotkeyMode::e_pulse
                                      ? Config::HotkeyMode::e_constant
                                      : a_settings.hotkey_mode;

@@ -10,11 +10,11 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-// IDXGISwapChain::Present vtable 钩子（vtable 第 8 槽位，经 REL::Relocation::
-// write_vfunc 写入，页保护由其内部 safe_write 处理并返回原始函数指针）。
-// 运行时无关：不依赖 Address Library ID，任何 AE 版本都有效。
-// 回调先于原 Present 执行；游戏线程 Present hook 可能被多个线程并发进入，
-// 回调内部自行串行化。
+// IDXGISwapChain::Present vtable hook (vtable slot 8, written through REL::Relocation::write_vfunc,
+// whose internal safe_write handles the page protection and returns the original function pointer).
+// Runtime-agnostic: it does not depend on an Address Library ID and is valid for any AE version.
+// The callback runs before the original Present; the game-thread Present hook can be entered
+// concurrently by several threads, so the callback serialises itself internally.
 class PresentHook
 {
 public:
@@ -22,7 +22,7 @@ public:
 
     static PresentHook& instance();
 
-    // 幂等安装；交换链尚未就绪时返回 false 并 WARN（调用方在后续游戏消息中重试）。
+    // Idempotent install; returns false with a WARN while the swap chain is not ready yet (the caller retries on a later game message).
     bool install(Callback a_on_present);
 private:
     PresentHook();

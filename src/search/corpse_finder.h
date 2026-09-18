@@ -25,22 +25,23 @@ public:
 
     struct CorpseInfo
     {
-        RE::FormID form_id;              // Actor / 灰烬堆的 FormID
-        RE::NiPoint3 anchor;             // 世界坐标锚点（尸体/灰烬堆中部，用于投影）
-        RE::NiPoint3 bound_min;          // 3D 世界包围盒最小角（AABB）
-        RE::NiPoint3 bound_max;          // 3D 世界包围盒最大角（AABB）
-        float radius;                    // 世界包围盒半径（兜底用）
-        float distance;                  // 与玩家的距离
-        bool is_ash_pile;                // 是否为灰烬堆（被复活的尸体再次死亡后转化）
-        bool is_static_corpse;           // 是否为静态尸体（干尸/裹尸/烧焦尸体等容器物体）
+        RE::FormID form_id;              // FormID of the Actor / ash pile
+        RE::NiPoint3 anchor;             // world-coordinate anchor (the middle of the corpse/ash pile, used for projection)
+        RE::NiPoint3 bound_min;          // minimum corner of the 3D world bounding box (AABB)
+        RE::NiPoint3 bound_max;          // maximum corner of the 3D world bounding box (AABB)
+        float radius;                    // world bounding-sphere radius (fallback use)
+        float distance;                  // distance to the player
+        bool is_ash_pile;                // whether this is an ash pile (what a reanimated corpse turns into when it dies again)
+        bool is_static_corpse;           // whether this is a static corpse (container objects such as mummified/wrapped/burnt corpses)
 
-        // 碰撞盒（OBB）的世界坐标 8 角点。has_obb=true 时渲染器画与碰撞盒一致的 3D 线框盒；
-        // 否则退化为 AABB 屏幕矩形。角点顺序：bit0=x(大)，bit1=y(大)，bit2=z(大)。
+        // The 8 world-space corners of the collision box (OBB). With has_obb=true the renderer draws
+        // a 3D wireframe box matching the collision box; otherwise it degrades to an AABB screen
+        // rectangle. Corner order: bit0=x(large), bit1=y(large), bit2=z(large).
         bool has_obb;
         RE::NiPoint3 obb_corners[8];
-        bool bounds_from_collision;  // 诊断：包围盒是否来自 Havok 碰撞体（否则为几何兜底）
+        bool bounds_from_collision;  // diagnostics: whether the bounds came from Havok collision bodies (otherwise the geometry fallback)
 
-        // 战利品筛选（扫描期由 LootFilter::evaluate 计算）：命中的价值分类位掩码与最高单件价值
+        // Loot filtering (computed during the scan by LootFilter::evaluate): a bit mask of the matched value categories and the highest single-item value
         RE::stl::enumeration<LootFilter::Category> loot_categories;
         int32_t best_item_value;
     };
@@ -51,7 +52,7 @@ private:
     CorpseScan();
     ~CorpseScan();
 private:
-    // 已确认的可搜刮尸体（主线程写，渲染线程经快照读取）
+    // Confirmed lootable corpses (written by the main thread, read by the render thread through a snapshot)
     std::mutex m_mutex;
     std::vector<CorpseInfo> m_corpses;
     std::unordered_set<RE::FormID> m_logged_corpses;

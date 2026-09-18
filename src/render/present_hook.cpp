@@ -25,7 +25,7 @@ HRESULT STDMETHODCALLTYPE PresentHook::present_thunk(IDXGISwapChain* a_swapChain
 bool PresentHook::install(Callback a_on_present)
 {
     if (m_installed)
-        return true;  // 已安装
+        return true;  // already installed
     if (!a_on_present)
         return false;
 
@@ -41,9 +41,10 @@ bool PresentHook::install(Callback a_on_present)
     }
 
     IDXGISwapChain* swap_chain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
-    // IDXGISwapChain::Present 位于 vtable 第 8 槽位（IUnknown×3 + IDXGIObject×4 + GetDevice）；
-    // vtable 地址取自运行时对象本身，不依赖 Address Library ID，任何 AE 版本都有效。
-    // write_vfunc 内部经 safe_write 自动处理页保护，并返回原始函数指针。
+    // IDXGISwapChain::Present sits in vtable slot 8 (IUnknown×3 + IDXGIObject×4 + GetDevice); the
+    // vtable address is taken from the runtime object itself, so it does not depend on an Address
+    // Library ID and is valid for any AE version. write_vfunc handles the page protection
+    // automatically through safe_write and returns the original function pointer.
     REL::Relocation<uintptr_t> vtable{ reinterpret_cast<uintptr_t>(*reinterpret_cast<void**>(swap_chain)) };
     m_ref_original_present = reinterpret_cast<PresentFunc>(vtable.write_vfunc(8, &PresentHook::present_thunk));
     m_callback = a_on_present;

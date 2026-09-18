@@ -18,23 +18,23 @@
 MASK_NAMESPACE_BEGIN
 
 // ---------------------------------------------------------------------------
-// MaskGeometryPass 的 InputLayout 缓存：按 (蒙皮, 精度, 属性偏移, 步进) 缓存——
-// 属性偏移来自各 mesh 的 vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重
-//（尸体 mesh 布局种类极少）。
+// MaskGeometryPass InputLayout cache: keyed by (skinned, precision, attribute offsets, stride) -
+// the attribute offsets come from each mesh's vertexDesc and creating a device object per mesh is
+// not acceptable, so the cache deduplicates (corpse meshes come in very few layout varieties).
 // ---------------------------------------------------------------------------
 ID3D11InputLayout* MaskGeometryPass::get_layout(
     ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
     DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout)
 {
-    // 位置格式/偏移：静态路径为标定结果（UNKNOWN 表示按 desc 推导）；蒙皮路径为
-    // 属性偏移间距判定结果（绝不为 UNKNOWN）。
+    // Position format/offset: the static path passes a calibration result (UNKNOWN means derive
+    // from desc); the skinned path passes an attribute-offset spacing result (never UNKNOWN).
     DXGI_FORMAT const resolved_format = (position_format == DXGI_FORMAT_UNKNOWN)
                                             ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT)
                                             : position_format;
     uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
                                               ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
                                               : position_offset;
-    // 蒙皮权重/索引布局由标定结果给出；静态路径无（nullptr）。
+    // The skinning weight/index layout comes from a calibration result; the static path has none (nullptr).
     MaskSkinLayout const skin_layout_ref = skin_layout ? *skin_layout : MaskSkinLayout{};
     LayoutKey const key{
         .skinned = skinned,
@@ -68,8 +68,9 @@ ID3D11InputLayout* MaskGeometryPass::get_layout(
     };
     if (skinned)
     {
-        // SKINNING 块内布局由自标定给出（权重/索引的格式与字节偏移），
-        // 语义名顺序（BLENDWEIGHT / BLENDINDICES）与蒙皮 VS 一致。
+        // The layout inside the SKINNING block comes from the self-calibration (the weight/index
+        // formats and byte offsets); the semantic name order (BLENDWEIGHT / BLENDINDICES) matches
+        // the skinned VS.
         elements[count++] = {
             .SemanticName = "BLENDWEIGHT",
             .SemanticIndex = 0,
@@ -128,7 +129,7 @@ namespace
     static_assert(offsetof(PerDrawCBData, object_id) == 64);
     static_assert(sizeof(DirectX::XMFLOAT4) == 16);
 
-    // 剪影内部填充系数（维持既有亮度）
+    // Silhouette inner fill factor (keeps the existing brightness)
     constexpr float Silhouette_Fill_Alpha = 0.5f;
 
     bool draw_fullscreen_triangle(
@@ -335,7 +336,7 @@ bool MaskGeometryPass::create_pipeline(ID3D11Device* device)
     cb.Usage = D3D11_USAGE_DYNAMIC;
     cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    cb.ByteWidth = 80;  // PerDrawCBData：float4x4 + uint object_id + pad[3]
+    cb.ByteWidth = 80;  // PerDrawCBData: float4x4 + uint object_id + pad[3]
     device->CreateBuffer(&cb, nullptr, &m_per_draw_cb);
     cb.ByteWidth = static_cast<UINT>(Palette_CB_Bytes);
     device->CreateBuffer(&cb, nullptr, &m_palette_cb);
@@ -454,13 +455,13 @@ void MaskGeometryPass::calibrate_upload_orientation(
     DirectX::XMFLOAT4X4 mvp{};
     DirectX::XMStoreFloat4x4(&mvp, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&view_proj), DirectX::XMLoadFloat4x4(&model)));
 
-    // 引擎像素：左下原点归一化输出，port 为像素单位时先归一化（project_engine 内处理）
+    // Engine pixels: normalised output with a lower-left origin; when the port is in pixels it is first normalised (handled inside project_engine)
     float eng_px = 0.0f;
     float eng_py = 0.0f;
     float eng_depth = 0.0f;
     bool const engine_ok = project(camera, anchor, static_cast<float>(width), static_cast<float>(height), eng_px, eng_py, eng_depth);
 
-    // 直传：局部原点 (0,0,0,1) 的裁剪坐标 = mvp 第 4 列；转置上传：= mvp 第 3 行
+    // Direct upload: the clip coordinate of the local origin (0,0,0,1) = column 4 of mvp; transposed upload: = row 3 of mvp
     float const cw = mvp.m[3][3];
     if (engine_ok && cw > 1e-5f)
     {
@@ -483,7 +484,7 @@ void MaskGeometryPass::calibrate_upload_orientation(
             m_upload_transposed ? "transposed" : "direct",
             eng_px, eng_py, composed_px, composed_py);
     }
-    // 锚点在相机后方/引擎投影失败：下一帧重试（不置位）
+    // Anchor behind the camera / engine projection failed: retry on the next frame (do not latch)
 }
 
 void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws)
@@ -493,7 +494,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
         if (!draw.vertex_buffer || !draw.index_buffer || draw.index_count == 0 || draw.vertex_stride == 0)
             continue;
 
-        // 蒙皮 draw 传标定布局；静态 draw 传 nullptr（行为与既有完全一致）
+        // Skinned draws pass the calibrated layout; static draws pass nullptr (behaviour exactly as before)
         ID3D11InputLayout* layout = get_layout(device, draw.skinned ? m_vs_skinned_blob : m_vs_static_blob, draw.skinned, draw.vertex_desc, draw.vertex_stride,
             draw.position_format, draw.position_offset, draw.skinned ? &draw.skin_layout : nullptr);
         if (!layout)
@@ -503,7 +504,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
         if (!vs || !m_ps_mask)
             continue;
 
-        // b0：静态 = ViewProj × 世界变换；调色板蒙皮 = ViewProj（世界变换在调色板里）
+        // b0: static = ViewProj × world transform; palette skinning = ViewProj (the world transform lives in the palette)
         DirectX::XMFLOAT4X4 per_draw = view_proj;
         if (!draw.skinned)
         {
@@ -533,16 +534,19 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
         {
             RE::NiSkinInstance* skin = draw.skin.get();
 
-            // 调色板：palette[i] = boneWorld[i] 的 4x4 展开 · skinToBone(i) 的 4x4 展开
-            //（两因子相乘次序保持 boneWorld 在前）。
-            // 消费约定实证（world-variant）：NiTransform 原样消费（展开不转置）
-            // 即引擎语义。引擎蒙皮组合为 skin→bone→world（先 StB 后 BW），其列向量矩阵
-            // 为 BW_col·StB_col——与引擎行向量记法 v·StB·BW 的列形式 (StB·BW)ᵀ = BWᵀ·StBᵀ
-            // 相一致（M_col(X) = X 原样存储），故两因子相乘的次序保持 boneWorld 在前。
-            // 调色板按**全局骨骼索引空间**构建（顶点索引即 skin 骨骼数组下标），
-            // P = min(skinData 骨骼数, numMatrices) 为其有效长度；不使用 part.bones
-            //（分区局部）。未用槽位填充 palette[P-1] 的副本（防越界读取未定义内容），
-            // 整块上传 Max_Palette_Bones 个矩阵。
+            // Palette: palette[i] = the 4x4 expansion of boneWorld[i] · the 4x4 expansion of
+            // skinToBone(i) (the multiplication order keeps boneWorld first).
+            // Empirically verified consumption convention (world variant): consuming a NiTransform
+            // as is (expanded, not transposed) is the engine semantics. The engine's skinning
+            // composition is skin→bone→world (StB first, then BW), whose column-vector matrix is
+            // BW_col·StB_col - consistent with the column form of the engine's row-vector notation
+            // v·StB·BW, namely (StB·BW)ᵀ = BWᵀ·StBᵀ (M_col(X) = X stored as is), so the
+            // multiplication order keeps boneWorld first.
+            // The palette is built in **global bone index space** (a vertex index is a subscript
+            // into the skin bone array), with P = min(skinData bone count, numMatrices) as its
+            // valid length; part.bones is not used (it is partition-local). Unused slots are filled
+            // with a replica of palette[P-1] (to prevent reading undefined content out of bounds)
+            // and the whole block of Max_Palette_Bones matrices is uploaded.
             uint32_t const skin_bones = skin->skinData->GetBoneCount();
             uint32_t const matrix_count = skin->numMatrices;
             uint32_t const palette_count = palette_slot_count(skin);
@@ -558,7 +562,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
             bool palette_ok = true;
             for (uint32_t i = 0; i < palette_count; ++i)
             {
-                // i < numMatrices 与 i < GetBoneCount() 由 P 的定义保证（防越界读取）
+                // i < numMatrices and i < GetBoneCount() are guaranteed by the definition of P (read stays in bounds)
                 if (!skin->boneWorldTransforms[i])
                 {
                     palette_ok = false;
@@ -615,7 +619,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
         UINT const offset = 0;
         ID3D11Buffer* vb = draw.vertex_buffer;
         context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-        // BSTriShape::vertexCount / 分区 vertices 均为 uint16_t：索引恒为 16 位
+        // BSTriShape::vertexCount and a partition's vertices are both uint16_t: indices are always 16-bit
         context->IASetIndexBuffer(draw.index_buffer, DXGI_FORMAT_R16_UINT, 0);
         context->VSSetShader(vs, nullptr, 0);
         context->PSSetShader(m_ps_mask, nullptr, 0);
@@ -624,7 +628,7 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
 }
 
 // ---------------------------------------------------------------------------
-// 全屏消费 pass
+// Full-screen consumption passes
 // ---------------------------------------------------------------------------
 
 FullscreenPass::FullscreenPass() :
@@ -789,7 +793,7 @@ void SilhouettePass::release()
         m_pixel_shader = nullptr;
     }
     m_ready = false;
-    m_failed = false;  // 设备变化后允许重建（与原 release_pipeline → 重建行为一致）
+    m_failed = false;  // allow a rebuild after a device change (same behaviour as the original release_pipeline → rebuild)
 }
 
 bool SilhouettePass::draw(

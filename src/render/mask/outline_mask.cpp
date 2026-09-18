@@ -150,7 +150,7 @@ void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
 void OutlineMask::render(ID3D11Device* device, ID3D11DeviceContext* context, RE::NiCamera* camera,
     ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height)
 {
-    // Present 回调边界内禁止异常外泄：任何未预期失败记日志并跳过本帧
+    // No exception may escape the Present callback boundary: any unexpected failure is logged and the frame is skipped
     try
     {
         render_impl(device, context, camera, overlay_target, width, height);

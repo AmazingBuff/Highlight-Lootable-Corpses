@@ -38,7 +38,7 @@ namespace
         if (a_vk >= 0x41 && a_vk <= 0x5A)
             return {1, static_cast<char>(a_vk)};                        // A-Z
         if (a_vk >= 0x60 && a_vk <= 0x69)
-            return fmt::format("Num {}", a_vk - 0x60);                             // 小键盘 0-9
+            return fmt::format("Num {}", a_vk - 0x60);                             // numpad 0-9
         if (a_vk >= 0x70 && a_vk <= 0x87)
             return fmt::format("F{}", a_vk - 0x6F);                                // F1-F24
 
@@ -55,8 +55,9 @@ namespace
         return fmt::format("0x{:02X}", a_vk);
     }
 
-    // MCP 菜单回调：游戏主线程执行（框架在 imgui 帧内调用），
-    // 直接读写 Config 设置；修改即时生效，渲染线程无锁读取（与 set_enabled 同模式）。
+    // MCP menu callback: runs on the game's main thread (the framework calls it inside an imgui
+    // frame) and reads/writes the Config settings directly; a change takes effect immediately and
+    // the render thread reads it without a lock (the same pattern as set_enabled).
     void render_settings()
     {
         Config& cfg = Setting::instance().get_config();

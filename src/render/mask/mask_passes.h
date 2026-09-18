@@ -66,9 +66,10 @@ public:
     [[nodiscard]] ID3D11DepthStencilState* depth_none() const noexcept { return m_depth_disabled; }
     [[nodiscard]] ID3D11RasterizerState* cull_none() const noexcept { return m_rasterizer; }
 
-    // 首个有 draw 的帧自动校准 CB 上传字节取向（地面真值直传预期成立；失败时
-    // 转置字节序）：锚点 = 首记录节点的世界原点，经组合矩阵投影与引擎
-    // WorldPtToScreenPt3 像素比对。
+    // On the first frame that has a draw, auto-calibrate the byte orientation of the CB upload
+    // (direct upload is expected to hold as the ground truth; on failure the byte order is
+    // transposed): anchor = the world origin of the first recorded node, projected through the
+    // composed matrix and compared in pixels against the engine's WorldPtToScreenPt3.
     void calibrate_upload_orientation(
         RE::NiCamera* camera,
         DirectX::XMFLOAT4X4 const& view_proj,
@@ -76,21 +77,21 @@ public:
         uint32_t width,
         uint32_t height);
 
-    // 绘制全部 draw（调色板蒙皮在此构建）。
+    // Draw every draw (the palette skinning is built here).
     void draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws);
 
 private:
-    // InputLayout 缓存键（蒙皮, 精度, 属性偏移, 步进）
+    // InputLayout cache key (skinned, precision, attribute offsets, stride)
     struct LayoutKey
     {
         bool skinned;
         bool full_prec;
-        uint32_t position_format;  // 位置格式为标定结果，须入键防不同格式共用布局
+        uint32_t position_format;  // the position format is a calibration result and must enter the key so different formats do not share a layout
         uint32_t position_offset;
         uint32_t skinning_offset;
         uint32_t stride;
-        // 蒙皮权重/索引布局：标定结果，须入键防不同布局共用同一 InputLayout
-        //（静态 draw 保持默认 0/UNKNOWN）。
+        // Skinning weight/index layout: a calibration result that must enter the key so different
+        // layouts do not share one InputLayout (static draws keep the default 0/UNKNOWN).
         uint32_t weight_format;
         uint32_t weight_offset;
         uint32_t index_format;
@@ -111,22 +112,23 @@ private:
     ID3D11VertexShader* m_vs_static;
     ID3D11VertexShader* m_vs_skinned;
     ID3D11PixelShader* m_ps_mask;
-    ID3DBlob* m_vs_static_blob;   // CreateInputLayout 需要 VS 字节码，随管线保留
+    ID3DBlob* m_vs_static_blob;   // CreateInputLayout needs the VS bytecode, so it is kept with the pipeline
     ID3DBlob* m_vs_skinned_blob;
-    ID3D11Buffer* m_per_draw_cb;  // b0：row_major float4x4 + uint object_id（80 字节）
-    ID3D11Buffer* m_palette_cb;   // b1：row_major float4x4[Max_Palette_Bones]
+    ID3D11Buffer* m_per_draw_cb;  // b0: row_major float4x4 + uint object_id (80 bytes)
+    ID3D11Buffer* m_palette_cb;   // b1: row_major float4x4[Max_Palette_Bones]
     ID3D11BlendState* m_blend_mask_write;       // Integer IDs must never be blended.
     ID3D11DepthStencilState* m_depth_nearest;
-    ID3D11DepthStencilState* m_depth_disabled;  // 用于独立轮廓 mask 与全屏合成
+    ID3D11DepthStencilState* m_depth_disabled;  // used for the independent outline mask and the full-screen composite
     ID3D11RasterizerState* m_rasterizer;        // CullNone + depth clipping
     bool m_ready;
-    bool m_failed;  // 创建失败后不再每帧重试（避免持续泄漏 D3D 对象）
+    bool m_failed;  // after a creation failure there is no per-frame retry (avoids continuously leaking D3D objects)
 
-    // 常量缓冲上传字节取向（自动校准；直传预期成立，失败时转置字节序）
+    // Constant-buffer upload byte orientation (auto-calibrated; direct upload is expected to hold, and on failure the byte order is transposed)
     bool m_upload_transposed;
 
-    // InputLayout 缓存：按 (蒙皮, 精度, 属性偏移, 步进) 缓存——属性偏移来自各 mesh 的
-    // vertexDesc，逐 mesh 创建设备对象不可取，故缓存去重（尸体 mesh 布局种类极少）。
+    // InputLayout cache: keyed by (skinned, precision, attribute offsets, stride) - the attribute
+    // offsets come from each mesh's vertexDesc and creating a device object per mesh is not
+    // acceptable, so the cache deduplicates (corpse meshes come in very few layout varieties).
     std::vector<std::pair<LayoutKey, ID3D11InputLayout*>> m_layout_cache;
 };
 
