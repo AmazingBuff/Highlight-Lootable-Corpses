@@ -4,8 +4,6 @@
 #include "ui/pulse_timer.h"
 #include "ui/ui_menu.h"
 
-#include "Plugin.h"
-
 PLUGIN_NAMESPACE_BEGIN
 
 namespace

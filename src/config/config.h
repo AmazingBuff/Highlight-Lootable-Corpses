@@ -1,11 +1,5 @@
 #pragma once
 
-#include "Plugin.h"
-
-#include <SKSE/Impl/PCH.h>
-
-#include <cstdint>
-
 PLUGIN_NAMESPACE_BEGIN
 
 struct Config

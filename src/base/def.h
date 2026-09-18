@@ -4,11 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <cstddef>
-#include <type_traits>
-
 template<typename T>
     requires(std::is_integral_v<T>)
 constexpr size_t hash_str(T const* str, size_t const len, size_t const& seed)

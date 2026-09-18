@@ -1,12 +1,10 @@
 #pragma once
 
-#include <SKSE/Impl/PCH.h>
-
 #include <string_view>
 
 #define PLUGIN_NAMESPACE Amazing::@PROJECT_NAME@
-#define PLUGIN_NAMESPACE_BEGIN namespace Amazing { namespace @PROJECT_NAME@ {
-#define PLUGIN_NAMESPACE_END } }
+#define PLUGIN_NAMESPACE_BEGIN namespace Amazing::@PROJECT_NAME@ {
+#define PLUGIN_NAMESPACE_END }
 
 namespace Plugin
 {

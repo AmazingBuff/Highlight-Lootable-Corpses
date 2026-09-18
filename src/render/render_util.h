@@ -4,21 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <cstdint>
-
-namespace RE
-{
-    class NiCamera;
-    class NiPoint3;
-
-    namespace BSGraphics
-    {
-        struct ViewData;
-    }
-}
-
 PLUGIN_NAMESPACE_BEGIN
 
 class Color

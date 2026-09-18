@@ -7,23 +7,6 @@
 #include "mask_passes.h"
 #include "mask_types.h"
 
-#include "Plugin.h"
-
-#include <DirectXMath.h>
-
-#include <cstdint>
-#include <vector>
-
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11RenderTargetView;
-
-namespace RE
-{
-    class NiCamera;
-    class TESObjectREFR;
-}
-
 PLUGIN_NAMESPACE_BEGIN
 
 // RGB is unpremultiplied; opacity already includes configuration alpha, pulse and fade.

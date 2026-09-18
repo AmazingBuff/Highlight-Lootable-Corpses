@@ -6,22 +6,6 @@
 
 #include "mask_types.h"
 
-#include "Plugin.h"
-
-namespace RE
-{
-    class NiCamera;
-}
-
-#include <DirectXMath.h>
-#include <d3d11.h>
-
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <utility>
-#include <vector>
-
 MASK_NAMESPACE_BEGIN
 
 class RenderTarget

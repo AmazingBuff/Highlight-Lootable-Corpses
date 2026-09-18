@@ -5,8 +5,6 @@
 #include "base/util.h"
 #include "config/config.h"
 
-#include "Plugin.h"
-
 PLUGIN_NAMESPACE_BEGIN
 
 CorpseScan& CorpseScan::instance()

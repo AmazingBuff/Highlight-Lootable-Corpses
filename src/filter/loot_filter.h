@@ -4,13 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <RE/Skyrim.h>
-
-#include <cstdint>
-#include <functional>
-
 PLUGIN_NAMESPACE_BEGIN
 
 class LootFilter

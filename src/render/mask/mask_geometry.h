@@ -6,17 +6,6 @@
 
 #include "mask_types.h"
 
-#include "Plugin.h"
-
-#include <cstdint>
-#include <string_view>
-#include <vector>
-
-namespace RE
-{
-    class NiSkinInstance;
-}
-
 MASK_NAMESPACE_BEGIN
 
 // Palette length P = min(skinData bone count, skin world matrix count). A vertex bone index is a

@@ -9,8 +9,6 @@
 #include "base/util.h"
 #include "search/searched_corpses.h"
 
-#include "Plugin.h"
-
 PLUGIN_NAMESPACE_BEGIN
 
 namespace

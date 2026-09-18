@@ -4,11 +4,6 @@
 
 #include "util.h"
 
-#include "Plugin.h"
-
-#include <cstdint>
-#include <string_view>
-
 namespace
 {
     constexpr std::string_view Skyrim_Plugin = std::string_view{ "Skyrim.esm" };

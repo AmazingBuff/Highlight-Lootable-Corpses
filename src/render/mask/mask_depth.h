@@ -6,12 +6,6 @@
 
 #include "mask_types.h"
 
-#include "Plugin.h"
-
-#include <DirectXMath.h>
-
-#include <cmath>
-
 MASK_NAMESPACE_BEGIN
 
 // Column-vector projection: replace only the z row so z/w = near / view distance.

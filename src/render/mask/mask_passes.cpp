@@ -11,10 +11,6 @@
 
 #include "render/dx11/d3d11_util.h"
 
-#include "Plugin.h"
-
-#include <cstring>
-
 MASK_NAMESPACE_BEGIN
 
 // ---------------------------------------------------------------------------

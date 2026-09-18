@@ -4,14 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-namespace RE
-{
-    class Actor;
-    class TESObjectREFR;
-}
-
 PLUGIN_NAMESPACE_BEGIN
 
 namespace Util

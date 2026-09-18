@@ -4,12 +4,8 @@
 
 #include "icon_layout.h"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
+PLUGIN_NAMESPACE_BEGIN
 
-namespace Amazing::HighlightLootableCorpses
-{
 namespace
 {
     constexpr float Join_World_Distance = 180.0f;
@@ -235,4 +231,5 @@ std::vector<IconMarker> IconLayout::update(std::span<IconCandidate const> candid
         markers.resize(marker_limit);
     return markers;
 }
-}
+
+PLUGIN_NAMESPACE_END

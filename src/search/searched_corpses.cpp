@@ -7,8 +7,6 @@
 #include "base/def.h"
 #include "base/util.h"
 
-#include "Plugin.h"
-
 PLUGIN_NAMESPACE_BEGIN
 
 MarkCorpse& MarkCorpse::instance()

@@ -4,18 +4,6 @@
 
 #include "mask_geometry.h"
 
-#include "Plugin.h"
-
-#include <DirectXMath.h>
-#include <DirectXPackedVector.h>
-#include <d3d11.h>
-
-#include <algorithm>
-#include <cmath>
-#include <cstring>
-#include <string>
-#include <unordered_set>
-
 MASK_NAMESPACE_BEGIN
 
 namespace

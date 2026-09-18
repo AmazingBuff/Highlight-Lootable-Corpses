@@ -4,11 +4,6 @@
 
 #include "pulse_timer.h"
 
-#include "Plugin.h"
-
-#include <chrono>
-#include <mutex>
-
 PLUGIN_NAMESPACE_BEGIN
 PulseTimer& PulseTimer::instance()
 {

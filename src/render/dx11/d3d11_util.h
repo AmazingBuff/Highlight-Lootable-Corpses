@@ -4,13 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <d3d11.h>
-
-#include <cstddef>
-#include <cstdint>
-
 PLUGIN_NAMESPACE_BEGIN
 [[nodiscard]] ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix);
 void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, size_t bytes);

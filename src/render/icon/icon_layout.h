@@ -4,16 +4,8 @@
 
 #pragma once
 
-#include <DirectXMath.h>
+PLUGIN_NAMESPACE_BEGIN
 
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <unordered_map>
-#include <vector>
-
-namespace Amazing::HighlightLootableCorpses
-{
 struct IconCandidate
 {
     uint32_t form_id;
@@ -53,4 +45,5 @@ private:
     float m_width;
     float m_height;
 };
-}
+
+PLUGIN_NAMESPACE_END

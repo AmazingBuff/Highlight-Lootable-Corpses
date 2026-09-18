@@ -4,11 +4,8 @@
 
 #include "icon_geometry.h"
 
-#include <algorithm>
-#include <cmath>
+PLUGIN_NAMESPACE_BEGIN
 
-namespace Amazing::HighlightLootableCorpses
-{
 IconGeometry icon_geometry(IconMarker const& marker, DirectX::XMFLOAT3 const& color, float width, float height)
 {
     IconGeometry geometry{};
@@ -48,4 +45,5 @@ IconGeometry icon_geometry(IconMarker const& marker, DirectX::XMFLOAT3 const& co
     }
     return geometry;
 }
-}
+
+PLUGIN_NAMESPACE_END

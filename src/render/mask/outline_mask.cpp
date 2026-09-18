@@ -11,10 +11,6 @@
 #include "config/config.h"
 #include "render/dx11/d3d11_util.h"
 
-#include "Plugin.h"
-
-#include <span>
-
 PLUGIN_NAMESPACE_BEGIN
 
 OutlineMask& OutlineMask::instance()

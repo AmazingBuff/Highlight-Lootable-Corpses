@@ -2,15 +2,6 @@
 
 #include "filter/loot_filter.h"
 
-#include "Plugin.h"
-
-#include <RE/Skyrim.h>
-
-#include <cstdint>
-#include <mutex>
-#include <unordered_set>
-#include <vector>
-
 PLUGIN_NAMESPACE_BEGIN
 
 class CorpseScan

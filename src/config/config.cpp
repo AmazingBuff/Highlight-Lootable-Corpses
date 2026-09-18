@@ -1,7 +1,5 @@
 #include "config.h"
 
-#include "Plugin.h"
-
 #include <SimpleIni.h>
 
 PLUGIN_NAMESPACE_BEGIN

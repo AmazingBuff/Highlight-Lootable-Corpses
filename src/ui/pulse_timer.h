@@ -4,12 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <chrono>
-#include <cstdint>
-#include <mutex>
-
 PLUGIN_NAMESPACE_BEGIN
 
 class PulseTimer

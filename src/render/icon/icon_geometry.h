@@ -6,13 +6,8 @@
 
 #include "icon_layout.h"
 
-#include <DirectXMath.h>
+PLUGIN_NAMESPACE_BEGIN
 
-#include <array>
-#include <cstddef>
-
-namespace Amazing::HighlightLootableCorpses
-{
 struct IconVertex
 {
     DirectX::XMFLOAT3 pos;
@@ -30,4 +25,5 @@ struct IconGeometry
 
 [[nodiscard]] IconGeometry icon_geometry(IconMarker const& marker, DirectX::XMFLOAT3 const& color,
     float width, float height);
-}
+
+PLUGIN_NAMESPACE_END

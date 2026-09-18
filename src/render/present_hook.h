@@ -4,12 +4,6 @@
 
 #pragma once
 
-#include "Plugin.h"
-
-#include <combaseapi.h>
-
-struct IDXGISwapChain;
-
 PLUGIN_NAMESPACE_BEGIN
 
 // IDXGISwapChain::Present vtable hook (vtable slot 8, written through REL::Relocation::write_vfunc,

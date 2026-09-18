@@ -6,26 +6,9 @@
 
 #include "icon_geometry.h"
 
-#include "Plugin.h"
-
-#include <DirectXMath.h>
-
-#include <vector>
-
-struct ID3D11Buffer;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
-struct ID3D11InputLayout;
-struct ID3D11PixelShader;
-struct ID3D11RenderTargetView;
-struct ID3D11VertexShader;
-
-namespace DirectX
+namespace DirectX::inline DX11
 {
-    inline namespace DX11
-    {
-        class CommonStates;
-    }
+    class CommonStates;
 }
 
 PLUGIN_NAMESPACE_BEGIN

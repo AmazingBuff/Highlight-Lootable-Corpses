@@ -8,14 +8,7 @@
 
 #include "render/dx11/d3d11_util.h"
 
-#include "Plugin.h"
-
 #include <CommonStates.h>
-
-#include <d3d11.h>
-
-#include <algorithm>
-#include <cstring>
 
 PLUGIN_NAMESPACE_BEGIN
 
