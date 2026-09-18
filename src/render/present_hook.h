@@ -6,7 +6,7 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-// IDXGISwapChain::Present vtable hook (vtable slot 8, written through REL::Relocation::write_vfunc,
+// REX::W32::IDXGISwapChain::Present vtable hook (vtable slot 8, written through REL::Relocation::write_vfunc,
 // whose internal safe_write handles the page protection and returns the original function pointer).
 // Runtime-agnostic: it does not depend on an Address Library ID and is valid for any AE version.
 // The callback runs before the original Present; the game-thread Present hook can be entered
@@ -14,7 +14,7 @@ PLUGIN_NAMESPACE_BEGIN
 class PresentHook
 {
 public:
-    using Callback = void (STDMETHODCALLTYPE*)(IDXGISwapChain* a_swap_chain);
+    using Callback = void (__stdcall*)(REX::W32::IDXGISwapChain* a_swap_chain);
 
     static PresentHook& instance();
 
@@ -24,9 +24,9 @@ private:
     PresentHook();
     ~PresentHook();
 
-    using PresentFunc = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+    using PresentFunc = REX::W32::HRESULT(__stdcall*)(REX::W32::IDXGISwapChain*, uint32_t, uint32_t);
 
-    static HRESULT STDMETHODCALLTYPE present_thunk(IDXGISwapChain* a_swap_chain, UINT a_sync_interval, UINT a_flags);
+    static REX::W32::HRESULT __stdcall present_thunk(REX::W32::IDXGISwapChain* a_swap_chain, uint32_t a_sync_interval, uint32_t a_flags);
 private:
     PresentFunc m_ref_original_present;
     Callback m_callback;

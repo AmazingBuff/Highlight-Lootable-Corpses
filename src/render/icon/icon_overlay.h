@@ -19,19 +19,19 @@ public:
     IconOverlay();
     ~IconOverlay() = default;
 
-    bool init(ID3D11Device* device);
+    bool init(REX::W32::ID3D11Device* device);
     void begin_frame(float width, float height);
     void add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& color);
-    void draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states);
+    void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states);
     void end_frame();
 private:
-    bool create_pipeline(ID3D11Device* a_device);
+    bool create_pipeline(REX::W32::ID3D11Device* a_device);
     void release_pipeline();
 private:
-    ID3D11VertexShader* m_vertex_shader;
-    ID3D11PixelShader* m_pixel_shader;
-    ID3D11InputLayout* m_input_layout;
-    ID3D11Buffer* m_vertex_buffer;
+    REX::W32::ID3D11VertexShader* m_vertex_shader;
+    REX::W32::ID3D11PixelShader* m_pixel_shader;
+    REX::W32::ID3D11InputLayout* m_input_layout;
+    REX::W32::ID3D11Buffer* m_vertex_buffer;
     bool m_ready;
 
     float m_width;

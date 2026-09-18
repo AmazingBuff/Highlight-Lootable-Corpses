@@ -4,19 +4,19 @@
 
 #include "d3d11_util.h"
 
-#include <d3dcompiler.h>
+#include <REX/W32/D3DCOMPILER.h>
 
 PLUGIN_NAMESPACE_BEGIN
 
-ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix)
+REX::W32::ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix)
 {
     if (!source || !entry || !target)
         return nullptr;
 
-    ID3DBlob* blob = nullptr;
-    ID3DBlob* err = nullptr;
-    HRESULT const hr = D3DCompile(source, std::strlen(source), nullptr, nullptr, nullptr, entry, target, 0, 0, &blob, &err);
-    if (FAILED(hr))
+    REX::W32::ID3DBlob* blob = nullptr;
+    REX::W32::ID3DBlob* err = nullptr;
+    REX::W32::HRESULT const hr = REX::W32::D3DCompile(source, std::strlen(source), nullptr, nullptr, nullptr, entry, target, 0, 0, &blob, &err);
+    if (!REX::W32::SUCCESS(hr))
     {
         logger::error(
             "{} shader compile failed [{} {}] ({:X}): {}",
@@ -37,16 +37,16 @@ ID3DBlob* compile_shader(char const* source, char const* entry, char const* targ
     return blob;
 }
 
-void update_constant_buffer(ID3D11DeviceContext* context, ID3D11Buffer* buffer, void const* data, size_t bytes)
+void update_constant_buffer(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11Buffer* buffer, void const* data, size_t bytes)
 {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (!REX::W32::SUCCESS(context->Map(buffer, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         return;
-    std::memcpy(mapped.pData, data, bytes);
+    std::memcpy(mapped.data, data, bytes);
     context->Unmap(buffer, 0);
 }
 
-D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* context) :
+D3D11StateCapture::D3D11StateCapture(REX::W32::ID3D11DeviceContext* context) :
     m_ref_context(context),
     m_render_target(nullptr),
     m_depth_stencil(nullptr),
@@ -59,12 +59,12 @@ D3D11StateCapture::D3D11StateCapture(ID3D11DeviceContext* context) :
     m_viewport_count(0),
     m_viewports{},
     m_input_layout(nullptr),
-    m_topology(D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED),
+    m_topology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED),
     m_vertex_buffer(nullptr),
     m_vertex_stride(0),
     m_vertex_offset(0),
     m_index_buffer(nullptr),
-    m_index_format(DXGI_FORMAT_UNKNOWN),
+    m_index_format(REX::W32::DXGI_FORMAT_UNKNOWN),
     m_index_offset(0),
     m_vertex_shader(nullptr),
     m_vertex_instances{},
@@ -98,22 +98,22 @@ D3D11StateCapture::~D3D11StateCapture()
         m_vertex_shader->Release();
     if (m_pixel_shader)
         m_pixel_shader->Release();
-    for (ID3D11ClassInstance* instance : m_vertex_instances)
+    for (REX::W32::ID3D11ClassInstance* instance : m_vertex_instances)
     {
         if (instance)
             instance->Release();
     }
-    for (ID3D11ClassInstance* instance : m_pixel_instances)
+    for (REX::W32::ID3D11ClassInstance* instance : m_pixel_instances)
     {
         if (instance)
             instance->Release();
     }
-    for (ID3D11Buffer* cb : m_vertex_cbs)
+    for (REX::W32::ID3D11Buffer* cb : m_vertex_cbs)
     {
         if (cb)
             cb->Release();
     }
-    for (ID3D11ShaderResourceView* srv : m_pixel_srvs)
+    for (REX::W32::ID3D11ShaderResourceView* srv : m_pixel_srvs)
     {
         if (srv)
             srv->Release();
@@ -129,7 +129,7 @@ void D3D11StateCapture::capture()
     m_ref_context->OMGetDepthStencilState(&m_depth, &m_stencil_ref);
     m_ref_context->RSGetState(&m_rasterizer);
 
-    m_viewport_count = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    m_viewport_count = REX::W32::D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
     m_ref_context->RSGetViewports(&m_viewport_count, m_viewports);
 
     m_ref_context->IAGetInputLayout(&m_input_layout);

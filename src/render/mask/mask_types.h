@@ -23,9 +23,9 @@ inline constexpr float Mask_Clear_Color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 // Weight/index layout inside the skinned vertex buffer (self-calibration result)
 struct MaskSkinLayout
 {
-    DXGI_FORMAT weight_format;
+    REX::W32::DXGI_FORMAT weight_format;
     uint32_t weight_offset;
-    DXGI_FORMAT index_format;
+    REX::W32::DXGI_FORMAT index_format;
     uint32_t index_offset;
 };
 
@@ -43,8 +43,8 @@ struct MaskTarget
 // its buffData/VB/IB alive through the skin (NiSkinInstance→skinPartition→buffData) reference chain.
 struct MaskDraw
 {
-    ID3D11Buffer* vertex_buffer;
-    ID3D11Buffer* index_buffer;
+    REX::W32::ID3D11Buffer* vertex_buffer;
+    REX::W32::ID3D11Buffer* index_buffer;
     RE::BSGraphics::VertexDesc vertex_desc;
     RE::NiAVObject* node;  // world transform source of the static path (borrowed; lifetime described at node_ref)
     RE::NiPointer<RE::BSGeometry> node_ref;  // keeps the static-path geometry (and its GPU buffers) alive
@@ -55,7 +55,7 @@ struct MaskDraw
     // Position attribute layout: the static path stores the calibrate_position_format result
     // (UNKNOWN means derive from desc); the skinned path stores the attribute-offset spacing result
     // (never UNKNOWN).
-    DXGI_FORMAT position_format;
+    REX::W32::DXGI_FORMAT position_format;
     uint32_t position_offset;
     bool skinned;                            // true: draw per partition with palette skinning
     RE::NiPointer<RE::NiSkinInstance> skin;  // keeps the skin instance alive (bone world matrices)

@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include <d3d11.h>
+#include <REX/W32/D3D11.h>
 
 using namespace std::literals;
 

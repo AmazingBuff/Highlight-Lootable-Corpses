@@ -8,6 +8,8 @@
 
 #include "render/dx11/d3d11_util.h"
 
+#include <REX/W32/Bridge.h>
+
 #include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
@@ -26,7 +28,7 @@ IconOverlay::IconOverlay() :
     m_width(0.0f),
     m_height(0.0f) {}
 
-bool IconOverlay::init(ID3D11Device* device)
+bool IconOverlay::init(REX::W32::ID3D11Device* device)
 {
     if (!m_ready)
         m_ready = create_pipeline(device);
@@ -47,10 +49,10 @@ void IconOverlay::add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& 
         m_vertices.insert(m_vertices.end(), geometry.vertices.begin(), geometry.vertices.begin() + geometry.count);
 }
 
-bool IconOverlay::create_pipeline(ID3D11Device* device)
+bool IconOverlay::create_pipeline(REX::W32::ID3D11Device* device)
 {
-    ID3DBlob* vs_blob = compile_shader(render_shaders::IconOverlay, "vs_main", "vs_5_0", "ui overlay", "ui overlay");
-    ID3DBlob* ps_blob = compile_shader(render_shaders::IconOverlay, "ps_main", "ps_5_0", "ui overlay", "ui overlay");
+    REX::W32::ID3DBlob* vs_blob = compile_shader(render_shaders::IconOverlay, "vs_main", "vs_5_0", "ui overlay", "ui overlay");
+    REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::IconOverlay, "ps_main", "ps_5_0", "ui overlay", "ui overlay");
     if (!vs_blob || !ps_blob)
     {
         if (vs_blob)
@@ -64,24 +66,24 @@ bool IconOverlay::create_pipeline(ID3D11Device* device)
     device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &m_vertex_shader);
     device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &m_pixel_shader);
 
-    static constexpr D3D11_INPUT_ELEMENT_DESC s_layout_desc[] = {
+    static constexpr REX::W32::D3D11_INPUT_ELEMENT_DESC s_layout_desc[] = {
         {
-            .SemanticName = "POSITION",
-            .SemanticIndex = 0,
-            .Format = DXGI_FORMAT_R32G32B32_FLOAT,
-            .InputSlot = 0,
-            .AlignedByteOffset = 0,
-            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-            .InstanceDataStepRate = 0
+            .semanticName = "POSITION",
+            .semanticIndex = 0,
+            .format = REX::W32::DXGI_FORMAT_R32G32B32_FLOAT,
+            .inputSlot = 0,
+            .alignedByteOffset = 0,
+            .inputSlotClass = REX::W32::D3D11_INPUT_PER_VERTEX_DATA,
+            .instanceDataStepRate = 0
         },
         {
-            .SemanticName = "COLOR",
-            .SemanticIndex = 0,
-            .Format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-            .InputSlot = 0,
-            .AlignedByteOffset = 12,
-            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-            .InstanceDataStepRate = 0
+            .semanticName = "COLOR",
+            .semanticIndex = 0,
+            .format = REX::W32::DXGI_FORMAT_R32G32B32A32_FLOAT,
+            .inputSlot = 0,
+            .alignedByteOffset = 12,
+            .inputSlotClass = REX::W32::D3D11_INPUT_PER_VERTEX_DATA,
+            .instanceDataStepRate = 0
         },
     };
     device->CreateInputLayout(s_layout_desc, 2, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &m_input_layout);
@@ -89,11 +91,11 @@ bool IconOverlay::create_pipeline(ID3D11Device* device)
     vs_blob->Release();
     ps_blob->Release();
 
-    D3D11_BUFFER_DESC bd = {};
-    bd.Usage = D3D11_USAGE_DYNAMIC;
-    bd.ByteWidth = static_cast<UINT>(Max_Vertex_Count * sizeof(IconVertex));
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    REX::W32::D3D11_BUFFER_DESC bd = {};
+    bd.usage = REX::W32::D3D11_USAGE_DYNAMIC;
+    bd.byteWidth = static_cast<uint32_t>(Max_Vertex_Count * sizeof(IconVertex));
+    bd.bindFlags = REX::W32::D3D11_BIND_VERTEX_BUFFER;
+    bd.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
     device->CreateBuffer(&bd, nullptr, &m_vertex_buffer);
 
     if (m_vertex_shader && m_pixel_shader && m_input_layout && m_vertex_buffer)
@@ -131,7 +133,7 @@ void IconOverlay::release_pipeline()
     }
 }
 
-void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states)
+void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states)
 {
     if (!m_ready || m_vertices.empty())
         return;
@@ -150,29 +152,31 @@ void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* tar
     D3D11StateCapture capture(context);
     capture.capture();
 
-    D3D11_MAPPED_SUBRESOURCE mapped = {};
-    if (FAILED(context->Map(m_vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    REX::W32::D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (!REX::W32::SUCCESS(context->Map(m_vertex_buffer, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
     {
         m_vertices.clear();
         return;
     }
-    std::memcpy(mapped.pData, m_vertices.data(), count * sizeof(IconVertex));
+    std::memcpy(mapped.data, m_vertices.data(), count * sizeof(IconVertex));
     context->Unmap(m_vertex_buffer, 0);
 
-    static constexpr UINT s_stride = sizeof(IconVertex);
-    static constexpr UINT s_offset = 0;
+    static constexpr uint32_t s_stride = sizeof(IconVertex);
+    static constexpr uint32_t s_offset = 0;
+    // CommonStates (DirectXTK) hands back SDK-typed state objects; they are ABI-identical to the
+    // REX mirrors, so bridge them instead of reinterpret-casting at each call site.
     context->OMSetRenderTargets(1, &target, nullptr);
-    context->OMSetBlendState(states.AlphaBlend(), nullptr, 0xFFFFFFFF);
-    context->OMSetDepthStencilState(states.DepthNone(), 0);
-    context->RSSetState(states.CullNone());
-    D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, m_width, m_height, 0.0f, 1.0f };
+    context->OMSetBlendState(REX::W32::CastTo<REX::W32::ID3D11BlendState>(states.AlphaBlend()), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(REX::W32::CastTo<REX::W32::ID3D11DepthStencilState>(states.DepthNone()), 0);
+    context->RSSetState(REX::W32::CastTo<REX::W32::ID3D11RasterizerState>(states.CullNone()));
+    REX::W32::D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, m_width, m_height, 0.0f, 1.0f };
     context->RSSetViewports(1, &viewport);
     context->IASetInputLayout(m_input_layout);
     context->IASetVertexBuffers(0, 1, &m_vertex_buffer, &s_stride, &s_offset);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(m_vertex_shader, nullptr, 0);
     context->PSSetShader(m_pixel_shader, nullptr, 0);
-    context->Draw(static_cast<UINT>(count), 0);
+    context->Draw(static_cast<uint32_t>(count), 0);
 
     capture.restore();
     m_vertices.clear();

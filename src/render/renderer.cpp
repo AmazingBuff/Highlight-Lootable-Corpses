@@ -13,6 +13,8 @@
 #include "search/corpse_finder.h"
 #include "ui/pulse_timer.h"
 
+#include <REX/W32/Bridge.h>
+
 #include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
@@ -78,7 +80,7 @@ namespace
             return s_instance;
         }
 
-        void on_present(IDXGISwapChain* swap_chain)
+        void on_present(REX::W32::IDXGISwapChain* swap_chain)
         {
             std::lock_guard<std::mutex> const draw_lock(m_draw_mutex);
 
@@ -93,8 +95,8 @@ namespace
             }
 
             RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
-            ID3D11Device* device = reinterpret_cast<ID3D11Device*>(rt.forwarder);
-            ID3D11DeviceContext* context = reinterpret_cast<ID3D11DeviceContext*>(rt.context);
+            REX::W32::ID3D11Device* device = rt.forwarder;
+            REX::W32::ID3D11DeviceContext* context = rt.context;
             if (!device || !context)
             {
                 m_icon_layout.reset();
@@ -137,7 +139,7 @@ namespace
             }
         }
 
-        void draw(IDXGISwapChain* swap_chain, ID3D11Device* device, ID3D11DeviceContext* context)
+        void draw(REX::W32::IDXGISwapChain* swap_chain, REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context)
         {
             if (!init(swap_chain, device) || !update_back_buffer(swap_chain, device))
             {
@@ -145,11 +147,11 @@ namespace
                 return;
             }
 
-            D3D11_TEXTURE2D_DESC desc{};
+            REX::W32::D3D11_TEXTURE2D_DESC desc{};
             m_back_buffer->GetDesc(&desc);
 
-            float w = static_cast<float>(desc.Width);
-            float h = static_cast<float>(desc.Height);
+            float w = static_cast<float>(desc.width);
+            float h = static_cast<float>(desc.height);
             if (w <= 0.0f || h <= 0.0f)
             {
                 RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
@@ -248,24 +250,26 @@ namespace
                             }
                         }
                         OutlineMask::instance().set_targets(mask_targets);
-                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.Width, desc.Height);
+                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.width, desc.height);
                     }
                 }
             }
         }
 
-        bool init(IDXGISwapChain* swap_chain, ID3D11Device* device)
+        bool init(REX::W32::IDXGISwapChain* swap_chain, REX::W32::ID3D11Device* device)
         {
             if (m_ready)
                 return true;
 
-            m_states = std::make_unique<DirectX::DX11::CommonStates>(device);
+            // CommonStates (DirectXTK) is SDK-typed; the REX device pointer is ABI-identical, so bridge it.
+            m_states = std::make_unique<DirectX::DX11::CommonStates>(REX::W32::AsReal(device));
             if (!m_states || !m_icon_overlay.init(device))
                 return false;
 
-            ID3D11Texture2D* buffer = nullptr;
-            HRESULT const hr = swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
-            if (FAILED(hr) || !buffer)
+            // The REX mirror's GetBuffer takes the REX IID constant directly (same GUID value as __uuidof).
+            REX::W32::ID3D11Texture2D* buffer = nullptr;
+            REX::W32::HRESULT const hr = swap_chain->GetBuffer(0, REX::W32::IID_ID3D11Texture2D, reinterpret_cast<void**>(&buffer));
+            if (!REX::W32::SUCCESS(hr) || !buffer)
                 return false;
 
             if (buffer == m_back_buffer)
@@ -287,8 +291,8 @@ namespace
             }
 
             m_back_buffer = buffer;
-            HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
-            if (FAILED(rtv_hr) || !m_render_target)
+            REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
+            if (!REX::W32::SUCCESS(rtv_hr) || !m_render_target)
             {
                 logger::error("Failed to create backbuffer RTV: {:X}", static_cast<unsigned int>(rtv_hr));
                 return false;
@@ -298,11 +302,11 @@ namespace
             return m_ready;
         }
 
-        bool update_back_buffer(IDXGISwapChain* swap_chain, ID3D11Device* device)
+        bool update_back_buffer(REX::W32::IDXGISwapChain* swap_chain, REX::W32::ID3D11Device* device)
         {
-            ID3D11Texture2D* buffer = nullptr;
-            HRESULT const hr = swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer));
-            if (FAILED(hr) || !buffer)
+            REX::W32::ID3D11Texture2D* buffer = nullptr;
+            REX::W32::HRESULT const hr = swap_chain->GetBuffer(0, REX::W32::IID_ID3D11Texture2D, reinterpret_cast<void**>(&buffer));
+            if (!REX::W32::SUCCESS(hr) || !buffer)
                 return false;
 
             if (buffer == m_back_buffer)
@@ -324,8 +328,8 @@ namespace
 
             m_back_buffer = buffer;
 
-            HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
-            if (FAILED(rtv_hr) || !m_render_target)
+            REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_back_buffer, nullptr, &m_render_target);
+            if (!REX::W32::SUCCESS(rtv_hr) || !m_render_target)
             {
                 logger::error("Failed to create backbuffer RTV: {:X}", static_cast<unsigned int>(rtv_hr));
                 return false;
@@ -340,8 +344,8 @@ namespace
         uint32_t m_last_drawn_frame;
         std::mutex m_draw_mutex;
 
-        ID3D11Texture2D* m_back_buffer;
-        ID3D11RenderTargetView* m_render_target;
+        REX::W32::ID3D11Texture2D* m_back_buffer;
+        REX::W32::ID3D11RenderTargetView* m_render_target;
 
         std::unique_ptr<DirectX::DX11::CommonStates> m_states;
         IconOverlay m_icon_overlay;
@@ -350,7 +354,7 @@ namespace
         bool m_ready;
     };
 
-    void STDMETHODCALLTYPE present_callback(IDXGISwapChain* swap_chain)
+    void __stdcall present_callback(REX::W32::IDXGISwapChain* swap_chain)
     {
         OverlayDirector::instance().on_present(swap_chain);
     }

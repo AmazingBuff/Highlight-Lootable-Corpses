@@ -116,9 +116,9 @@ namespace
         return vertex_size_of_with_skinning(desc, 12u);
     }
 
-    DXGI_FORMAT position_format_of(RE::BSGraphics::VertexDesc const& desc)
+    REX::W32::DXGI_FORMAT position_format_of(RE::BSGraphics::VertexDesc const& desc)
     {
-        return desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT;
+        return desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? REX::W32::DXGI_FORMAT_R32G32B32_FLOAT : REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT;
     }
 
     bool is_finite(RE::NiPoint3 const& p)
@@ -158,17 +158,17 @@ namespace
 
     struct PositionCandidate
     {
-        DXGI_FORMAT format;
+        REX::W32::DXGI_FORMAT format;
         uint32_t bytes;
         bool from_desc;  // true: offset taken from the desc's VA_POSITION; false: offset 0
     };
 
     // Candidate table (float32 first: on a tie prefer the conservative full-precision reading; defined in one place, no scattered magic numbers)
     constexpr PositionCandidate Position_Candidates[] = {
-        { DXGI_FORMAT_R32G32B32_FLOAT, 12, true },
-        { DXGI_FORMAT_R32G32B32_FLOAT, 12, false },
-        { DXGI_FORMAT_R16G16B16A16_FLOAT, 8, true },
-        { DXGI_FORMAT_R16G16B16A16_FLOAT, 8, false },
+        { REX::W32::DXGI_FORMAT_R32G32B32_FLOAT, 12, true },
+        { REX::W32::DXGI_FORMAT_R32G32B32_FLOAT, 12, false },
+        { REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT, 8, true },
+        { REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT, 8, false },
     };
     constexpr size_t Position_Candidate_Count = sizeof(Position_Candidates) / sizeof(Position_Candidates[0]);
 
@@ -183,7 +183,7 @@ namespace
     {
         // Layout decision only (format/offset are desc attributes, so they can be cached per desc).
         // The per-mesh model AABB only feeds candidate scoring and never enters the cache (to prevent cross-mesh pollution).
-        DXGI_FORMAT format;
+        REX::W32::DXGI_FORMAT format;
         uint32_t offset;
         PositionCalibrationState state;
     };
@@ -316,7 +316,7 @@ namespace
 
         struct CandidateResult
         {
-            DXGI_FORMAT format;
+            REX::W32::DXGI_FORMAT format;
             uint32_t offset;
             bool valid;          // survived candidate culling (stride/bounds)
             bool passed;         // matched modelBound
@@ -366,8 +366,8 @@ namespace
             }
             float const best_error = results[best].center_error;
             float const error = results[i].center_error;
-            bool const is_float32 = results[i].format == DXGI_FORMAT_R32G32B32_FLOAT;
-            bool const best_is_float32 = results[best].format == DXGI_FORMAT_R32G32B32_FLOAT;
+            bool const is_float32 = results[i].format == REX::W32::DXGI_FORMAT_R32G32B32_FLOAT;
+            bool const best_is_float32 = results[best].format == REX::W32::DXGI_FORMAT_R32G32B32_FLOAT;
             if (error < best_error - 1e-4f || (std::fabs(error - best_error) <= 1e-4f && is_float32 && !best_is_float32))
                 best = static_cast<int>(i);
         }
@@ -429,7 +429,7 @@ namespace
     // Layout decision: the cache stores only these fields and no per-mesh validation verdict
     struct SkinnedVertexLayout
     {
-        DXGI_FORMAT position_format;
+        REX::W32::DXGI_FORMAT position_format;
         uint32_t position_offset;
         uint32_t stride;
         uint8_t layout_id;     // SKINNING layout id (1..4)
@@ -441,19 +441,19 @@ namespace
     struct SkinningLayoutSpec
     {
         uint8_t id;
-        DXGI_FORMAT weight_format;
+        REX::W32::DXGI_FORMAT weight_format;
         uint32_t weight_bytes;
         uint32_t weight_delta;
-        DXGI_FORMAT index_format;
+        REX::W32::DXGI_FORMAT index_format;
         uint32_t index_delta;
     };
 
     // 1/2 are used when the available bytes A>=12; 3/4 are used when A==8
     constexpr SkinningLayoutSpec Skinning_Layouts[] = {
-        { 1, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 0, DXGI_FORMAT_R8G8B8A8_UINT, 8 },
-        { 2, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 4, DXGI_FORMAT_R8G8B8A8_UINT, 0 },
-        { 3, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0, DXGI_FORMAT_R8G8B8A8_UINT, 4 },
-        { 4, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 4, DXGI_FORMAT_R8G8B8A8_UINT, 0 },
+        { 1, REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 0, REX::W32::DXGI_FORMAT_R8G8B8A8_UINT, 8 },
+        { 2, REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 4, REX::W32::DXGI_FORMAT_R8G8B8A8_UINT, 0 },
+        { 3, REX::W32::DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0, REX::W32::DXGI_FORMAT_R8G8B8A8_UINT, 4 },
+        { 4, REX::W32::DXGI_FORMAT_R8G8B8A8_UNORM, 4, 4, REX::W32::DXGI_FORMAT_R8G8B8A8_UINT, 0 },
     };
     constexpr size_t Skinning_Layout_Count = sizeof(Skinning_Layouts) / sizeof(Skinning_Layouts[0]);
 
@@ -505,9 +505,9 @@ namespace
     };
 
     // Decode the weight quadruple of a single vertex (R16G16B16A16_FLOAT / R8G8B8A8_UNORM; the caller already guarantees the read stays in bounds)
-    void decode_weights(DXGI_FORMAT format, uint8_t const* src, float (&out)[4])
+    void decode_weights(REX::W32::DXGI_FORMAT format, uint8_t const* src, float (&out)[4])
     {
-        if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+        if (format == REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT)
         {
             uint16_t half[4]{};
             std::memcpy(half, src, sizeof(half));
@@ -779,12 +779,12 @@ namespace
         SkinnedVertexLayout result{ .state = SkinnedCalibrationState::e_unresolved };
         result.position_offset = pos_offset;
         if (gap >= 12)
-            result.position_format = DXGI_FORMAT_R32G32B32_FLOAT;
+            result.position_format = REX::W32::DXGI_FORMAT_R32G32B32_FLOAT;
         else if (gap >= 8)
-            result.position_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            result.position_format = REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT;
         else
             result.position_format = position_format_of(desc);  // degenerate: no later attribute / gap too small
-        uint32_t const pos_bytes = (result.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
+        uint32_t const pos_bytes = (result.position_format == REX::W32::DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
 
         std::string const desc_fields = fmt::format(
             "desc={:#018x} flags={:#06x} pos={} uv={} nrm={} bin={} col={} skin={} gap={}{} pos_fmt={:#06x} pos_off={} verts={} index_bound={}",
@@ -1026,8 +1026,8 @@ namespace
         }
 
         MaskDraw draw{};
-        draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(geom_rt.rendererData->vertexBuffer);
-        draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(geom_rt.rendererData->indexBuffer);
+        draw.vertex_buffer = geom_rt.rendererData->vertexBuffer;
+        draw.index_buffer = geom_rt.rendererData->indexBuffer;
         draw.vertex_desc = geom_rt.vertexDesc;
         draw.node = geom;
         draw.node_ref.reset(geom);  // keep alive: if the geometry is unloaded, node/rendererData/VB/IB stay valid until the end of this frame
@@ -1192,7 +1192,7 @@ namespace
             // index with a non-zero weight → skip; out of range but the slot's weight is 0 → drawn as
             // usual (the replica fill makes it a no-op) and only counted in the diagnostics. ----
             uint8_t const* const raw = buff->rawVertexData;
-            uint32_t const pos_bytes = (calibration.position_format == DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
+            uint32_t const pos_bytes = (calibration.position_format == REX::W32::DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
             SkinningLayoutSpec const* spec = find_skinning_layout(calibration.layout_id);
 
             SkinnedMeshStats stats{ .position_finite = true };
@@ -1289,8 +1289,8 @@ namespace
             draw.partition = p;
             draw.node = geom;
             draw.node_ref.reset(geom);  // keep the geometry alive
-            draw.vertex_buffer = reinterpret_cast<ID3D11Buffer*>(buff->vertexBuffer);
-            draw.index_buffer = reinterpret_cast<ID3D11Buffer*>(buff->indexBuffer);
+            draw.vertex_buffer = buff->vertexBuffer;
+            draw.index_buffer = buff->indexBuffer;
             draw.vertex_desc = buff->vertexDesc;
             draw.vertex_stride = calibration.stride;
             draw.vertex_count = part.vertices;

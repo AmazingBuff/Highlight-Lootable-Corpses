@@ -18,16 +18,16 @@ MASK_NAMESPACE_BEGIN
 // the attribute offsets come from each mesh's vertexDesc and creating a device object per mesh is
 // not acceptable, so the cache deduplicates (corpse meshes come in very few layout varieties).
 // ---------------------------------------------------------------------------
-ID3D11InputLayout* MaskGeometryPass::get_layout(
-    ID3D11Device* device, ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
-    DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout)
+REX::W32::ID3D11InputLayout* MaskGeometryPass::get_layout(
+    REX::W32::ID3D11Device* device, REX::W32::ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
+    REX::W32::DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout)
 {
     // Position format/offset: the static path passes a calibration result (UNKNOWN means derive
     // from desc); the skinned path passes an attribute-offset spacing result (never UNKNOWN).
-    DXGI_FORMAT const resolved_format = (position_format == DXGI_FORMAT_UNKNOWN)
-                                            ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? DXGI_FORMAT_R32G32B32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT)
+    REX::W32::DXGI_FORMAT const resolved_format = (position_format == REX::W32::DXGI_FORMAT_UNKNOWN)
+                                            ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? REX::W32::DXGI_FORMAT_R32G32B32_FLOAT : REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT)
                                             : position_format;
-    uint32_t const resolved_offset = (position_format == DXGI_FORMAT_UNKNOWN)
+    uint32_t const resolved_offset = (position_format == REX::W32::DXGI_FORMAT_UNKNOWN)
                                               ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
                                               : position_offset;
     // The skinning weight/index layout comes from a calibration result; the static path has none (nullptr).
@@ -51,16 +51,16 @@ ID3D11InputLayout* MaskGeometryPass::get_layout(
             return layout;
     }
 
-    D3D11_INPUT_ELEMENT_DESC elements[3]{};
-    UINT count = 0;
+    REX::W32::D3D11_INPUT_ELEMENT_DESC elements[3]{};
+    uint32_t count = 0;
     elements[count++] = {
-        .SemanticName = "POSITION",
-        .SemanticIndex = 0,
-        .Format = resolved_format,
-        .InputSlot = 0,
-        .AlignedByteOffset = resolved_offset,
-        .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-        .InstanceDataStepRate = 0
+        .semanticName = "POSITION",
+        .semanticIndex = 0,
+        .format = resolved_format,
+        .inputSlot = 0,
+        .alignedByteOffset = resolved_offset,
+        .inputSlotClass = REX::W32::D3D11_INPUT_PER_VERTEX_DATA,
+        .instanceDataStepRate = 0
     };
     if (skinned)
     {
@@ -68,28 +68,28 @@ ID3D11InputLayout* MaskGeometryPass::get_layout(
         // formats and byte offsets); the semantic name order (BLENDWEIGHT / BLENDINDICES) matches
         // the skinned VS.
         elements[count++] = {
-            .SemanticName = "BLENDWEIGHT",
-            .SemanticIndex = 0,
-            .Format = skin_layout_ref.weight_format,
-            .InputSlot = 0,
-            .AlignedByteOffset = skin_layout_ref.weight_offset,
-            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-            .InstanceDataStepRate = 0
+            .semanticName = "BLENDWEIGHT",
+            .semanticIndex = 0,
+            .format = skin_layout_ref.weight_format,
+            .inputSlot = 0,
+            .alignedByteOffset = skin_layout_ref.weight_offset,
+            .inputSlotClass = REX::W32::D3D11_INPUT_PER_VERTEX_DATA,
+            .instanceDataStepRate = 0
         };
         elements[count++] = {
-            .SemanticName = "BLENDINDICES",
-            .SemanticIndex = 0,
-            .Format = skin_layout_ref.index_format,
-            .InputSlot = 0,
-            .AlignedByteOffset = skin_layout_ref.index_offset,
-            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
-            .InstanceDataStepRate = 0
+            .semanticName = "BLENDINDICES",
+            .semanticIndex = 0,
+            .format = skin_layout_ref.index_format,
+            .inputSlot = 0,
+            .alignedByteOffset = skin_layout_ref.index_offset,
+            .inputSlotClass = REX::W32::D3D11_INPUT_PER_VERTEX_DATA,
+            .instanceDataStepRate = 0
         };
     }
 
-    ID3D11InputLayout* layout = nullptr;
-    HRESULT const hr = device->CreateInputLayout(elements, count, blob->GetBufferPointer(), blob->GetBufferSize(), &layout);
-    if (FAILED(hr) || !layout)
+    REX::W32::ID3D11InputLayout* layout = nullptr;
+    REX::W32::HRESULT const hr = device->CreateInputLayout(elements, count, blob->GetBufferPointer(), blob->GetBufferSize(), &layout);
+    if (!REX::W32::SUCCESS(hr) || !layout)
     {
         static bool s_layout_failure_reported = false;
         if (!s_layout_failure_reported)
@@ -105,7 +105,7 @@ ID3D11InputLayout* MaskGeometryPass::get_layout(
 
 void MaskGeometryPass::release_layouts()
 {
-    for (ID3D11InputLayout* const val : m_layout_cache | std::views::values)
+    for (REX::W32::ID3D11InputLayout* const val : m_layout_cache | std::views::values)
     {
         if (val)
             val->Release();
@@ -129,45 +129,45 @@ namespace
     constexpr float Silhouette_Fill_Alpha = 0.5f;
 
     bool draw_fullscreen_triangle(
-        ID3D11DeviceContext* context, ID3D11RenderTargetView* target, ID3D11ShaderResourceView* mask_srv,
+        REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, REX::W32::ID3D11ShaderResourceView* mask_srv,
         uint32_t width, uint32_t height,
-        ID3D11VertexShader* vs, ID3D11PixelShader* ps, ID3D11BlendState* blend,
-        ID3D11DepthStencilState* depth_none, ID3D11RasterizerState* cull_none,
-        ID3D11Buffer* cb0, void const* cb0_data, size_t cb0_bytes,
-        ID3D11ShaderResourceView* style_srv)
+        REX::W32::ID3D11VertexShader* vs, REX::W32::ID3D11PixelShader* ps, REX::W32::ID3D11BlendState* blend,
+        REX::W32::ID3D11DepthStencilState* depth_none, REX::W32::ID3D11RasterizerState* cull_none,
+        REX::W32::ID3D11Buffer* cb0, void const* cb0_data, size_t cb0_bytes,
+        REX::W32::ID3D11ShaderResourceView* style_srv)
     {
         if (!target || !mask_srv || !vs || !ps || !blend || !cb0 || !style_srv)
             return false;
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(context->Map(cb0, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (!REX::W32::SUCCESS(context->Map(cb0, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return false;
-        std::memcpy(mapped.pData, cb0_data, cb0_bytes);
+        std::memcpy(mapped.data, cb0_data, cb0_bytes);
         context->Unmap(cb0, 0);
 
-        D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
+        REX::W32::D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
         context->OMSetRenderTargets(1, &target, nullptr);
         context->OMSetBlendState(blend, nullptr, 0xFFFFFFFF);
         context->OMSetDepthStencilState(depth_none, 0);
         context->RSSetState(cull_none);
         context->RSSetViewports(1, &vp);
         context->IASetInputLayout(nullptr);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ID3D11Buffer* const no_vb = nullptr;
-        UINT const zero = 0;
+        context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        REX::W32::ID3D11Buffer* const no_vb = nullptr;
+        uint32_t const zero = 0;
         context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
-        context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+        context->IASetIndexBuffer(nullptr, REX::W32::DXGI_FORMAT_UNKNOWN, 0);
         context->VSSetShader(vs, nullptr, 0);
         context->PSSetShader(ps, nullptr, 0);
-        ID3D11ShaderResourceView* const srvs[] = { mask_srv, style_srv };
+        REX::W32::ID3D11ShaderResourceView* const srvs[] = { mask_srv, style_srv };
         context->PSSetShaderResources(0, 2, srvs);
-        ID3D11Buffer* previous_cb = nullptr;
+        REX::W32::ID3D11Buffer* previous_cb = nullptr;
         context->PSGetConstantBuffers(0, 1, &previous_cb);
         context->PSSetConstantBuffers(0, 1, &cb0);
         context->Draw(3, 0);
         context->PSSetConstantBuffers(0, 1, &previous_cb);
         if (previous_cb)
             previous_cb->Release();
-        ID3D11ShaderResourceView* const empty_srvs[2]{};
+        REX::W32::ID3D11ShaderResourceView* const empty_srvs[2]{};
         context->PSSetShaderResources(0, 2, empty_srvs);
         return true;
     }
@@ -190,7 +190,7 @@ RenderTarget::~RenderTarget()
     release();
 }
 
-bool RenderTarget::matches(ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
+bool RenderTarget::matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
 {
     return m_ref_device == device && m_width == width && m_height == height && m_srv && m_dsv;
 }
@@ -227,38 +227,38 @@ void RenderTarget::release()
     m_ref_device = nullptr;
 }
 
-bool RenderTarget::init(ID3D11Device* device, uint32_t width, uint32_t height)
+bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
 {
-    D3D11_TEXTURE2D_DESC td{};
-    td.Width = width;
-    td.Height = height;
-    td.MipLevels = 1;
-    td.ArraySize = 1;
-    td.Format = DXGI_FORMAT_R32_UINT;
-    td.SampleDesc.Count = 1;
-    td.Usage = D3D11_USAGE_DEFAULT;
-    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    REX::W32::D3D11_TEXTURE2D_DESC td{};
+    td.width = width;
+    td.height = height;
+    td.mipLevels = 1;
+    td.arraySize = 1;
+    td.format = REX::W32::DXGI_FORMAT_R32_UINT;
+    td.sampleDesc.count = 1;
+    td.usage = REX::W32::D3D11_USAGE_DEFAULT;
+    td.bindFlags = REX::W32::D3D11_BIND_RENDER_TARGET | REX::W32::D3D11_BIND_SHADER_RESOURCE;
 
-    HRESULT const tex_hr = device->CreateTexture2D(&td, nullptr, &m_texture);
-    if (FAILED(tex_hr) || !m_texture)
+    REX::W32::HRESULT const tex_hr = device->CreateTexture2D(&td, nullptr, &m_texture);
+    if (!REX::W32::SUCCESS(tex_hr) || !m_texture)
     {
         logger::error("Outline mask: failed to create mask texture ({:X})", static_cast<unsigned int>(tex_hr));
         release();
         return false;
     }
-    HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
-    HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
-    if (FAILED(rtv_hr) || !m_rtv || FAILED(srv_hr) || !m_srv)
+    REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
+    REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
+    if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
     {
         logger::error("Outline mask: failed to create mask views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
         release();
         return false;
     }
 
-    td.Format = DXGI_FORMAT_D32_FLOAT;
-    td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    HRESULT const depth_hr = device->CreateTexture2D(&td, nullptr, &m_depth_texture);
-    if (FAILED(depth_hr) || FAILED(device->CreateDepthStencilView(m_depth_texture, nullptr, &m_dsv)))
+    td.format = REX::W32::DXGI_FORMAT_D32_FLOAT;
+    td.bindFlags = REX::W32::D3D11_BIND_DEPTH_STENCIL;
+    REX::W32::HRESULT const depth_hr = device->CreateTexture2D(&td, nullptr, &m_depth_texture);
+    if (!REX::W32::SUCCESS(depth_hr) || !REX::W32::SUCCESS(device->CreateDepthStencilView(m_depth_texture, nullptr, &m_dsv)))
     {
         logger::error("Outline mask: failed to create private depth target");
         release();
@@ -296,7 +296,7 @@ MaskGeometryPass::~MaskGeometryPass()
     release();
 }
 
-bool MaskGeometryPass::init(ID3D11Device* device)
+bool MaskGeometryPass::init(REX::W32::ID3D11Device* device)
 {
     if (m_ready || m_failed)
         return m_ready;
@@ -311,11 +311,11 @@ bool MaskGeometryPass::init(ID3D11Device* device)
     return m_ready;
 }
 
-bool MaskGeometryPass::create_pipeline(ID3D11Device* device)
+bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
 {
     m_vs_static_blob = compile_shader(render_shaders::MaskGeometry, "vs_static_main", "vs_5_0", "outline mask static", "outline mask");
     m_vs_skinned_blob = compile_shader(render_shaders::MaskGeometry, "vs_skinned_main", "vs_5_0", "outline mask skinned", "outline mask");
-    ID3DBlob* ps_mask_blob = compile_shader(render_shaders::MaskGeometry, "ps_main", "ps_5_0", "outline mask", "outline mask");
+    REX::W32::ID3DBlob* ps_mask_blob = compile_shader(render_shaders::MaskGeometry, "ps_main", "ps_5_0", "outline mask", "outline mask");
     if (!m_vs_static_blob || !m_vs_skinned_blob || !ps_mask_blob)
     {
         if (ps_mask_blob)
@@ -328,33 +328,33 @@ bool MaskGeometryPass::create_pipeline(ID3D11Device* device)
     device->CreatePixelShader(ps_mask_blob->GetBufferPointer(), ps_mask_blob->GetBufferSize(), nullptr, &m_ps_mask);
     ps_mask_blob->Release();
 
-    D3D11_BUFFER_DESC cb{};
-    cb.Usage = D3D11_USAGE_DYNAMIC;
-    cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    cb.ByteWidth = 80;  // PerDrawCBData: float4x4 + uint object_id + pad[3]
+    REX::W32::D3D11_BUFFER_DESC cb{};
+    cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
+    cb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
+    cb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
+    cb.byteWidth = 80;  // PerDrawCBData: float4x4 + uint object_id + pad[3]
     device->CreateBuffer(&cb, nullptr, &m_per_draw_cb);
-    cb.ByteWidth = static_cast<UINT>(Palette_CB_Bytes);
+    cb.byteWidth = static_cast<uint32_t>(Palette_CB_Bytes);
     device->CreateBuffer(&cb, nullptr, &m_palette_cb);
 
-    D3D11_BLEND_DESC blend{};
-    blend.RenderTarget[0].BlendEnable = FALSE;
-    blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    REX::W32::D3D11_BLEND_DESC blend{};
+    blend.renderTarget[0].blendEnable = false;
+    blend.renderTarget[0].renderTargetWriteMask = REX::W32::D3D11_COLOR_WRITE_ENABLE_ALL;
     device->CreateBlendState(&blend, &m_blend_mask_write);
 
-    D3D11_DEPTH_STENCIL_DESC depth{};
-    depth.DepthEnable = FALSE;  // Independent outlines and full-screen composites.
+    REX::W32::D3D11_DEPTH_STENCIL_DESC depth{};
+    depth.depthEnable = false;  // Independent outlines and full-screen composites.
     device->CreateDepthStencilState(&depth, &m_depth_disabled);
 
-    depth.DepthEnable = TRUE;
-    depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-    depth.DepthFunc = D3D11_COMPARISON_GREATER;
+    depth.depthEnable = true;
+    depth.depthWriteMask = REX::W32::D3D11_DEPTH_WRITE_MASK_ALL;
+    depth.depthFunc = REX::W32::D3D11_COMPARISON_GREATER;
     device->CreateDepthStencilState(&depth, &m_depth_nearest);
 
-    D3D11_RASTERIZER_DESC raster{};
-    raster.FillMode = D3D11_FILL_SOLID;
-    raster.CullMode = D3D11_CULL_NONE;
-    raster.DepthClipEnable = TRUE;
+    REX::W32::D3D11_RASTERIZER_DESC raster{};
+    raster.fillMode = REX::W32::D3D11_FILL_SOLID;
+    raster.cullMode = REX::W32::D3D11_CULL_NONE;
+    raster.depthClipEnable = true;
     device->CreateRasterizerState(&raster, &m_rasterizer);
 
     bool const ready = m_vs_static && m_vs_skinned && m_ps_mask &&
@@ -483,7 +483,7 @@ void MaskGeometryPass::calibrate_upload_orientation(
     // Anchor behind the camera / engine projection failed: retry on the next frame (do not latch)
 }
 
-void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws)
+void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws)
 {
     for (MaskDraw const& draw : draws)
     {
@@ -491,12 +491,12 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
             continue;
 
         // Skinned draws pass the calibrated layout; static draws pass nullptr (behaviour exactly as before)
-        ID3D11InputLayout* layout = get_layout(device, draw.skinned ? m_vs_skinned_blob : m_vs_static_blob, draw.skinned, draw.vertex_desc, draw.vertex_stride,
+        REX::W32::ID3D11InputLayout* layout = get_layout(device, draw.skinned ? m_vs_skinned_blob : m_vs_static_blob, draw.skinned, draw.vertex_desc, draw.vertex_stride,
             draw.position_format, draw.position_offset, draw.skinned ? &draw.skin_layout : nullptr);
         if (!layout)
             continue;
 
-        ID3D11VertexShader* vs = draw.skinned ? m_vs_skinned : m_vs_static;
+        REX::W32::ID3D11VertexShader* vs = draw.skinned ? m_vs_skinned : m_vs_static;
         if (!vs || !m_ps_mask)
             continue;
 
@@ -610,13 +610,13 @@ void MaskGeometryPass::draw(ID3D11Device* device, ID3D11DeviceContext* context, 
         }
 
         context->IASetInputLayout(layout);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        UINT const stride = draw.vertex_stride;
-        UINT const offset = 0;
-        ID3D11Buffer* vb = draw.vertex_buffer;
+        context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        uint32_t const stride = draw.vertex_stride;
+        uint32_t const offset = 0;
+        REX::W32::ID3D11Buffer* vb = draw.vertex_buffer;
         context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
         // BSTriShape::vertexCount and a partition's vertices are both uint16_t: indices are always 16-bit
-        context->IASetIndexBuffer(draw.index_buffer, DXGI_FORMAT_R16_UINT, 0);
+        context->IASetIndexBuffer(draw.index_buffer, REX::W32::DXGI_FORMAT_R16_UINT, 0);
         context->VSSetShader(vs, nullptr, 0);
         context->PSSetShader(m_ps_mask, nullptr, 0);
         context->DrawIndexed(draw.index_count, 0, 0);
@@ -644,27 +644,27 @@ FullscreenPass::~FullscreenPass()
     FullscreenPass::release();
 }
 
-bool FullscreenPass::init(ID3D11Device* device)
+bool FullscreenPass::init(REX::W32::ID3D11Device* device)
 {
     if (m_ready)
         return true;
 
-    ID3DBlob* vs_blob = compile_shader(render_shaders::MaskComposite, "vs_main", "vs_5_0", "outline mask fullscreen", "outline mask");
+    REX::W32::ID3DBlob* vs_blob = compile_shader(render_shaders::MaskComposite, "vs_main", "vs_5_0", "outline mask fullscreen", "outline mask");
     if (vs_blob)
     {
         device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &m_vertex_shader);
         vs_blob->Release();
     }
 
-    D3D11_BLEND_DESC blend{};
-    blend.RenderTarget[0].BlendEnable = TRUE;
-    blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-    blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    blend.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-    blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-    blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-    blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-    blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    REX::W32::D3D11_BLEND_DESC blend{};
+    blend.renderTarget[0].blendEnable = true;
+    blend.renderTarget[0].blendOp = REX::W32::D3D11_BLEND_OP_ADD;
+    blend.renderTarget[0].blendOpAlpha = REX::W32::D3D11_BLEND_OP_ADD;
+    blend.renderTarget[0].srcBlend = REX::W32::D3D11_BLEND_ONE;
+    blend.renderTarget[0].destBlend = REX::W32::D3D11_BLEND_INV_SRC_ALPHA;
+    blend.renderTarget[0].srcBlendAlpha = REX::W32::D3D11_BLEND_ONE;
+    blend.renderTarget[0].destBlendAlpha = REX::W32::D3D11_BLEND_INV_SRC_ALPHA;
+    blend.renderTarget[0].renderTargetWriteMask = REX::W32::D3D11_COLOR_WRITE_ENABLE_ALL;
     device->CreateBlendState(&blend, &m_blend_premul_alpha);
 
     m_ready = m_vertex_shader && m_blend_premul_alpha;
@@ -697,7 +697,7 @@ void FullscreenPass::release()
     }
 }
 
-bool FullscreenPass::update_styles(ID3D11Device* device, ID3D11DeviceContext* context, std::span<MaskTarget const> targets)
+bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, std::span<MaskTarget const> targets)
 {
     m_styles_valid = false;
     if (targets.empty() || targets.size() > UINT_MAX / sizeof(DirectX::XMFLOAT4))
@@ -711,18 +711,18 @@ bool FullscreenPass::update_styles(ID3D11Device* device, ID3D11DeviceContext* co
         m_style_srv = nullptr;
         m_style_buffer = nullptr;
         m_style_capacity = 0;
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = static_cast<UINT>(targets.size() * sizeof(DirectX::XMFLOAT4));
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-        desc.StructureByteStride = sizeof(DirectX::XMFLOAT4);
-        if (FAILED(device->CreateBuffer(&desc, nullptr, &m_style_buffer)))
+        REX::W32::D3D11_BUFFER_DESC desc{};
+        desc.byteWidth = static_cast<uint32_t>(targets.size() * sizeof(DirectX::XMFLOAT4));
+        desc.usage = REX::W32::D3D11_USAGE_DEFAULT;
+        desc.bindFlags = REX::W32::D3D11_BIND_SHADER_RESOURCE;
+        desc.miscFlags = REX::W32::D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        desc.structureByteStride = sizeof(DirectX::XMFLOAT4);
+        if (!REX::W32::SUCCESS(device->CreateBuffer(&desc, nullptr, &m_style_buffer)))
             return false;
-        D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-        srv.Buffer.NumElements = static_cast<UINT>(targets.size());
-        if (FAILED(device->CreateShaderResourceView(m_style_buffer, &srv, &m_style_srv)))
+        REX::W32::D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.viewDimension = REX::W32::D3D11_SRV_DIMENSION_BUFFER;
+        srv.buffer.numElements = static_cast<uint32_t>(targets.size());
+        if (!REX::W32::SUCCESS(device->CreateShaderResourceView(m_style_buffer, &srv, &m_style_srv)))
             return false;
         m_style_capacity = targets.size();
     }
@@ -730,9 +730,9 @@ bool FullscreenPass::update_styles(ID3D11Device* device, ID3D11DeviceContext* co
     styles.reserve(targets.size());
     for (MaskTarget const& target : targets)
         styles.push_back(target.color);
-    D3D11_BOX const box{ 0, 0, 0, static_cast<UINT>(styles.size() * sizeof(DirectX::XMFLOAT4)), 1, 1 };
+    REX::W32::D3D11_BOX const box{ 0, 0, 0, static_cast<uint32_t>(styles.size() * sizeof(DirectX::XMFLOAT4)), 1, 1 };
     context->UpdateSubresource(m_style_buffer, 0, &box, styles.data(), 0, 0);
-    m_styles_valid = SUCCEEDED(device->GetDeviceRemovedReason());
+    m_styles_valid = REX::W32::SUCCESS(device->GetDeviceRemovedReason());
     return m_styles_valid;
 }
 
@@ -741,7 +741,7 @@ SilhouettePass::~SilhouettePass()
     release();
 }
 
-bool SilhouettePass::init(ID3D11Device* device)
+bool SilhouettePass::init(REX::W32::ID3D11Device* device)
 {
     if (m_ready || m_failed)
         return m_ready;
@@ -752,7 +752,7 @@ bool SilhouettePass::init(ID3D11Device* device)
         return false;
     }
 
-    ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_silhouette_main", "ps_5_0", "outline mask silhouette", "outline mask");
+    REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_silhouette_main", "ps_5_0", "outline mask silhouette", "outline mask");
     if (ps_blob)
     {
         device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &m_pixel_shader);
@@ -760,11 +760,11 @@ bool SilhouettePass::init(ID3D11Device* device)
     }
 
     // b0: radius, fill factor, padding.
-    D3D11_BUFFER_DESC ccb{};
-    ccb.Usage = D3D11_USAGE_DYNAMIC;
-    ccb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    ccb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    ccb.ByteWidth = 16;
+    REX::W32::D3D11_BUFFER_DESC ccb{};
+    ccb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
+    ccb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
+    ccb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
+    ccb.byteWidth = 16;
     device->CreateBuffer(&ccb, nullptr, &m_cb);
 
     m_ready = m_pixel_shader && m_cb;
@@ -793,13 +793,13 @@ void SilhouettePass::release()
 }
 
 bool SilhouettePass::draw(
-    ID3D11DeviceContext* context,
-    ID3D11RenderTargetView* target,
-    ID3D11ShaderResourceView* mask_srv,
+    REX::W32::ID3D11DeviceContext* context,
+    REX::W32::ID3D11RenderTargetView* target,
+    REX::W32::ID3D11ShaderResourceView* mask_srv,
     uint32_t width,
     uint32_t height,
-    ID3D11DepthStencilState* depth_none,
-    ID3D11RasterizerState* cull_none) const
+    REX::W32::ID3D11DepthStencilState* depth_none,
+    REX::W32::ID3D11RasterizerState* cull_none) const
 {
     if (!m_ready || !m_styles_valid)
         return false;
@@ -815,7 +815,7 @@ OutlinePass::~OutlinePass()
     release();
 }
 
-bool OutlinePass::init(ID3D11Device* device)
+bool OutlinePass::init(REX::W32::ID3D11Device* device)
 {
     if (m_ready || m_failed)
         return m_ready;
@@ -826,7 +826,7 @@ bool OutlinePass::init(ID3D11Device* device)
         return false;
     }
 
-    ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_outline_main", "ps_5_0", "outline mask outline", "outline mask");
+    REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_outline_main", "ps_5_0", "outline mask outline", "outline mask");
     if (ps_blob)
     {
         device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &m_pixel_shader);
@@ -834,11 +834,11 @@ bool OutlinePass::init(ID3D11Device* device)
     }
 
     // b0: radius, fill factor, padding.
-    D3D11_BUFFER_DESC ocb{};
-    ocb.Usage = D3D11_USAGE_DYNAMIC;
-    ocb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    ocb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    ocb.ByteWidth = 16;
+    REX::W32::D3D11_BUFFER_DESC ocb{};
+    ocb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
+    ocb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
+    ocb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
+    ocb.byteWidth = 16;
     device->CreateBuffer(&ocb, nullptr, &m_cb);
 
     m_ready = m_pixel_shader && m_cb;
@@ -867,14 +867,14 @@ void OutlinePass::release()
 }
 
 bool OutlinePass::draw(
-    ID3D11DeviceContext* context,
-    ID3D11RenderTargetView* target,
-    ID3D11ShaderResourceView* mask_srv,
+    REX::W32::ID3D11DeviceContext* context,
+    REX::W32::ID3D11RenderTargetView* target,
+    REX::W32::ID3D11ShaderResourceView* mask_srv,
     uint32_t width,
     uint32_t height,
     int thickness,
-    ID3D11DepthStencilState* depth_none,
-    ID3D11RasterizerState* cull_none) const
+    REX::W32::ID3D11DepthStencilState* depth_none,
+    REX::W32::ID3D11RasterizerState* cull_none) const
 {
     if (!m_ready || !m_styles_valid)
         return false;

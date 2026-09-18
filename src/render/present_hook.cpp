@@ -12,7 +12,7 @@ PresentHook& PresentHook::instance()
     return s_instance;
 }
 
-HRESULT STDMETHODCALLTYPE PresentHook::present_thunk(IDXGISwapChain* a_swapChain, UINT a_syncInterval, UINT a_flags)
+REX::W32::HRESULT __stdcall PresentHook::present_thunk(REX::W32::IDXGISwapChain* a_swapChain, uint32_t a_syncInterval, uint32_t a_flags)
 {
     instance().m_callback(a_swapChain);
     return instance().m_ref_original_present(a_swapChain, a_syncInterval, a_flags);
@@ -36,8 +36,8 @@ bool PresentHook::install(Callback a_on_present)
         return false;
     }
 
-    IDXGISwapChain* swap_chain = reinterpret_cast<IDXGISwapChain*>(rt.renderWindows[0].swapChain);
-    // IDXGISwapChain::Present sits in vtable slot 8 (IUnknown×3 + IDXGIObject×4 + GetDevice); the
+    REX::W32::IDXGISwapChain* swap_chain = rt.renderWindows[0].swapChain;
+    // The swap chain's Present sits in vtable slot 8 (IUnknown×3 + four base-interface methods + GetDevice); the
     // vtable address is taken from the runtime object itself, so it does not depend on an Address
     // Library ID and is valid for any AE version. write_vfunc handles the page protection
     // automatically through safe_write and returns the original function pointer.
@@ -46,7 +46,7 @@ bool PresentHook::install(Callback a_on_present)
     m_callback = a_on_present;
     m_installed = true;
 
-    logger::info("Installed IDXGISwapChain::Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(m_ref_original_present));
+    logger::info("Installed swap chain Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(m_ref_original_present));
     return true;
 }
 
