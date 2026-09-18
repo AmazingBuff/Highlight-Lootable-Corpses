@@ -9,6 +9,7 @@
 #include "mask_passes.h"
 
 #include "config/config.h"
+#include "render/dx11/common_states.h"
 #include "render/dx11/d3d11_util.h"
 
 PLUGIN_NAMESPACE_BEGIN
@@ -20,7 +21,7 @@ OutlineMask& OutlineMask::instance()
 }
 
 void OutlineMask::render_impl(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, RE::NiCamera* camera,
-    REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height)
+    REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height, CommonStates const& states)
 {
         if (!device || !context || !camera || !overlay_target || width == 0 || height == 0)
         return;
@@ -97,17 +98,16 @@ void OutlineMask::render_impl(REX::W32::ID3D11Device* device, REX::W32::ID3D11De
         context->ClearRenderTargetView(mask_rtv, Mask::Mask_Clear_Color);
         if (silhouette)
             context->ClearDepthStencilView(m_mask_rt.dsv(), REX::W32::D3D11_CLEAR_DEPTH, 0.0f, 0);
-        context->OMSetBlendState(m_geometry_pass.mask_write_blend(), nullptr, 0xFFFFFFFF);
-        context->OMSetDepthStencilState(silhouette ? m_geometry_pass.depth_nearest() : m_geometry_pass.depth_none(), 0);
-        context->RSSetState(m_geometry_pass.cull_none());
+        context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
+        context->OMSetDepthStencilState(silhouette ? m_geometry_pass.depth_nearest() : states.depth_none(), 0);
+        context->RSSetState(states.cull_none());
         context->RSSetViewports(1, &vp);
         m_geometry_pass.draw(device, context, view_proj, group);
     };
     if (silhouette)
     {
         draw_mask(draws);
-        m_silhouette_pass.draw(context, overlay_target, m_mask_rt.srv(), width, height,
-            m_geometry_pass.depth_none(), m_geometry_pass.cull_none());
+        m_silhouette_pass.draw(context, overlay_target, m_mask_rt.srv(), width, height, states);
     }
     else
     {
@@ -119,8 +119,7 @@ void OutlineMask::render_impl(REX::W32::ID3D11Device* device, REX::W32::ID3D11De
             while (end < draws.size() && draws[end].target_index == draws[begin].target_index)
                 ++end;
             draw_mask(all_draws.subspan(begin, end - begin));
-            if (!m_outline_pass.draw(context, overlay_target, m_mask_rt.srv(), width, height, cfg.outline_thickness,
-                    m_geometry_pass.depth_none(), m_geometry_pass.cull_none()))
+            if (!m_outline_pass.draw(context, overlay_target, m_mask_rt.srv(), width, height, cfg.outline_thickness, states))
                 break;
             begin = end;
         }
@@ -141,12 +140,12 @@ void OutlineMask::set_targets(std::vector<OutlineMaskTarget> const& targets)
 }
 
 void OutlineMask::render(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, RE::NiCamera* camera,
-    REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height)
+    REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height, CommonStates const& states)
 {
     // No exception may escape the Present callback boundary: any unexpected failure is logged and the frame is skipped
     try
     {
-        render_impl(device, context, camera, overlay_target, width, height);
+        render_impl(device, context, camera, overlay_target, width, height, states);
     }
     catch (std::exception const& e)
     {

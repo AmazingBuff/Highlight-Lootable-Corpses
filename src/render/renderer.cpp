@@ -10,12 +10,9 @@
 #include "config/config.h"
 #include "icon/icon_overlay.h"
 #include "mask/outline_mask.h"
+#include "render/dx11/common_states.h"
 #include "search/corpse_finder.h"
 #include "ui/pulse_timer.h"
-
-#include <REX/W32/Bridge.h>
-
-#include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -250,7 +247,7 @@ namespace
                             }
                         }
                         OutlineMask::instance().set_targets(mask_targets);
-                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.width, desc.height);
+                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.width, desc.height, *m_states);
                     }
                 }
             }
@@ -261,9 +258,9 @@ namespace
             if (m_ready)
                 return true;
 
-            // CommonStates (DirectXTK) is SDK-typed; the REX device pointer is ABI-identical, so bridge it.
-            m_states = std::make_unique<DirectX::DX11::CommonStates>(REX::W32::AsReal(device));
-            if (!m_states || !m_icon_overlay.init(device))
+            // CommonStates is the local REX::W32-typed mirror; it takes the REX device pointer directly.
+            m_states = std::make_unique<CommonStates>(device);
+            if (!m_states || !m_states->valid() || !m_icon_overlay.init(device))
                 return false;
 
             // The REX mirror's GetBuffer takes the REX IID constant directly (same GUID value as __uuidof).
@@ -347,7 +344,7 @@ namespace
         REX::W32::ID3D11Texture2D* m_back_buffer;
         REX::W32::ID3D11RenderTargetView* m_render_target;
 
-        std::unique_ptr<DirectX::DX11::CommonStates> m_states;
+        std::unique_ptr<CommonStates> m_states;
         IconOverlay m_icon_overlay;
         IconLayout m_icon_layout;
 

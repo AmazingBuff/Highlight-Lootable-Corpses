@@ -44,6 +44,8 @@ ID3D11BlendState* CommonStates::AlphaBlend() const
 }
 ```
 
+(Note: since the DirectXTK dependency was removed, this state object is provided by the local mirror `src/render/dx11/common_states.cpp`, whose blend descriptions are identical to the DirectXTK source quoted here.)
+
 配合 SDK 枚举（`D3D11_BLEND_ZERO=1, ONE=2, ..., SRC_ALPHA=5, INV_SRC_ALPHA=6`），
 日志 `src=2 dst=6` 即 `(ONE, INV_SRC_ALPHA)` —— **这是"预乘 alpha"混合约定**。
 DirectXTK 全家（SpriteBatch 等）默认预乘；直 alpha 混合应为 `CommonStates::NonPremultiplied()`

@@ -38,13 +38,13 @@ public:
     // a_width/a_height are the back-buffer dimensions (the mask RT has the same size and is
     // recreated when they change).
     void render(REX::W32::ID3D11Device* a_device, REX::W32::ID3D11DeviceContext* a_context, RE::NiCamera* a_camera,
-        REX::W32::ID3D11RenderTargetView* a_overlay_target, uint32_t a_width, uint32_t a_height);
+        REX::W32::ID3D11RenderTargetView* a_overlay_target, uint32_t a_width, uint32_t a_height, CommonStates const& a_states);
 private:
     OutlineMask();
     ~OutlineMask();
 
     void render_impl(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, RE::NiCamera* camera,
-        REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height);
+        REX::W32::ID3D11RenderTargetView* overlay_target, uint32_t width, uint32_t height, CommonStates const& states);
 private:
     // Facade state (owned exclusively by the render thread)
     std::vector<Mask::MaskTarget> m_targets;

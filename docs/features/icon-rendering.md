@@ -67,7 +67,7 @@ Grouping is a deterministic greedy approximation. Legitimate floor changes withi
 
 ## Dependencies
 
-Existing STL, DirectXMath, D3D11/D3DCompiler, DirectXTK and CommonLibSSE. Tests use installed MSVC/Windows SDK and PowerShell System.Drawing to label a preview. No package or asset dependency is added.
+Existing STL, DirectXMath, D3D11/D3DCompiler and CommonLibSSE. The D3D11 pipeline state objects (blend/depth-stencil/rasterizer/sampler) are provided by the local `src/render/dx11/common_states` mirror of DirectXTK's CommonStates; DirectXTK itself is no longer a dependency. Tests use installed MSVC/Windows SDK and PowerShell System.Drawing to label a preview. No package or asset dependency is added.
 
 ## Tests and verification
 

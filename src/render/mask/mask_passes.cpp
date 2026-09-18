@@ -9,6 +9,7 @@
 #include "render/render_util.h"
 #include "render/shader_sources.h"
 
+#include "render/dx11/common_states.h"
 #include "render/dx11/d3d11_util.h"
 
 MASK_NAMESPACE_BEGIN
@@ -283,10 +284,7 @@ MaskGeometryPass::MaskGeometryPass() :
     m_vs_skinned_blob(nullptr),
     m_per_draw_cb(nullptr),
     m_palette_cb(nullptr),
-    m_blend_mask_write(nullptr),
     m_depth_nearest(nullptr),
-    m_depth_disabled(nullptr),
-    m_rasterizer(nullptr),
     m_ready(false),
     m_failed(false),
     m_upload_transposed(false) {}
@@ -337,29 +335,15 @@ bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
     cb.byteWidth = static_cast<uint32_t>(Palette_CB_Bytes);
     device->CreateBuffer(&cb, nullptr, &m_palette_cb);
 
-    REX::W32::D3D11_BLEND_DESC blend{};
-    blend.renderTarget[0].blendEnable = false;
-    blend.renderTarget[0].renderTargetWriteMask = REX::W32::D3D11_COLOR_WRITE_ENABLE_ALL;
-    device->CreateBlendState(&blend, &m_blend_mask_write);
-
+    // Reverse-Z nearest test (GREATER): no CommonStates equivalent - the pipeline is reverse-Z.
     REX::W32::D3D11_DEPTH_STENCIL_DESC depth{};
-    depth.depthEnable = false;  // Independent outlines and full-screen composites.
-    device->CreateDepthStencilState(&depth, &m_depth_disabled);
-
     depth.depthEnable = true;
     depth.depthWriteMask = REX::W32::D3D11_DEPTH_WRITE_MASK_ALL;
     depth.depthFunc = REX::W32::D3D11_COMPARISON_GREATER;
     device->CreateDepthStencilState(&depth, &m_depth_nearest);
 
-    REX::W32::D3D11_RASTERIZER_DESC raster{};
-    raster.fillMode = REX::W32::D3D11_FILL_SOLID;
-    raster.cullMode = REX::W32::D3D11_CULL_NONE;
-    raster.depthClipEnable = true;
-    device->CreateRasterizerState(&raster, &m_rasterizer);
-
     bool const ready = m_vs_static && m_vs_skinned && m_ps_mask &&
-                       m_per_draw_cb && m_palette_cb && m_blend_mask_write &&
-                       m_depth_disabled && m_depth_nearest && m_rasterizer;
+                       m_per_draw_cb && m_palette_cb && m_depth_nearest;
     if (!ready)
         return false;
 
@@ -384,21 +368,6 @@ void MaskGeometryPass::release()
     {
         m_per_draw_cb->Release();
         m_per_draw_cb = nullptr;
-    }
-    if (m_rasterizer)
-    {
-        m_rasterizer->Release();
-        m_rasterizer = nullptr;
-    }
-    if (m_depth_disabled)
-    {
-        m_depth_disabled->Release();
-        m_depth_disabled = nullptr;
-    }
-    if (m_blend_mask_write)
-    {
-        m_blend_mask_write->Release();
-        m_blend_mask_write = nullptr;
     }
     if (m_vs_static_blob)
     {
@@ -630,7 +599,6 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
 FullscreenPass::FullscreenPass() :
     m_vertex_shader(nullptr),
     m_pixel_shader(nullptr),
-    m_blend_premul_alpha(nullptr),
     m_cb(nullptr),
     m_ready(false),
     m_failed(false),
@@ -656,18 +624,8 @@ bool FullscreenPass::init(REX::W32::ID3D11Device* device)
         vs_blob->Release();
     }
 
-    REX::W32::D3D11_BLEND_DESC blend{};
-    blend.renderTarget[0].blendEnable = true;
-    blend.renderTarget[0].blendOp = REX::W32::D3D11_BLEND_OP_ADD;
-    blend.renderTarget[0].blendOpAlpha = REX::W32::D3D11_BLEND_OP_ADD;
-    blend.renderTarget[0].srcBlend = REX::W32::D3D11_BLEND_ONE;
-    blend.renderTarget[0].destBlend = REX::W32::D3D11_BLEND_INV_SRC_ALPHA;
-    blend.renderTarget[0].srcBlendAlpha = REX::W32::D3D11_BLEND_ONE;
-    blend.renderTarget[0].destBlendAlpha = REX::W32::D3D11_BLEND_INV_SRC_ALPHA;
-    blend.renderTarget[0].renderTargetWriteMask = REX::W32::D3D11_COLOR_WRITE_ENABLE_ALL;
-    device->CreateBlendState(&blend, &m_blend_premul_alpha);
-
-    m_ready = m_vertex_shader && m_blend_premul_alpha;
+    // The premultiplied-alpha blend state comes from the shared CommonStates (alpha_blend) at draw time.
+    m_ready = m_vertex_shader != nullptr;
     return m_ready;
 }
 
@@ -684,11 +642,6 @@ void FullscreenPass::release()
     {
         m_style_buffer->Release();
         m_style_buffer = nullptr;
-    }
-    if (m_blend_premul_alpha)
-    {
-        m_blend_premul_alpha->Release();
-        m_blend_premul_alpha = nullptr;
     }
     if (m_vertex_shader)
     {
@@ -798,15 +751,14 @@ bool SilhouettePass::draw(
     REX::W32::ID3D11ShaderResourceView* mask_srv,
     uint32_t width,
     uint32_t height,
-    REX::W32::ID3D11DepthStencilState* depth_none,
-    REX::W32::ID3D11RasterizerState* cull_none) const
+    CommonStates const& states) const
 {
     if (!m_ready || !m_styles_valid)
         return false;
 
     float const cb_data[4] = { 0.0f, Silhouette_Fill_Alpha, 0.0f, 0.0f };
     return draw_fullscreen_triangle(context, target, mask_srv, width, height,
-        m_vertex_shader, m_pixel_shader, m_blend_premul_alpha, depth_none, cull_none,
+        m_vertex_shader, m_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
         m_cb, cb_data, sizeof(cb_data), m_style_srv);
 }
 
@@ -873,15 +825,14 @@ bool OutlinePass::draw(
     uint32_t width,
     uint32_t height,
     int thickness,
-    REX::W32::ID3D11DepthStencilState* depth_none,
-    REX::W32::ID3D11RasterizerState* cull_none) const
+    CommonStates const& states) const
 {
     if (!m_ready || !m_styles_valid)
         return false;
 
     float const cb_data[4] = { static_cast<float>(thickness), 1.0f, 0.0f, 0.0f };
     return draw_fullscreen_triangle(context, target, mask_srv, width, height,
-        m_vertex_shader, m_pixel_shader, m_blend_premul_alpha, depth_none, cull_none,
+        m_vertex_shader, m_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
         m_cb, cb_data, sizeof(cb_data), m_style_srv);
 }
 

@@ -6,11 +6,8 @@
 
 #include "render/shader_sources.h"
 
+#include "render/dx11/common_states.h"
 #include "render/dx11/d3d11_util.h"
-
-#include <REX/W32/Bridge.h>
-
-#include <CommonStates.h>
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -133,7 +130,7 @@ void IconOverlay::release_pipeline()
     }
 }
 
-void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states)
+void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, CommonStates const& states)
 {
     if (!m_ready || m_vertices.empty())
         return;
@@ -163,12 +160,11 @@ void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11R
 
     static constexpr uint32_t s_stride = sizeof(IconVertex);
     static constexpr uint32_t s_offset = 0;
-    // CommonStates (DirectXTK) hands back SDK-typed state objects; they are ABI-identical to the
-    // REX mirrors, so bridge them instead of reinterpret-casting at each call site.
+    // CommonStates is the local REX::W32-typed mirror; its getters return the REX state pointers directly.
     context->OMSetRenderTargets(1, &target, nullptr);
-    context->OMSetBlendState(REX::W32::CastTo<REX::W32::ID3D11BlendState>(states.AlphaBlend()), nullptr, 0xFFFFFFFF);
-    context->OMSetDepthStencilState(REX::W32::CastTo<REX::W32::ID3D11DepthStencilState>(states.DepthNone()), 0);
-    context->RSSetState(REX::W32::CastTo<REX::W32::ID3D11RasterizerState>(states.CullNone()));
+    context->OMSetBlendState(states.alpha_blend(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(states.depth_none(), 0);
+    context->RSSetState(states.cull_none());
     REX::W32::D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, m_width, m_height, 0.0f, 1.0f };
     context->RSSetViewports(1, &viewport);
     context->IASetInputLayout(m_input_layout);

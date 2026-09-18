@@ -6,12 +6,9 @@
 
 #include "icon_geometry.h"
 
-namespace DirectX::inline DX11
-{
-    class CommonStates;
-}
-
 PLUGIN_NAMESPACE_BEGIN
+
+class CommonStates;
 
 class IconOverlay
 {
@@ -22,7 +19,7 @@ public:
     bool init(REX::W32::ID3D11Device* device);
     void begin_frame(float width, float height);
     void add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& color);
-    void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states);
+    void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, CommonStates const& states);
     void end_frame();
 private:
     bool create_pipeline(REX::W32::ID3D11Device* a_device);

@@ -6,6 +6,12 @@
 
 #include "mask_types.h"
 
+PLUGIN_NAMESPACE_BEGIN
+
+class CommonStates;
+
+PLUGIN_NAMESPACE_END
+
 MASK_NAMESPACE_BEGIN
 
 class RenderTarget
@@ -48,10 +54,7 @@ public:
     bool init(REX::W32::ID3D11Device* device);
     void release();
 
-    [[nodiscard]] REX::W32::ID3D11BlendState* mask_write_blend() const noexcept { return m_blend_mask_write; }
     [[nodiscard]] REX::W32::ID3D11DepthStencilState* depth_nearest() const noexcept { return m_depth_nearest; }
-    [[nodiscard]] REX::W32::ID3D11DepthStencilState* depth_none() const noexcept { return m_depth_disabled; }
-    [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_none() const noexcept { return m_rasterizer; }
 
     // On the first frame that has a draw, auto-calibrate the byte orientation of the CB upload
     // (direct upload is expected to hold as the ground truth; on failure the byte order is
@@ -103,10 +106,7 @@ private:
     REX::W32::ID3DBlob* m_vs_skinned_blob;
     REX::W32::ID3D11Buffer* m_per_draw_cb;  // b0: row_major float4x4 + uint object_id (80 bytes)
     REX::W32::ID3D11Buffer* m_palette_cb;   // b1: row_major float4x4[Max_Palette_Bones]
-    REX::W32::ID3D11BlendState* m_blend_mask_write;       // Integer IDs must never be blended.
-    REX::W32::ID3D11DepthStencilState* m_depth_nearest;
-    REX::W32::ID3D11DepthStencilState* m_depth_disabled;  // used for the independent outline mask and the full-screen composite
-    REX::W32::ID3D11RasterizerState* m_rasterizer;        // CullNone + depth clipping
+    REX::W32::ID3D11DepthStencilState* m_depth_nearest;  // Reverse-Z nearest-depth test; no CommonStates equivalent.
     bool m_ready;
     bool m_failed;  // after a creation failure there is no per-frame retry (avoids continuously leaking D3D objects)
 
@@ -135,7 +135,6 @@ protected:
     REX::W32::ID3D11VertexShader* m_vertex_shader;
     REX::W32::ID3D11PixelShader* m_pixel_shader;
 
-    REX::W32::ID3D11BlendState* m_blend_premul_alpha;
     REX::W32::ID3D11Buffer* m_cb;
 
     bool m_ready;
@@ -159,8 +158,7 @@ public:
         REX::W32::ID3D11ShaderResourceView* mask_srv,
         uint32_t width,
         uint32_t height,
-        REX::W32::ID3D11DepthStencilState* depth_none,
-        REX::W32::ID3D11RasterizerState* cull_none) const;
+        CommonStates const& states) const;
 };
 
 class OutlinePass final : public FullscreenPass
@@ -176,8 +174,7 @@ public:
         uint32_t width,
         uint32_t height,
         int thickness,
-        REX::W32::ID3D11DepthStencilState* depth_none,
-        REX::W32::ID3D11RasterizerState* cull_none) const;
+        CommonStates const& states) const;
 };
 
 MASK_NAMESPACE_END

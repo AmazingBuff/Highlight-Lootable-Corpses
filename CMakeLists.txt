@@ -141,7 +141,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/extern/SKSE-MCP)
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(simpleini CONFIG REQUIRED)
-find_package(directxtk CONFIG REQUIRED)
 
 target_link_libraries(
 	${PROJECT_NAME}
@@ -149,7 +148,6 @@ target_link_libraries(
 	spdlog::spdlog
 	fmt::fmt
 	SimpleIni::SimpleIni
-	Microsoft::DirectXTK
 	CommonLibSSE::CommonLibSSE
 	SKSE-MCP::SKSE-MCP
 	d3d11
