@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include "def.h"
-
 #include "Plugin.h"
 
 namespace RE

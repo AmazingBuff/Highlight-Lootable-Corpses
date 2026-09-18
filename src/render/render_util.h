@@ -46,27 +46,6 @@ private:
 };
 
 
-class Rect
-{
-public:
-    Rect() : m_left(0.0f), m_right(0.0f), m_bottom(0.0f), m_top(0.0f) {}
-
-    [[nodiscard]] float width() const noexcept { return m_right - m_left; }
-    [[nodiscard]] float height() const noexcept { return m_bottom - m_left; }
-
-    float& left() noexcept { return m_left; }
-    float& right() noexcept { return m_right; }
-    float& bottom() noexcept { return m_bottom; }
-    float& top() noexcept { return m_top; }
-
-    [[nodiscard]] float const& left() const noexcept { return m_left; }
-    [[nodiscard]] float const& right() const noexcept { return m_right; }
-    [[nodiscard]] float const& bottom() const noexcept { return m_bottom; }
-    [[nodiscard]] float const& top() const noexcept { return m_top; }
-private:
-    float m_left, m_right, m_bottom, m_top;
-};
-
 [[nodiscard]] bool project(RE::NiCamera* camera, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);
 
 [[nodiscard]] bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);

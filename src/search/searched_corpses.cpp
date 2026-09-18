@@ -4,6 +4,7 @@
 
 #include "searched_corpses.h"
 
+#include "base/def.h"
 #include "base/util.h"
 
 #include "Plugin.h"

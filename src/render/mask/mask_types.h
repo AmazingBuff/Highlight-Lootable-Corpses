@@ -9,10 +9,12 @@
 #include <RE/Skyrim.h>
 
 #include <DirectXMath.h>
-#include <d3d11.h>
+#include <dxgi.h>
 
 #include <cstddef>
 #include <cstdint>
+
+struct ID3D11Buffer;
 
 #define MASK_NAMESPACE_BEGIN PLUGIN_NAMESPACE_BEGIN namespace Mask {
 #define MASK_NAMESPACE_END PLUGIN_NAMESPACE_END }

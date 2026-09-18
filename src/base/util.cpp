@@ -6,8 +6,21 @@
 
 #include "Plugin.h"
 
+#include <cstdint>
+#include <string_view>
+
 namespace
 {
+    constexpr std::string_view Skyrim_Plugin = std::string_view{ "Skyrim.esm" };
+    constexpr std::string_view Dawnguard_Plugin = std::string_view{ "Dawnguard.esm" };
+    constexpr std::string_view Dragonborn_Plugin = std::string_view{ "Dragonborn.esm" };
+
+    struct LocalFromID
+    {
+        uint32_t local_id;
+        std::string_view plugin_name;
+    };
+
     std::vector<LocalFromID> const Ash_Piles =
     {
         { .local_id = 0x0000001B, .plugin_name = Skyrim_Plugin }, // DefaultAshPile1 = 0x1B

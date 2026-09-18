@@ -8,6 +8,7 @@
 
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
+#include <d3d11.h>
 
 #include <algorithm>
 #include <cmath>

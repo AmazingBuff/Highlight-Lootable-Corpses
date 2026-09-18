@@ -8,11 +8,8 @@
 
 #include "Plugin.h"
 
-#include <CommonStates.h>
-
 #include <DirectXMath.h>
 
-#include <memory>
 #include <vector>
 
 struct ID3D11Buffer;
@@ -22,6 +19,14 @@ struct ID3D11InputLayout;
 struct ID3D11PixelShader;
 struct ID3D11RenderTargetView;
 struct ID3D11VertexShader;
+
+namespace DirectX
+{
+    inline namespace DX11
+    {
+        class CommonStates;
+    }
+}
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -34,7 +39,7 @@ public:
     bool init(ID3D11Device* device);
     void begin_frame(float width, float height);
     void add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& color);
-    void draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, std::shared_ptr<DirectX::DX11::CommonStates> const& states);
+    void draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states);
     void end_frame();
 private:
     bool create_pipeline(ID3D11Device* a_device);

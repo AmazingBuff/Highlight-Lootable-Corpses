@@ -244,7 +244,7 @@ namespace
                             static_cast<float>(cfg.icon_radius), cfg.max_distance, w, h, Max_Corpse_Count);
                         for (IconMarker const& marker : std::views::reverse(markers))
                             m_icon_overlay.add_marker(marker, { color.r(), color.g(), color.b() });
-                        m_icon_overlay.draw(context, m_render_target, m_states);
+                        m_icon_overlay.draw(context, m_render_target, *m_states);
                         m_icon_overlay.end_frame();
                     }
                     else
@@ -271,7 +271,7 @@ namespace
             if (m_ready)
                 return true;
 
-            m_states = std::make_shared<DirectX::DX11::CommonStates>(device);
+            m_states = std::make_unique<DirectX::DX11::CommonStates>(device);
             if (!m_states || !m_icon_overlay.init(device))
                 return false;
 
@@ -355,7 +355,7 @@ namespace
         ID3D11Texture2D* m_back_buffer;
         ID3D11RenderTargetView* m_render_target;
 
-        std::shared_ptr<DirectX::DX11::CommonStates> m_states;
+        std::unique_ptr<DirectX::DX11::CommonStates> m_states;
         IconOverlay m_icon_overlay;
         IconLayout m_icon_layout;
 

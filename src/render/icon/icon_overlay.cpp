@@ -139,7 +139,7 @@ void IconOverlay::release_pipeline()
     }
 }
 
-void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, std::shared_ptr<DirectX::DX11::CommonStates> const& states)
+void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, DirectX::DX11::CommonStates const& states)
 {
     if (!m_ready || m_vertices.empty())
         return;
@@ -170,9 +170,9 @@ void IconOverlay::draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* tar
     static constexpr UINT s_stride = sizeof(IconVertex);
     static constexpr UINT s_offset = 0;
     context->OMSetRenderTargets(1, &target, nullptr);
-    context->OMSetBlendState(states->AlphaBlend(), nullptr, 0xFFFFFFFF);
-    context->OMSetDepthStencilState(states->DepthNone(), 0);
-    context->RSSetState(states->CullNone());
+    context->OMSetBlendState(states.AlphaBlend(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(states.DepthNone(), 0);
+    context->RSSetState(states.CullNone());
     D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, m_width, m_height, 0.0f, 1.0f };
     context->RSSetViewports(1, &viewport);
     context->IASetInputLayout(m_input_layout);
