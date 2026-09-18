@@ -4,11 +4,13 @@
 
 #pragma once
 
-#include "icon_geometry.h"
+#include "icon_types.h"
 
 PLUGIN_NAMESPACE_BEGIN
-
 class CommonStates;
+PLUGIN_NAMESPACE_END
+
+ICON_NAMESPACE_BEGIN
 
 class IconOverlay
 {
@@ -17,7 +19,7 @@ public:
     ~IconOverlay() = default;
 
     bool init(REX::W32::ID3D11Device* device);
-    void begin_frame(float width, float height);
+    void begin_frame(uint32_t width, uint32_t height);
     void add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& color);
     void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, CommonStates const& states);
     void end_frame();
@@ -31,10 +33,10 @@ private:
     REX::W32::ID3D11Buffer* m_vertex_buffer;
     bool m_ready;
 
-    float m_width;
-    float m_height;
+    uint32_t m_width;
+    uint32_t m_height;
 
     std::vector<IconVertex> m_vertices;
 };
 
-PLUGIN_NAMESPACE_END
+ICON_NAMESPACE_END

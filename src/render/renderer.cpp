@@ -8,8 +8,9 @@
 #include "render_util.h"
 
 #include "config/config.h"
+#include "icon/icon_layout.h"
 #include "icon/icon_overlay.h"
-#include "mask/outline_mask.h"
+#include "mask/mask_overlay.h"
 #include "render/dx11/common_states.h"
 #include "search/corpse_finder.h"
 #include "ui/pulse_timer.h"
@@ -57,15 +58,14 @@ namespace
         DirectX::XMFLOAT3 const& point, float width, float height, DirectX::XMFLOAT2& tip)
     {
         float px = 0.0f, py = 0.0f, depth = 0.0f;
-        if (project(camera, { point.x, point.y, point.z }, width, height, px, py, depth))
-            return icon_screen_tip(px, py, depth, width, height, tip);
+        if (project(camera, point, width, height, px, py, depth))
+            return Icon::icon_screen_tip(px, py, tip);
         if (!view_data)
             return false;
-        DirectX::SimpleMath::Matrix const& matrix = view_data->viewProjMatrixUnjittered._11 != 0.0f ?
-            view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
-        DirectX::XMFLOAT4 clip;
+        Matrix const& matrix = view_data->viewProjMatrixUnjittered._11 != 0.0f ? view_data->viewProjMatrixUnjittered : view_data->viewProjMat;
+        DirectX::XMFLOAT4 clip{};
         DirectX::XMStoreFloat4(&clip, DirectX::XMVector4Transform(DirectX::XMVectorSet(point.x, point.y, point.z, 1.0f), matrix));
-        return icon_clip_tip(clip, width, height, tip);
+        return Icon::icon_clip_tip(clip, width, height, tip);
     }
 
     class OverlayDirector
@@ -86,19 +86,13 @@ namespace
 
             RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
             if (!renderer)
-            {
-                m_icon_layout.reset();
                 return;
-            }
 
             RE::BSGraphics::RendererData& rt = renderer->GetRuntimeData();
             REX::W32::ID3D11Device* device = rt.forwarder;
             REX::W32::ID3D11DeviceContext* context = rt.context;
             if (!device || !context)
-            {
-                m_icon_layout.reset();
                 return;
-            }
 
             RE::BSGraphics::State* bs_state = RE::BSGraphics::State::GetSingleton();
             uint32_t const frame = bs_state ? bs_state->GetFrameCount() : 0;
@@ -139,47 +133,32 @@ namespace
         void draw(REX::W32::IDXGISwapChain* swap_chain, REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context)
         {
             if (!init(swap_chain, device) || !update_back_buffer(swap_chain, device))
-            {
-                m_icon_layout.reset();
                 return;
-            }
 
             REX::W32::D3D11_TEXTURE2D_DESC desc{};
             m_back_buffer->GetDesc(&desc);
 
-            float w = static_cast<float>(desc.width);
-            float h = static_cast<float>(desc.height);
-            if (w <= 0.0f || h <= 0.0f)
+            uint32_t w = desc.width;
+            uint32_t h = desc.height;
+            if (w <= 0 || h <= 0)
             {
                 RE::BSGraphics::ScreenSize const screen = RE::BSGraphics::Renderer::GetScreenSize();
-                w = static_cast<float>(screen.width);
-                h = static_cast<float>(screen.height);
+                w = screen.width;
+                h = screen.height;
             }
-            if (w <= 0.0f || h <= 0.0f)
-            {
-                m_icon_layout.reset();
+            if (w <= 0 || h <= 0)
                 return;
-            }
 
             Config const& cfg = Setting::instance().get_config();
-
-            if (!cfg.enabled || cfg.display_mode != Config::DisplayMode::e_icon)
-                m_icon_layout.reset();
-
             bool const pulse_mode = cfg.hotkey_mode == Config::HotkeyMode::e_pulse;
             bool const pulse_active = pulse_mode && cfg.enabled && PulseTimer::instance().active();
             if (pulse_mode && !pulse_active)
-            {
-                m_icon_layout.reset();
                 return;
-            }
 
             if (pulse_active || cfg.enabled)
             {
                 std::vector<CorpseScan::CorpseInfo> corpses = CorpseScan::instance().snapshot();
                 float const pulse = pulse_active ? pulse_alpha(PulseTimer::instance().progress()) : 1.0f;
-                if (pulse <= 0.0f || corpses.empty())
-                    m_icon_layout.reset();
                 if (pulse > 0.f && !corpses.empty())
                 {
                     RE::NiCamera* camera = RE::Main::WorldRootCamera();
@@ -210,44 +189,47 @@ namespace
                     if (cfg.display_mode == Config::DisplayMode::e_icon)
                     {
                         m_icon_overlay.begin_frame(w, h);
-                        std::vector<IconCandidate> candidates;
+
+                        std::vector<Icon::IconCandidate> candidates;
                         candidates.reserve(corpses.size());
                         for (CorpseScan::CorpseInfo const& corpse : corpses)
                         {
-                            DirectX::XMFLOAT3 const anchor{ corpse.anchor.x, corpse.anchor.y, corpse.anchor.z };
-                            DirectX::XMFLOAT3 const top = icon_anchor(anchor,
-                                { corpse.bound_min.x, corpse.bound_min.y, corpse.bound_min.z },
-                                { corpse.bound_max.x, corpse.bound_max.y, corpse.bound_max.z });
-                            if (!std::isfinite(top.x) || !std::isfinite(top.y) || !std::isfinite(top.z))
-                                continue;
+                            DirectX::XMFLOAT3 const top = Icon::icon_anchor(render_cast(corpse.bound_min), render_cast(corpse.bound_max));
                             DirectX::XMFLOAT2 tip{};
-                            if (!project_icon_tip(camera, view_data, top, w, h, tip))
+                            if (!project_icon_tip(camera, view_data, top, static_cast<float>(w), static_cast<float>(h), tip))
                                 continue;
 
                             float const alpha = pulse * corpse_alpha(cfg, corpse.distance, color.a());
-                            candidates.push_back({ corpse.form_id, anchor, tip, corpse.distance, alpha });
+                            candidates.emplace_back(corpse.form_id, render_cast(corpse.anchor), tip, corpse.distance, alpha);
                         }
-                        std::vector<IconMarker> const markers = m_icon_layout.update(candidates,
-                            static_cast<float>(cfg.icon_radius), cfg.max_distance, w, h, Max_Corpse_Count);
-                        for (IconMarker const& marker : std::views::reverse(markers))
+                        std::vector<Icon::IconMarker> const markers = Icon::icon_marker(candidates, static_cast<float>(cfg.icon_radius), cfg.max_distance, Max_Corpse_Count);
+                        for (Icon::IconMarker const& marker : std::views::reverse(markers))
                             m_icon_overlay.add_marker(marker, { color.r(), color.g(), color.b() });
+
                         m_icon_overlay.draw(context, m_render_target, *m_states);
                         m_icon_overlay.end_frame();
                     }
                     else
                     {
-                        std::vector<OutlineMaskTarget> mask_targets;
+                        if (!m_mask_overlay.begin_frame(device, w, h))
+                        {
+                            m_mask_overlay.end_frame();
+                            return;
+                        }
+
+                        std::vector<Mask::MaskTarget> mask_targets;
                         mask_targets.reserve(corpses.size());
                         for (CorpseScan::CorpseInfo const& corpse : corpses)
                         {
                             if (RE::TESForm* form = RE::TESForm::LookupByID(corpse.form_id))
                             {
                                 if (RE::TESObjectREFR* ref = form->AsReference())
-                                    mask_targets.emplace_back(ref, DirectX::XMFLOAT4{ color.r(), color.g(), color.b(), pulse * corpse_alpha(cfg, corpse.distance, color.a())});
+                                    mask_targets.emplace_back(RE::NiPointer<RE::TESObjectREFR>(ref), DirectX::XMFLOAT4{ color.r(), color.g(), color.b(), pulse * corpse_alpha(cfg, corpse.distance, color.a())});
                             }
                         }
-                        OutlineMask::instance().set_targets(mask_targets);
-                        OutlineMask::instance().render(device, context, camera, m_render_target, desc.width, desc.height, *m_states);
+
+                        m_mask_overlay.draw(device, context, camera, m_render_target, desc.width, desc.height, mask_targets, *m_states);
+                        m_mask_overlay.end_frame();
                     }
                 }
             }
@@ -260,7 +242,7 @@ namespace
 
             // CommonStates is the local REX::W32-typed mirror; it takes the REX device pointer directly.
             m_states = std::make_unique<CommonStates>(device);
-            if (!m_states || !m_states->valid() || !m_icon_overlay.init(device))
+            if (!m_states || !m_states->valid() || !m_icon_overlay.init(device) || !m_mask_overlay.init(device))
                 return false;
 
             // The REX mirror's GetBuffer takes the REX IID constant directly (same GUID value as __uuidof).
@@ -345,8 +327,8 @@ namespace
         REX::W32::ID3D11RenderTargetView* m_render_target;
 
         std::unique_ptr<CommonStates> m_states;
-        IconOverlay m_icon_overlay;
-        IconLayout m_icon_layout;
+        Icon::IconOverlay m_icon_overlay;
+        Mask::MaskOverlay m_mask_overlay;
 
         bool m_ready;
     };

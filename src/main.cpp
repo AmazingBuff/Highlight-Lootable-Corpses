@@ -33,6 +33,7 @@ namespace
         {
         case SKSE::MessagingInterface::kDataLoaded:
             (void)PLUGIN_NAMESPACE::QuickLootCompat::install();
+            break;
         case SKSE::MessagingInterface::kPostLoadGame:
             PLUGIN_NAMESPACE::Renderer::install();
             PLUGIN_NAMESPACE::InputManager::install();

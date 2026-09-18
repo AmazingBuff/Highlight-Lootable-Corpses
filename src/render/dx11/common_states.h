@@ -36,6 +36,7 @@ public:
     [[nodiscard]] REX::W32::ID3D11DepthStencilState* depth_none() const;
 
     [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_none() const;
+    [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_none_scissor() const;
     [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_clockwise() const;
     [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_counter_clockwise() const;
     [[nodiscard]] REX::W32::ID3D11RasterizerState* wireframe() const;
@@ -58,6 +59,7 @@ private:
     REX::W32::ID3D11DepthStencilState* m_depth_none;
 
     REX::W32::ID3D11RasterizerState* m_cull_none;
+    REX::W32::ID3D11RasterizerState* m_cull_none_scissor;
     REX::W32::ID3D11RasterizerState* m_cull_clockwise;
     REX::W32::ID3D11RasterizerState* m_cull_counter_clockwise;
     REX::W32::ID3D11RasterizerState* m_wireframe;

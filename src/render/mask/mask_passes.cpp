@@ -20,22 +20,32 @@ MASK_NAMESPACE_BEGIN
 // not acceptable, so the cache deduplicates (corpse meshes come in very few layout varieties).
 // ---------------------------------------------------------------------------
 REX::W32::ID3D11InputLayout* MaskGeometryPass::get_layout(
-    REX::W32::ID3D11Device* device, REX::W32::ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
-    REX::W32::DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout)
+    REX::W32::ID3D11Device* device,
+    REX::W32::ID3DBlob* blob,
+    bool skinned,
+    RE::BSGraphics::VertexDesc const& desc,
+    uint32_t stride,
+    REX::W32::DXGI_FORMAT position_format,
+    uint32_t position_offset,
+    MaskSkinLayout const* skin_layout)
 {
     // Position format/offset: the static path passes a calibration result (UNKNOWN means derive
     // from desc); the skinned path passes an attribute-offset spacing result (never UNKNOWN).
-    REX::W32::DXGI_FORMAT const resolved_format = (position_format == REX::W32::DXGI_FORMAT_UNKNOWN)
-                                            ? (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? REX::W32::DXGI_FORMAT_R32G32B32_FLOAT : REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT)
-                                            : position_format;
-    uint32_t const resolved_offset = (position_format == REX::W32::DXGI_FORMAT_UNKNOWN)
-                                              ? desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION)
-                                              : position_offset;
+    REX::W32::DXGI_FORMAT const resolved_format =
+        (position_format == REX::W32::DXGI_FORMAT_UNKNOWN) ?
+        (desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ?
+        REX::W32::DXGI_FORMAT_R32G32B32_FLOAT :
+        REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT) :
+        position_format;
+    uint32_t const resolved_offset =
+        (position_format == REX::W32::DXGI_FORMAT_UNKNOWN) ?
+        desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_POSITION) :
+        position_offset;
     // The skinning weight/index layout comes from a calibration result; the static path has none (nullptr).
     MaskSkinLayout const skin_layout_ref = skin_layout ? *skin_layout : MaskSkinLayout{};
-    LayoutKey const key{
+    LayoutKey key{
         .skinned = skinned,
-        .full_prec = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC),
+        .full_precision = desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC),
         .position_format = static_cast<uint32_t>(resolved_format),
         .position_offset = resolved_offset,
         .skinning_offset = desc.GetAttributeOffset(RE::BSGraphics::Vertex::VA_SKINNING),
@@ -46,11 +56,9 @@ REX::W32::ID3D11InputLayout* MaskGeometryPass::get_layout(
         .index_offset = skin_layout_ref.index_offset,
     };
 
-    for (auto const& [cached, layout] : m_layout_cache)
-    {
-        if (cached == key)
-            return layout;
-    }
+    const auto layout_it = m_layout_cache.find(key);
+    if (layout_it != m_layout_cache.end())
+        return layout_it->second;
 
     REX::W32::D3D11_INPUT_ELEMENT_DESC elements[3]{};
     uint32_t count = 0;
@@ -92,15 +100,10 @@ REX::W32::ID3D11InputLayout* MaskGeometryPass::get_layout(
     REX::W32::HRESULT const hr = device->CreateInputLayout(elements, count, blob->GetBufferPointer(), blob->GetBufferSize(), &layout);
     if (!REX::W32::SUCCESS(hr) || !layout)
     {
-        static bool s_layout_failure_reported = false;
-        if (!s_layout_failure_reported)
-        {
-            s_layout_failure_reported = true;
-            logger::error("outline mask: CreateInputLayout failed ({:X}), affected meshes skipped", static_cast<unsigned int>(hr));
-        }
+        logger::error("Mask overlay: CreateInputLayout failed ({:X}), affected meshes skipped", static_cast<unsigned int>(hr));
         return nullptr;
     }
-    m_layout_cache.emplace_back(key, layout);
+    m_layout_cache.emplace(key, layout);
     return layout;
 }
 
@@ -276,7 +279,7 @@ bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t
     REX::W32::HRESULT const tex_hr = device->CreateTexture2D(&td, nullptr, &m_texture);
     if (!REX::W32::SUCCESS(tex_hr) || !m_texture)
     {
-        logger::error("Outline mask: failed to create mask texture ({:X})", static_cast<unsigned int>(tex_hr));
+        logger::error("Mask overlay: failed to create mask texture ({:X})", static_cast<unsigned int>(tex_hr));
         release();
         return false;
     }
@@ -284,7 +287,7 @@ bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t
     REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
     if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
     {
-        logger::error("Outline mask: failed to create mask views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
+        logger::error("Mask overlay: failed to create mask views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
         release();
         return false;
     }
@@ -294,7 +297,7 @@ bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t
     REX::W32::HRESULT const depth_hr = device->CreateTexture2D(&td, nullptr, &m_depth_texture);
     if (!REX::W32::SUCCESS(depth_hr) || !REX::W32::SUCCESS(device->CreateDepthStencilView(m_depth_texture, nullptr, &m_dsv)))
     {
-        logger::error("Outline mask: failed to create private depth target");
+        logger::error("Mask overlay: failed to create private depth target");
         release();
         return false;
     }
@@ -366,7 +369,7 @@ bool GlowScratch::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t 
     REX::W32::HRESULT const texture_hr = device->CreateTexture2D(&desc, nullptr, &m_texture);
     if (!REX::W32::SUCCESS(texture_hr) || !m_texture)
     {
-        logger::error("Outline glow: failed to create R16G16_FLOAT scratch ({:X})", static_cast<unsigned int>(texture_hr));
+        logger::error("Mask glow: failed to create R16G16_FLOAT scratch ({:X})", static_cast<unsigned int>(texture_hr));
         release();
         return false;
     }
@@ -374,7 +377,7 @@ bool GlowScratch::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t 
     REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
     if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
     {
-        logger::error("Outline glow: failed to create scratch views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
+        logger::error("Mask glow: failed to create scratch views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
         release();
         return false;
     }
@@ -397,8 +400,6 @@ MaskGeometryPass::MaskGeometryPass() :
     m_per_draw_cb(nullptr),
     m_palette_cb(nullptr),
     m_depth_nearest(nullptr),
-    m_ready(false),
-    m_failed(false),
     m_upload_transposed(false) {}
 
 MaskGeometryPass::~MaskGeometryPass()
@@ -408,17 +409,13 @@ MaskGeometryPass::~MaskGeometryPass()
 
 bool MaskGeometryPass::init(REX::W32::ID3D11Device* device)
 {
-    if (m_ready || m_failed)
-        return m_ready;
-
-    m_ready = create_pipeline(device);
-    if (!m_ready)
+    const bool ready = create_pipeline(device);
+    if (!ready)
     {
         release();
-        m_failed = true;
-        logger::error("outline mask pipeline creation failed, mask rendering disabled");
+        logger::error("Mask overlay pipeline creation failed, mask rendering disabled");
     }
-    return m_ready;
+    return ready;
 }
 
 bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
@@ -459,13 +456,12 @@ bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
     if (!ready)
         return false;
 
-    logger::info("outline mask pipeline ready (palette {} bones/draw)", Max_Palette_Bones);
+    logger::info("Mask overlay pipeline ready (palette {} bones/draw)", Max_Palette_Bones);
     return true;
 }
 
 void MaskGeometryPass::release()
 {
-    m_failed = false;
     if (m_depth_nearest)
     {
         m_depth_nearest->Release();
@@ -507,7 +503,6 @@ void MaskGeometryPass::release()
         m_vs_static = nullptr;
     }
     release_layouts();
-    m_ready = false;
 }
 
 void MaskGeometryPass::calibrate_upload_orientation(
@@ -518,7 +513,6 @@ void MaskGeometryPass::calibrate_upload_orientation(
     if (s_checked || draws.empty() || !draws.front().node)
         return;
 
-    RE::NiPoint3 const anchor = draws.front().node->world.translate;
     RE::NiTransform const& model_transform = draws.front().node->world;
     DirectX::XMFLOAT4X4 model{};
     DirectX::XMStoreFloat4x4(&model, DirectX::XMMatrixIdentity());
@@ -536,7 +530,9 @@ void MaskGeometryPass::calibrate_upload_orientation(
     float eng_px = 0.0f;
     float eng_py = 0.0f;
     float eng_depth = 0.0f;
-    bool const engine_ok = project(camera, anchor, static_cast<float>(width), static_cast<float>(height), eng_px, eng_py, eng_depth);
+
+    RE::NiPoint3 const anchor = draws.front().node->world.translate;
+    bool const engine_ok = project(camera, render_cast(anchor), static_cast<float>(width), static_cast<float>(height), eng_px, eng_py, eng_depth);
 
     // Direct upload: the clip coordinate of the local origin (0,0,0,1) = column 4 of mvp; transposed upload: = row 3 of mvp
     float const cw = mvp.m[3][3];
@@ -555,7 +551,7 @@ void MaskGeometryPass::calibrate_upload_orientation(
         float const composed_px = m_upload_transposed ? px_t : px_d;
         float const composed_py = m_upload_transposed ? py_t : py_d;
         logger::info(
-            "outline mask: ground-truth delta direct=({:.4f},{:.4f})px transposed-upload=({:.4f},{:.4f})px "
+            "Mask overlay: ground-truth delta direct=({:.4f},{:.4f})px transposed-upload=({:.4f},{:.4f})px "
             "-> upload {} anchor engine=({:.2f},{:.2f}) composed=({:.2f},{:.2f})",
             px_d - eng_px, py_d - eng_py, px_t - eng_px, py_t - eng_py,
             m_upload_transposed ? "transposed" : "direct",
@@ -712,12 +708,9 @@ FullscreenPass::FullscreenPass() :
     m_vertex_shader(nullptr),
     m_pixel_shader(nullptr),
     m_cb(nullptr),
-    m_ready(false),
-    m_failed(false),
     m_style_buffer(nullptr),
     m_style_srv(nullptr),
-    m_style_capacity(0),
-    m_styles_valid(false) {}
+    m_style_capacity(0) {}
 
 FullscreenPass::~FullscreenPass()
 {
@@ -726,9 +719,6 @@ FullscreenPass::~FullscreenPass()
 
 bool FullscreenPass::init(REX::W32::ID3D11Device* device)
 {
-    if (m_ready)
-        return true;
-
     REX::W32::ID3DBlob* vs_blob = compile_shader(render_shaders::MaskComposite, "vs_main", "vs_5_0", "outline mask fullscreen", "outline mask");
     if (vs_blob)
     {
@@ -737,15 +727,11 @@ bool FullscreenPass::init(REX::W32::ID3D11Device* device)
     }
 
     // The premultiplied-alpha blend state comes from the shared CommonStates (alpha_blend) at draw time.
-    m_ready = m_vertex_shader != nullptr;
-    return m_ready;
+    return m_vertex_shader != nullptr;
 }
 
 void FullscreenPass::release()
 {
-    m_ready = false;
-    m_failed = false;
-    m_styles_valid = false;
     m_style_capacity = 0;
     if (m_style_srv)
     {
@@ -766,9 +752,6 @@ void FullscreenPass::release()
 
 bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, std::span<MaskTarget const> targets)
 {
-    m_styles_valid = false;
-    if (targets.empty() || targets.size() > UINT_MAX / sizeof(DirectX::XMFLOAT4))
-        return false;
     if (targets.size() > m_style_capacity)
     {
         if (m_style_srv)
@@ -793,14 +776,16 @@ bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3
             return false;
         m_style_capacity = targets.size();
     }
+
     std::vector<DirectX::XMFLOAT4> styles;
     styles.reserve(targets.size());
-    for (MaskTarget const& target : targets)
-        styles.push_back(target.color);
+    for (const auto& [ref, color] : targets)
+        styles.push_back(color);
+
     REX::W32::D3D11_BOX const box{ 0, 0, 0, static_cast<uint32_t>(styles.size() * sizeof(DirectX::XMFLOAT4)), 1, 1 };
     context->UpdateSubresource(m_style_buffer, 0, &box, styles.data(), 0, 0);
-    m_styles_valid = REX::W32::SUCCESS(device->GetDeviceRemovedReason());
-    return m_styles_valid;
+
+    return REX::W32::SUCCESS(device->GetDeviceRemovedReason());
 }
 
 SilhouettePass::~SilhouettePass()
@@ -810,14 +795,8 @@ SilhouettePass::~SilhouettePass()
 
 bool SilhouettePass::init(REX::W32::ID3D11Device* device)
 {
-    if (m_ready || m_failed)
-        return m_ready;
-
     if (!FullscreenPass::init(device))
-    {
-        m_failed = true;
         return false;
-    }
 
     REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_silhouette_main", "ps_5_0", "outline mask silhouette", "outline mask");
     if (ps_blob)
@@ -834,13 +813,13 @@ bool SilhouettePass::init(REX::W32::ID3D11Device* device)
     ccb.byteWidth = 16;
     device->CreateBuffer(&ccb, nullptr, &m_cb);
 
-    m_ready = m_pixel_shader && m_cb;
-    if (!m_ready)
+    const bool ready = m_pixel_shader && m_cb;
+    if (!ready)
     {
-        m_failed = true;
-        logger::warn("outline mask silhouette pass unavailable, inner fill disabled (mask rendering stays active)");
+        release();
+        logger::warn("Mask overlay silhouette pass unavailable, inner fill disabled (mask rendering stays active)");
     }
-    return m_ready;
+    return ready;
 }
 
 void SilhouettePass::release()
@@ -855,7 +834,6 @@ void SilhouettePass::release()
         m_pixel_shader->Release();
         m_pixel_shader = nullptr;
     }
-    FullscreenPass::release();
 }
 
 bool SilhouettePass::draw(
@@ -866,19 +844,13 @@ bool SilhouettePass::draw(
     uint32_t height,
     CommonStates const& states) const
 {
-    if (!m_ready || !m_styles_valid)
-        return false;
-
     float const cb_data[4] = { 0.0f, Silhouette_Fill_Alpha, 0.0f, 0.0f };
     return draw_fullscreen_triangle(context, target, mask_srv, width, height,
         m_vertex_shader, m_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
         m_cb, cb_data, sizeof(cb_data), m_style_srv);
 }
 
-OutlinePass::OutlinePass() :
-    m_scratch(),
-    m_horizontal_shader(nullptr),
-    m_cull_none_scissor(nullptr) {}
+OutlinePass::OutlinePass() : m_horizontal_shader(nullptr) {}
 
 OutlinePass::~OutlinePass()
 {
@@ -887,13 +859,8 @@ OutlinePass::~OutlinePass()
 
 bool OutlinePass::init(REX::W32::ID3D11Device* device)
 {
-    if (m_ready || m_failed)
-        return m_ready;
-    if (!device || !FullscreenPass::init(device))
-    {
-        m_failed = true;
+    if (!FullscreenPass::init(device))
         return false;
-    }
 
     REX::W32::ID3DBlob* horizontal_blob = compile_shader(render_shaders::MaskGlow, "ps_glow_horizontal", "ps_5_0", "outline glow horizontal", "outline glow");
     if (horizontal_blob)
@@ -915,22 +882,13 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
     glow_cb.byteWidth = sizeof(GlowCBData);
     device->CreateBuffer(&glow_cb, nullptr, &m_cb);
 
-    REX::W32::D3D11_RASTERIZER_DESC scissor_desc{};
-    scissor_desc.cullMode = REX::W32::D3D11_CULL_NONE;
-    scissor_desc.fillMode = REX::W32::D3D11_FILL_SOLID;
-    scissor_desc.depthClipEnable = true;
-    scissor_desc.scissorEnable = true;
-    scissor_desc.multisampleEnable = true;
-    device->CreateRasterizerState(&scissor_desc, &m_cull_none_scissor);
-
-    m_ready = m_horizontal_shader && m_pixel_shader && m_cb && m_cull_none_scissor;
-    if (!m_ready)
+    const bool ready = m_horizontal_shader && m_pixel_shader && m_cb;
+    if (!ready)
     {
         release();
-        m_failed = true;
-        logger::warn("outline glow pass unavailable, corpse outline glow disabled (mask rendering stays active)");
+        logger::warn("Mask glow pass unavailable, corpse outline glow disabled (mask rendering stays active)");
     }
-    return m_ready;
+    return ready;
 }
 
 void OutlinePass::release()
@@ -951,12 +909,6 @@ void OutlinePass::release()
         m_pixel_shader->Release();
         m_pixel_shader = nullptr;
     }
-    if (m_cull_none_scissor)
-    {
-        m_cull_none_scissor->Release();
-        m_cull_none_scissor = nullptr;
-    }
-    FullscreenPass::release();
 }
 
 bool OutlinePass::draw(
@@ -972,15 +924,6 @@ bool OutlinePass::draw(
     ROI::Rect vertical_rect,
     CommonStates const& states)
 {
-    if (!device || !context || !target || !mask_srv || !m_ready || !m_styles_valid || !m_style_srv ||
-        !states.opaque() || !states.alpha_blend() || !states.depth_none() || !states.cull_none() || !m_cull_none_scissor ||
-        object_id == 0 || width == 0 || height == 0 || horizontal_rect.left < 0 || horizontal_rect.top < 0 ||
-        horizontal_rect.right > static_cast<int32_t>(width) || horizontal_rect.bottom > static_cast<int32_t>(height) ||
-        horizontal_rect.right <= horizontal_rect.left || horizontal_rect.bottom <= horizontal_rect.top ||
-        vertical_rect.left < 0 || vertical_rect.top < 0 || vertical_rect.right > static_cast<int32_t>(width) ||
-        vertical_rect.bottom > static_cast<int32_t>(height) || vertical_rect.right <= vertical_rect.left || vertical_rect.bottom <= vertical_rect.top)
-        return false;
-
     Glow::KernelProfile const profile = Glow::make_kernel_profile(thickness);
     GlowCBData cb_data{};
     std::memcpy(cb_data.narrow, profile.narrow.data(), sizeof(profile.narrow));
@@ -1042,7 +985,7 @@ bool OutlinePass::draw(
     context->OMSetRenderTargets(1, &scratch_rtv, nullptr);
     context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(states.depth_none(), 0);
-    context->RSSetState(m_cull_none_scissor);
+    context->RSSetState(states.cull_none_scissor());
     REX::W32::D3D11_RECT const horizontal_scissor{
         horizontal_rect.left, horizontal_rect.top, horizontal_rect.right, horizontal_rect.bottom };
     context->RSSetScissorRects(1, &horizontal_scissor);
@@ -1054,7 +997,7 @@ bool OutlinePass::draw(
     context->PSSetShaderResources(0, 3, empty_srvs);
     context->OMSetRenderTargets(1, &target, nullptr);
     context->OMSetBlendState(states.alpha_blend(), nullptr, 0xFFFFFFFF);
-    context->RSSetState(m_cull_none_scissor);
+    context->RSSetState(states.cull_none_scissor());
     REX::W32::D3D11_RECT const vertical_scissor{
         vertical_rect.left, vertical_rect.top, vertical_rect.right, vertical_rect.bottom };
     context->RSSetScissorRects(1, &vertical_scissor);

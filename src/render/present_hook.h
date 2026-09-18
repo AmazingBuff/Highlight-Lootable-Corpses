@@ -14,23 +14,22 @@ PLUGIN_NAMESPACE_BEGIN
 class PresentHook
 {
 public:
-    using Callback = void (__stdcall*)(REX::W32::IDXGISwapChain* a_swap_chain);
+    using Callback = void (*)(REX::W32::IDXGISwapChain* swap_chain);
 
     static PresentHook& instance();
 
     // Idempotent install; returns false with a WARN while the swap chain is not ready yet (the caller retries on a later game message).
-    bool install(Callback a_on_present);
+    bool install(Callback on_present);
 private:
     PresentHook();
     ~PresentHook();
 
-    using PresentFunc = REX::W32::HRESULT(__stdcall*)(REX::W32::IDXGISwapChain*, uint32_t, uint32_t);
+    using PresentFunc = REX::W32::HRESULT(*)(REX::W32::IDXGISwapChain*, uint32_t, uint32_t);
 
-    static REX::W32::HRESULT __stdcall present_thunk(REX::W32::IDXGISwapChain* a_swap_chain, uint32_t a_sync_interval, uint32_t a_flags);
+    static REX::W32::HRESULT present_thunk(REX::W32::IDXGISwapChain* swap_chain, uint32_t sync_interval, uint32_t flags);
 private:
     PresentFunc m_ref_original_present;
     Callback m_callback;
-    bool m_installed;
 };
 
 PLUGIN_NAMESPACE_END

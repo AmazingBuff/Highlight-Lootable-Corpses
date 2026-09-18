@@ -7,12 +7,6 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-CorpseScan& CorpseScan::instance()
-{
-    static CorpseScan s_instance;
-    return s_instance;
-}
-
 namespace
 {
     // ---------------------------------------------------------------------------
@@ -38,13 +32,13 @@ namespace
     //   the geometry nodes only.
     // ---------------------------------------------------------------------------
 
-    [[nodiscard]] float hk_x(RE::hkVector4 const& a_v) { return a_v.quad.m128_f32[0]; }
-    [[nodiscard]] float hk_y(RE::hkVector4 const& a_v) { return a_v.quad.m128_f32[1]; }
-    [[nodiscard]] float hk_z(RE::hkVector4 const& a_v) { return a_v.quad.m128_f32[2]; }
+    [[nodiscard]] float hk_x(RE::hkVector4 const& v) { return v.quad.m128_f32[0]; }
+    [[nodiscard]] float hk_y(RE::hkVector4 const& v) { return v.quad.m128_f32[1]; }
+    [[nodiscard]] float hk_z(RE::hkVector4 const& v) { return v.quad.m128_f32[2]; }
 
-    [[nodiscard]] RE::NiPoint3 hk_to_ni(RE::hkVector4 const& a_v)
+    [[nodiscard]] RE::NiPoint3 hk_to_ni(RE::hkVector4 const& v)
     {
-        return { hk_x(a_v), hk_y(a_v), hk_z(a_v) };
+        return { hk_x(v), hk_y(v), hk_z(v) };
     }
 
     // Havok world scale inverse: metres → game units (engine global, the same address as Precision)
@@ -56,11 +50,11 @@ namespace
     }
 
     // Havok world transform (hkTransform, metres) → NiTransform (game units)
-    [[nodiscard]] RE::NiTransform hk_transform_to_ni(RE::hkTransform const& a_t)
+    [[nodiscard]] RE::NiTransform hk_transform_to_ni(RE::hkTransform const& t)
     {
         RE::NiTransform out;
         out.scale = 1.0f;
-        RE::hkRotation const& r = a_t.rotation;
+        RE::hkRotation const& r = t.rotation;
         out.rotate.entry[0][0] = hk_x(r.col0);
         out.rotate.entry[0][1] = hk_x(r.col1);
         out.rotate.entry[0][2] = hk_x(r.col2);
@@ -71,32 +65,32 @@ namespace
         out.rotate.entry[2][1] = hk_z(r.col1);
         out.rotate.entry[2][2] = hk_z(r.col2);
         float const s = world_scale_inverse();
-        out.translate = { hk_x(a_t.translation) * s, hk_y(a_t.translation) * s, hk_z(a_t.translation) * s };
+        out.translate = { hk_x(t.translation) * s, hk_y(t.translation) * s, hk_z(t.translation) * s };
         return out;
     }
 
-    void expand_aabb(RE::NiPoint3& a_min, RE::NiPoint3& a_max, RE::NiPoint3 const& a_p)
+    void expand_aabb(RE::NiPoint3& min, RE::NiPoint3& max, RE::NiPoint3 const& p)
     {
-        a_min.x = std::min(a_min.x, a_p.x);
-        a_min.y = std::min(a_min.y, a_p.y);
-        a_min.z = std::min(a_min.z, a_p.z);
-        a_max.x = std::max(a_max.x, a_p.x);
-        a_max.y = std::max(a_max.y, a_p.y);
-        a_max.z = std::max(a_max.z, a_p.z);
+        min.x = std::min(min.x, p.x);
+        min.y = std::min(min.y, p.y);
+        min.z = std::min(min.z, p.z);
+        max.x = std::max(max.x, p.x);
+        max.y = std::max(max.y, p.y);
+        max.z = std::max(max.z, p.z);
     }
 
     // World AABB of a single Havok rigid body (GetAabbWorldspace, havok metres → game units)
-    [[nodiscard]] bool rigid_body_aabb(RE::bhkRigidBody* a_body, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    [[nodiscard]] bool rigid_body_aabb(RE::bhkRigidBody* body, RE::NiPoint3& min, RE::NiPoint3& max)
     {
-        if (!a_body)
+        if (!body)
             return false;
 
         RE::hkAabb aabb;
-        a_body->GetAabbWorldspace(aabb);
+        body->GetAabbWorldspace(aabb);
         float const s = world_scale_inverse();
-        a_min = { hk_x(aabb.min) * s, hk_y(aabb.min) * s, hk_z(aabb.min) * s };
-        a_max = { hk_x(aabb.max) * s, hk_y(aabb.max) * s, hk_z(aabb.max) * s };
-        return a_min.x <= a_max.x && a_min.y <= a_max.y && a_min.z <= a_max.z;
+        min = { hk_x(aabb.min) * s, hk_y(aabb.min) * s, hk_z(aabb.min) * s };
+        max = { hk_x(aabb.max) * s, hk_y(aabb.max) * s, hk_z(aabb.max) * s };
+        return min.x <= max.x && min.y <= max.y && min.z <= max.z;
     }
 
     // AABB of a single rigid body (world coordinates, game units)
@@ -106,9 +100,9 @@ namespace
         RE::NiPoint3 max;
     };
 
-    [[nodiscard]] float body_box_volume(BodyBox const& a_box)
+    [[nodiscard]] float body_box_volume(BodyBox const& box)
     {
-        RE::NiPoint3 const e = a_box.max - a_box.min;
+        RE::NiPoint3 const e = box.max - box.min;
         return e.x * e.y * e.z;
     }
 
@@ -122,41 +116,41 @@ namespace
     // AABB union. On an intact corpse every part is adjacent → the result equals the full union;
     // after dismemberment (a skeleton falling apart / a part being blasted off) only the mass that
     // holds the largest part is kept and the scattered parts do not enter the bounding box.
-    [[nodiscard]] bool largest_cluster_bounds(std::vector<BodyBox> const& a_boxes, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    [[nodiscard]] bool largest_cluster_bounds(std::vector<BodyBox> const& boxes, RE::NiPoint3& min, RE::NiPoint3& max)
     {
-        if (a_boxes.empty())
+        if (boxes.empty())
             return false;
 
         size_t seed = 0;
-        for (size_t i = 1; i < a_boxes.size(); ++i)
+        for (size_t i = 1; i < boxes.size(); ++i)
         {
-            if (body_box_volume(a_boxes[i]) > body_box_volume(a_boxes[seed]))
+            if (body_box_volume(boxes[i]) > body_box_volume(boxes[seed]))
                 seed = i;
         }
 
-        std::vector<bool> in_cluster(a_boxes.size(), false);
+        std::vector<uint8_t> in_cluster(boxes.size(), 0);
         in_cluster[seed] = true;
-        a_min = a_boxes[seed].min;
-        a_max = a_boxes[seed].max;
+        min = boxes[seed].min;
+        max = boxes[seed].max;
 
         bool grew = true;
         while (grew)
         {
             grew = false;
-            for (size_t i = 0; i < a_boxes.size(); ++i)
+            for (size_t i = 0; i < boxes.size(); ++i)
             {
                 if (in_cluster[i])
                     continue;
-                BodyBox const& box = a_boxes[i];
+                BodyBox const& box = boxes[i];
                 bool const near_cluster =
-                    box.min.x - Cluster_Gap <= a_max.x && box.max.x + Cluster_Gap >= a_min.x &&
-                    box.min.y - Cluster_Gap <= a_max.y && box.max.y + Cluster_Gap >= a_min.y &&
-                    box.min.z - Cluster_Gap <= a_max.z && box.max.z + Cluster_Gap >= a_min.z;
+                    box.min.x - Cluster_Gap <= max.x && box.max.x + Cluster_Gap >= min.x &&
+                    box.min.y - Cluster_Gap <= max.y && box.max.y + Cluster_Gap >= min.y &&
+                    box.min.z - Cluster_Gap <= max.z && box.max.z + Cluster_Gap >= min.z;
                 if (!near_cluster)
                     continue;
-                in_cluster[i] = true;
-                expand_aabb(a_min, a_max, box.min);
-                expand_aabb(a_min, a_max, box.max);
+                in_cluster[i] = 1;
+                expand_aabb(min, max, box.min);
+                expand_aabb(min, max, box.max);
                 grew = true;
             }
         }
@@ -170,17 +164,12 @@ namespace
     // - OBB: the world 8 corners of the largest box-shaped collision body by volume (usually the
     //   Actor's root collision box), computed from the shape half extents (metres) and the body's
     //   world transform.
-    void collect_collision_objects(
-        RE::NiAVObject* a_node,
-        std::vector<BodyBox>& a_boxes,
-        RE::NiPoint3* a_obb_corners,
-        bool& a_hasOBB,
-        float& a_best_volume)
+    void collect_collision_objects(RE::NiAVObject* object, std::vector<BodyBox>& boxes, RE::NiPoint3* obb_corners, bool& has_obb, float& best_volume)
     {
-        if (!a_node)
+        if (!object)
             return;
 
-        if (RE::bhkCollisionObject* col_obj = a_node->GetCollisionObject())
+        if (RE::bhkCollisionObject* col_obj = object->GetCollisionObject())
         {
             if (RE::bhkRigidBody* body = col_obj->GetRigidBody())
             {
@@ -190,31 +179,29 @@ namespace
                     {
                         // in the Havok world → the transform is live
                         BodyBox body_box;
-                        if (rigid_body_aabb(body, body_box.min, body_box.max))
+                        if (rigid_body_aabb(body, body_box.min, body_box.max)) 
                         {
-                            a_boxes.push_back(body_box);
-                            if (a_obb_corners)
+                            boxes.push_back(body_box);
+                            
+                            RE::hkpShape const* shape = rb->GetShape();
+                            if (shape && shape->type == RE::hkpShapeType::kBox)
                             {
-                                RE::hkpShape const* shape = rb->GetShape();
-                                if (shape && shape->type == RE::hkpShapeType::kBox)
+                                RE::hkpBoxShape const* box = static_cast<RE::hkpBoxShape const*>(shape);
+                                float const s = world_scale_inverse();
+                                RE::NiPoint3 const he = hk_to_ni(box->halfExtents) * s;
+                                float const vol = he.x * he.y * he.z;
+                                if (vol > best_volume)
                                 {
-                                    RE::hkpBoxShape const* box = static_cast<RE::hkpBoxShape const*>(shape);
-                                    float const s = world_scale_inverse();
-                                    RE::NiPoint3 const he = hk_to_ni(box->halfExtents) * s;
-                                    float const vol = he.x * he.y * he.z;
-                                    if (vol > a_best_volume)
+                                    best_volume = vol;
+                                    RE::NiTransform const world = hk_transform_to_ni(rb->motion.motionState.transform);
+                                    for (int i = 0; i < 8; ++i)
                                     {
-                                        a_best_volume = vol;
-                                        RE::NiTransform const world = hk_transform_to_ni(rb->motion.motionState.transform);
-                                        for (int i = 0; i < 8; ++i)
-                                        {
-                                            float const sx = (i & 1) ? he.x : -he.x;
-                                            float const sy = (i & 2) ? he.y : -he.y;
-                                            float const sz = (i & 4) ? he.z : -he.z;
-                                            a_obb_corners[i] = world * RE::NiPoint3{ sx, sy, sz };
-                                        }
-                                        a_hasOBB = true;
+                                        float const sx = (i & 1) ? he.x : -he.x;
+                                        float const sy = (i & 2) ? he.y : -he.y;
+                                        float const sz = (i & 4) ? he.z : -he.z;
+                                        obb_corners[i] = world * RE::NiPoint3{ sx, sy, sz };
                                     }
+                                    has_obb = true;
                                 }
                             }
                         }
@@ -222,12 +209,13 @@ namespace
                 }
             }
         }
-        if (RE::NiNode* node = a_node->AsNode())
+        
+        if (RE::NiNode* node = object->AsNode())
         {
             for (RE::NiPointer<RE::NiAVObject> const& child : node->children)
             {
                 if (child)
-                    collect_collision_objects(child.get(), a_boxes, a_obb_corners, a_hasOBB, a_best_volume);
+                    collect_collision_objects(child.get(), boxes, obb_corners, has_obb, best_volume);
             }
         }
     }
@@ -237,10 +225,10 @@ namespace
     // largest_cluster_bounds (after dismemberment only the mass holding the largest part is
     // framed). These rigid bodies (hkaRagdollInstance::rigidBodies) are the corpse parts' actual
     // collision bodies.
-    [[nodiscard]] bool compute_ragdoll_bounds(RE::Actor* a_actor, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    [[nodiscard]] bool compute_ragdoll_bounds(RE::Actor* actor, RE::NiPoint3& min, RE::NiPoint3& max)
     {
         RE::BSAnimationGraphManagerPtr anim_graph_manager;
-        if (!a_actor->GetAnimationGraphManager(anim_graph_manager))
+        if (!actor->GetAnimationGraphManager(anim_graph_manager))
             return false;
 
         std::vector<BodyBox> boxes;
@@ -270,34 +258,34 @@ namespace
                     boxes.push_back(body_box);
             }
         }
-        return largest_cluster_bounds(boxes, a_min, a_max);
+        return largest_cluster_bounds(boxes, min, max);
     }
 
     // Fallback: accumulate only the worldBound bounding spheres of the geometry nodes.
     // Compared with the old implementation (which accumulated every node, so the root node's large
     // sphere inflated the box by a margin), the geometry-node spheres hug the corpse's actual
     // outline more closely.
-    void expand_geometry_bounds(RE::NiAVObject* a_node, RE::NiPoint3& a_min, RE::NiPoint3& a_max)
+    void expand_geometry_bounds(RE::NiAVObject* object, RE::NiPoint3& min, RE::NiPoint3& max)
     {
-        if (!a_node)
+        if (!object)
             return;
 
-        if (a_node->AsGeometry())
+        if (object->AsGeometry())
         {
-            RE::NiBound const& bound = a_node->worldBound;
+            RE::NiBound const& bound = object->worldBound;
             if (bound.radius > 0.0f && bound.radius < 100000.0f)
             {
                 RE::NiPoint3 const& c = bound.center;
-                expand_aabb(a_min, a_max, { c.x - bound.radius, c.y - bound.radius, c.z - bound.radius });
-                expand_aabb(a_min, a_max, { c.x + bound.radius, c.y + bound.radius, c.z + bound.radius });
+                expand_aabb(min, max, { c.x - bound.radius, c.y - bound.radius, c.z - bound.radius });
+                expand_aabb(min, max, { c.x + bound.radius, c.y + bound.radius, c.z + bound.radius });
             }
         }
-        if (RE::NiNode* node = a_node->AsNode())
+        if (RE::NiNode* node = object->AsNode())
         {
             for (RE::NiPointer<RE::NiAVObject> const& child : node->children)
             {
                 if (child)
-                    expand_geometry_bounds(child.get(), a_min, a_max);
+                    expand_geometry_bounds(child.get(), min, max);
             }
         }
     }
@@ -305,36 +293,29 @@ namespace
     // Combined entry point: ragdoll → the ragdoll rigid bodies; otherwise → the collision objects
     // on the 3D tree; and finally the geometry fallback. Returning true means a valid world AABB
     // was obtained.
-    [[nodiscard]] bool compute_bounds(
-        RE::TESObjectREFR* a_ref,
-        bool a_ragdoll,
-        RE::NiPoint3& a_min,
-        RE::NiPoint3& a_max,
-        RE::NiPoint3* a_obb_corners,
-        bool& a_hasOBB,
-        bool& a_from_collision)
+    [[nodiscard]] bool compute_bounds(RE::TESObjectREFR* ref, bool ragdoll, RE::NiPoint3& min, RE::NiPoint3& max, RE::NiPoint3* obb_corners, bool& has_obb, bool& from_collision)
     {
-        a_hasOBB = false;
-        a_from_collision = false;
-        if (!a_ref)
+        has_obb = false;
+        from_collision = false;
+        if (!ref)
             return false;
 
-        RE::NiAVObject* node = a_ref->Get3D();
+        RE::NiAVObject* node = ref->Get3D();
         if (!node)
             return false;
 
         RE::NiPoint3 mn{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
         RE::NiPoint3 mx{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
 
-        if (a_ragdoll)
+        if (ragdoll)
         {
-            if (RE::Actor* actor = a_ref->As<RE::Actor>())
+            if (RE::Actor* actor = ref->As<RE::Actor>())
             {
                 if (compute_ragdoll_bounds(actor, mn, mx))
                 {
-                    a_min = mn;
-                    a_max = mx;
-                    a_from_collision = true;
+                    min = mn;
+                    max = mx;
+                    from_collision = true;
                     return true;
                 }
             }
@@ -343,36 +324,36 @@ namespace
         {
             std::vector<BodyBox> boxes;
             float best_vol = 0.0f;
-            collect_collision_objects(node, boxes, a_obb_corners, a_hasOBB, best_vol);
+            collect_collision_objects(node, boxes, obb_corners, has_obb, best_vol);
             if (largest_cluster_bounds(boxes, mn, mx))
             {
-                a_min = mn;
-                a_max = mx;
-                a_from_collision = true;
+                min = mn;
+                max = mx;
+                from_collision = true;
                 return true;
             }
-            a_hasOBB = false;
+            has_obb = false;
         }
 
         expand_geometry_bounds(node, mn, mx);
         if (mn.x <= mx.x && mn.y <= mx.y && mn.z <= mx.z)
         {
-            a_min = mn;
-            a_max = mx;
+            min = mn;
+            max = mx;
             return true;
         }
         return false;
     }
 
-    bool filter_corpse(RE::TESObjectREFR* a_ref, CorpseScan::CorpseInfo& corpse_info)
+    bool filter_corpse(RE::TESObjectREFR* ref, CorpseScan::CorpseInfo& corpse_info)
     {
-        if (!a_ref)
+        if (!ref)
             return false;
 
         RE::PlayerCharacter* player = RE::PlayerCharacter::GetSingleton();
 
         CorpseScan::CorpseInfo entry{ .radius = 60.0f };
-        if (RE::Actor* actor = a_ref->As<RE::Actor>())
+        if (RE::Actor* actor = ref->As<RE::Actor>())
         {
             if (actor == player || actor->IsDisabled() || actor->IsDeleted() ||
                 actor->IsReanimated() || actor->IsGhost() || !actor->Is3DLoaded() ||
@@ -414,18 +395,18 @@ namespace
         }
         else
         {
-            bool const is_ash = Util::is_ash_pile(a_ref);
-            bool const is_corpse_obj = Util::is_corpse_object(a_ref);
+            bool const is_ash = Util::is_ash_pile(ref);
+            bool const is_corpse_obj = Util::is_corpse_object(ref);
             if (!is_ash && !is_corpse_obj)
                 return false;
 
             // only container need use owner
-            LootFilter::EvaluateResult loot = LootFilter::instance().evaluate(Util::get_container_object(a_ref));
+            LootFilter::EvaluateResult loot = LootFilter::instance().evaluate(Util::get_container_object(ref));
             if (!loot.has_items)
                 return false;
 
-            entry.form_id = a_ref->GetFormID();
-            entry.anchor = a_ref->GetPosition();
+            entry.form_id = ref->GetFormID();
+            entry.anchor = ref->GetPosition();
             entry.anchor.z += 15.0f;
             entry.radius = 40.0f;
             entry.loot_categories = loot.categories;
@@ -433,9 +414,9 @@ namespace
             entry.is_ash_pile = is_ash;
             entry.is_static_corpse = is_corpse_obj;
 
-            if (RE::NiAVObject const* node = a_ref->Get3D())
+            if (RE::NiAVObject const* object = ref->Get3D())
             {
-                RE::NiBound const& bound = node->worldBound;
+                RE::NiBound const& bound = object->worldBound;
                 if (bound.radius > 0.0f && bound.radius < 10000.0f)
                 {
                     entry.anchor = bound.center;
@@ -445,7 +426,7 @@ namespace
             RE::NiPoint3 b_min, b_max;
             bool dummy_obb = false;
             bool dummy_src = false;
-            if (compute_bounds(a_ref, false, b_min, b_max, nullptr, dummy_obb, dummy_src))
+            if (compute_bounds(ref, false, b_min, b_max, nullptr, dummy_obb, dummy_src))
             {
                 entry.bound_min = b_min;
                 entry.bound_max = b_max;
@@ -459,6 +440,11 @@ namespace
     }
 }
 
+CorpseScan& CorpseScan::instance()
+{
+    static CorpseScan s_instance;
+    return s_instance;
+}
 
 void CorpseScan::search()
 {
@@ -471,14 +457,14 @@ void CorpseScan::search()
 
     std::vector<CorpseInfo> found;
     found.reserve(64);
-    tes->ForEachReferenceInRange(player, cfg.max_distance, [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult
+    tes->ForEachReferenceInRange(player, cfg.max_distance, [&](RE::TESObjectREFR* obj_ref) -> RE::BSContainer::ForEachResult
     {
-        RE::TESObjectREFR* ref = Util::get_container_object(a_ref);
+        RE::TESObjectREFR* ref = Util::get_container_object(obj_ref);
 
         if (cfg.hide_searched_enabled && MarkCorpse::instance().contains(ref))
             return RE::BSContainer::ForEachResult::kContinue;
 
-        if (CorpseInfo info{ .radius = 60.0f }; filter_corpse(a_ref, info))
+        if (CorpseInfo info{ .radius = 60.0f }; filter_corpse(obj_ref, info))
         {
             found.push_back(info);
 

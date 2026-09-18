@@ -12,17 +12,15 @@ PresentHook& PresentHook::instance()
     return s_instance;
 }
 
-REX::W32::HRESULT __stdcall PresentHook::present_thunk(REX::W32::IDXGISwapChain* a_swapChain, uint32_t a_syncInterval, uint32_t a_flags)
+REX::W32::HRESULT PresentHook::present_thunk(REX::W32::IDXGISwapChain* swap_chain, uint32_t sync_interval, uint32_t flags)
 {
-    instance().m_callback(a_swapChain);
-    return instance().m_ref_original_present(a_swapChain, a_syncInterval, a_flags);
+    instance().m_callback(swap_chain);
+    return instance().m_ref_original_present(swap_chain, sync_interval, flags);
 }
 
-bool PresentHook::install(Callback a_on_present)
+bool PresentHook::install(Callback on_present)
 {
-    if (m_installed)
-        return true;  // already installed
-    if (!a_on_present)
+    if (!on_present)
         return false;
 
     RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
@@ -43,14 +41,13 @@ bool PresentHook::install(Callback a_on_present)
     // automatically through safe_write and returns the original function pointer.
     REL::Relocation<uintptr_t> vtable{ reinterpret_cast<uintptr_t>(*reinterpret_cast<void**>(swap_chain)) };
     m_ref_original_present = reinterpret_cast<PresentFunc>(vtable.write_vfunc(8, &PresentHook::present_thunk));
-    m_callback = a_on_present;
-    m_installed = true;
+    m_callback = on_present;
 
     logger::info("Installed swap chain Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(m_ref_original_present));
     return true;
 }
 
-PresentHook::PresentHook() : m_ref_original_present(nullptr), m_callback(nullptr), m_installed(false) {}
+PresentHook::PresentHook() : m_ref_original_present(nullptr), m_callback(nullptr) {}
 
 PresentHook::~PresentHook() = default;
 

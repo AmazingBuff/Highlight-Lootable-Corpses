@@ -4,19 +4,11 @@
 
 #pragma once
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <span>
+#include "mask_types.h"
 
-#include <DirectXMath.h>
+MASK_NAMESPACE_BEGIN
 
-PLUGIN_NAMESPACE_BEGIN
-
-namespace Mask::ROI
+namespace ROI
 {
 
 inline constexpr int Raster_Margin = 2;
@@ -162,4 +154,4 @@ struct Region
 
 } // namespace Mask::ROI
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END

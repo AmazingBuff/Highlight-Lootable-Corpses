@@ -31,8 +31,11 @@ private:
 };
 
 
-[[nodiscard]] bool project(RE::NiCamera* camera, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);
+[[nodiscard]] bool project(RE::NiCamera* camera, DirectX::XMFLOAT3 const& point, float width, float height, float& px, float& py, float& depth);
 
-[[nodiscard]] bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth);
+[[nodiscard]] bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, DirectX::XMFLOAT3 const& point, float width, float height, float& px, float& py, float& depth);
+
+[[nodiscard]] DirectX::XMFLOAT3 render_cast(RE::NiPoint3 const& p);
+[[nodiscard]] RE::NiPoint3 skyrim_cast(DirectX::XMFLOAT3 const& p);
 
 PLUGIN_NAMESPACE_END

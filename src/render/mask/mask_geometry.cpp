@@ -48,7 +48,7 @@ namespace
         char const* const node = node_name ? node_name : "?";
         log_once(false,
             fmt::format("static|{:08X}|{}|{}", form_id, node, reason),
-            fmt::format("outline mask: skip static draw [{}] target={:08X} node=\"{}\" {}", reason, form_id, node, details));
+            fmt::format("Mask overlay: skip static draw [{}] target={:08X} node=\"{}\" {}", reason, form_id, node, details));
     }
 
     void log_skinned_info_once(char const* node_name, std::string_view reason, std::string_view details)
@@ -56,7 +56,7 @@ namespace
         char const* const node = node_name ? node_name : "?";
         log_once(false,
             fmt::format("skinned-info|{}|{}", node, reason),
-            fmt::format("outline mask: skinned draw [{}] node=\"{}\" {}", reason, node, details));
+            fmt::format("Mask overlay: skinned draw [{}] node=\"{}\" {}", reason, node, details));
     }
 
     void log_skinned_summary_once(char const* node_name, std::string_view details)
@@ -64,7 +64,7 @@ namespace
         char const* const node = node_name ? node_name : "?";
         log_once(false,
             fmt::format("skinned-summary|{}", node),
-            fmt::format("outline mask: skinned collect summary node=\"{}\" {}", node, details));
+            fmt::format("Mask overlay: skinned collect summary node=\"{}\" {}", node, details));
     }
 
     // ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ namespace
             result.offset = desc_offset;
             result.state = PositionCalibrationState::e_desc_fallback;
             log_once(false, fmt::format("calib-pos|{:018x}|fallback", desc_raw),
-                fmt::format("outline mask: position calibration unavailable (raw vertex data missing), using desc-derived layout {} format={:#06x} offset={}",
+                fmt::format("Mask overlay: position calibration unavailable (raw vertex data missing), using desc-derived layout {} format={:#06x} offset={}",
                     desc_fields, static_cast<unsigned>(result.format), result.offset));
             if (s_calibrations.size() < Max_Position_Calibrations)
                 s_calibrations.emplace_back(desc_raw, result);
@@ -386,7 +386,7 @@ namespace
         {
             result.state = PositionCalibrationState::e_unresolved;
             log_once(true, fmt::format("calib-pos|{:018x}|unresolved", desc_raw),
-                fmt::format("outline mask: position calibration found no matching candidate, draw skipped {} candidates:{}",
+                fmt::format("Mask overlay: position calibration found no matching candidate, draw skipped {} candidates:{}",
                     desc_fields, table));
         }
         else
@@ -395,7 +395,7 @@ namespace
             result.offset = results[best].offset;
             result.state = PositionCalibrationState::e_measured;
             log_once(false, fmt::format("calib-pos|{:018x}|measured", desc_raw),
-                fmt::format("outline mask: position calibration selected fmt={:#06x} off={} (center err {:.2f}) {} candidates:{}",
+                fmt::format("Mask overlay: position calibration selected fmt={:#06x} off={} (center err {:.2f}) {} candidates:{}",
                     static_cast<unsigned>(result.format), result.offset, results[best].center_error, desc_fields, table));
         }
 
@@ -816,7 +816,7 @@ namespace
         {
             result.state = SkinnedCalibrationState::e_unresolved;
             log_once(true, fmt::format("calib-skin|{:018x}|unavailable", desc_raw),
-                fmt::format("outline mask: skinned layout calibration unavailable ({}), draw skipped {}",
+                fmt::format("Mask overlay: skinned layout calibration unavailable ({}), draw skipped {}",
                     (renderer_data && renderer_data->rawVertexData) ? "geometry has no usable candidate" : "raw vertex data missing",
                     desc_fields));
             if (s_skinned_calibrations.size() < Max_Skinned_Layout_Calibrations)
@@ -841,7 +841,7 @@ namespace
         {
             result.state = SkinnedCalibrationState::e_unresolved;
             log_once(true, fmt::format("calib-skin|{:018x}|unresolved", desc_raw),
-                fmt::format("outline mask: skinned layout calibration found no matching candidate, draw skipped {} candidates:{}",
+                fmt::format("Mask overlay: skinned layout calibration found no matching candidate, draw skipped {} candidates:{}",
                     desc_fields, table));
         }
         else
@@ -851,7 +851,7 @@ namespace
             result.skin = candidate_skin[best];
             result.state = SkinnedCalibrationState::e_measured;
             log_once(false, fmt::format("calib-skin|{:018x}|measured", desc_raw),
-                fmt::format("outline mask: skinned layout calibration selected pos(fmt={:#06x},off={}) stride={} layout={} weight(fmt={:#06x},off={}) index(fmt={:#06x},off={}) {} candidates:{}",
+                fmt::format("Mask overlay: skinned layout calibration selected pos(fmt={:#06x},off={}) stride={} layout={} weight(fmt={:#06x},off={}) index(fmt={:#06x},off={}) {} candidates:{}",
                     static_cast<unsigned>(result.position_format), result.position_offset,
                     result.stride, static_cast<unsigned>(result.layout_id),
                     static_cast<unsigned>(result.skin.weight_format), result.skin.weight_offset,
@@ -892,7 +892,7 @@ namespace
             char const* const node_name = geom->name.c_str();
             log_once(false,
                 fmt::format("static-on-skinned|{}|{:08X}", node_name ? node_name : "?", target.form_id),
-                fmt::format("outline mask: skip static geometry on skinned corpse (static prop is not part of the body silhouette) target={:08X} node=\"{}\"",
+                fmt::format("Mask overlay: skip static geometry on skinned corpse (static prop is not part of the body silhouette) target={:08X} node=\"{}\"",
                     target.form_id, node_name ? node_name : "?"));
             return;
         }
@@ -900,7 +900,7 @@ namespace
         // ---- Geometry-level GPU buffer check specific to the static path. The skinned path does not pass this gate. ----
         if (!geom_rt.rendererData || !geom_rt.rendererData->vertexBuffer || !geom_rt.rendererData->indexBuffer)
         {
-            logger::debug("outline mask: skip geometry without GPU buffers");
+            logger::debug("Mask overlay: skip geometry without GPU buffers");
             return;
         }
 
@@ -930,7 +930,7 @@ namespace
         if (exclusion_reason)
         {
             log_once(false, fmt::format("static-exclusion|{}", exclusion_reason),
-                fmt::format("outline mask: skip static geometry ({}) rtti={} node=\"{}\"", exclusion_reason, rtti_name, node_name ? node_name : "?"));
+                fmt::format("Mask overlay: skip static geometry ({}) rtti={} node=\"{}\"", exclusion_reason, rtti_name, node_name ? node_name : "?"));
             return;
         }
 
@@ -938,7 +938,7 @@ namespace
         if (!tri)
         {
             // Regular geometry in a SSE scene is always of the BSTriShape family; other types are not masked
-            logger::debug("outline mask: skip non-BSTriShape geometry");
+            logger::debug("Mask overlay: skip non-BSTriShape geometry");
             return;
         }
 
@@ -946,7 +946,7 @@ namespace
         if (tri_rt.vertexCount == 0 || tri_rt.triangleCount == 0)
         {
             log_once(false, "static|empty-geometry",
-                fmt::format("outline mask: skip empty geometry (verts={} tris={}) rtti={} node=\"{}\"",
+                fmt::format("Mask overlay: skip empty geometry (verts={} tris={}) rtti={} node=\"{}\"",
                     tri_rt.vertexCount, tri_rt.triangleCount, rtti_name, node_name ? node_name : "?"));
             return;
         }
@@ -955,7 +955,7 @@ namespace
         if (model_bound.radius <= 0.0f)
         {
             log_once(false, "static|invalid-model-bound",
-                fmt::format("outline mask: skip geometry with invalid model bound rtti={} node=\"{}\"", rtti_name, node_name ? node_name : "?"));
+                fmt::format("Mask overlay: skip geometry with invalid model bound rtti={} node=\"{}\"", rtti_name, node_name ? node_name : "?"));
             return;
         }
 
@@ -1316,7 +1316,7 @@ namespace
         case RE::BSGeometry::Type::kLines:
         case RE::BSGeometry::Type::kDynamicLines:
         case RE::BSGeometry::Type::kInstanceGroup:
-            logger::debug("outline mask: skip particle/line geometry (type {})", static_cast<int>(geom->GetType().get()));
+            logger::debug("Mask overlay: skip particle/line geometry (type {})", static_cast<int>(geom->GetType().get()));
             return;
         default:
             break;
@@ -1328,7 +1328,7 @@ namespace
             strcmp(geom_rt.shaderProperty->GetRTTI()->GetName(), "BSEffectShaderProperty") == 0)
         {
             log_once(false, "static|effect-shader",
-                fmt::format("outline mask: skip effect-shader geometry (BSEffectShaderProperty, fx attachment is not part of the corpse silhouette) node=\"{}\"",
+                fmt::format("Mask overlay: skip effect-shader geometry (BSEffectShaderProperty, fx attachment is not part of the corpse silhouette) node=\"{}\"",
                     geom->name.c_str() ? geom->name.c_str() : "?"));
             return;
         }
@@ -1354,7 +1354,7 @@ void log_skinned_skip_once(bool warn, char const* node_name, std::string_view re
     char const* const node = node_name ? node_name : "?";
     log_once(warn,
         fmt::format("skinned|{}|{}", node, reason),
-        fmt::format("outline mask: skip skinned draw [{}] node=\"{}\" {}", reason, node, details));
+        fmt::format("Mask overlay: skip skinned draw [{}] node=\"{}\" {}", reason, node, details));
 }
 
 void collect_mask_draws(std::vector<MaskTarget> const& targets, std::vector<MaskDraw>& draws)
@@ -1387,7 +1387,7 @@ void collect_mask_draws(std::vector<MaskTarget> const& targets, std::vector<Mask
         RE::BSVisit::TraverseScenegraphGeometries(root, [&](RE::BSGeometry* geom) {
             if (draws.size() >= Max_Draws_Per_Frame)
             {
-                logger::warn("outline mask: draw cap {} reached, extra geometry dropped", Max_Draws_Per_Frame);
+                logger::warn("Mask overlay: draw cap {} reached, extra geometry dropped", Max_Draws_Per_Frame);
                 return RE::BSVisit::BSVisitControl::kStop;
             }
             collect_geometry(geom, target_ctx, draws);

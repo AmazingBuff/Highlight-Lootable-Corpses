@@ -47,9 +47,9 @@ void Color::decode(uint32_t v)
     m_a = static_cast<float>((v >> 24) & 0xFF) / 255.0f;
 }
 
-bool project(RE::NiCamera* camera, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth)
+bool project(RE::NiCamera* camera, DirectX::XMFLOAT3 const& point, float width, float height, float& px, float& py, float& depth)
 {
-    if (!camera || !camera->WorldPtToScreenPt3(point, px, py, depth, 1e-5f))
+    if (!camera || !camera->WorldPtToScreenPt3(skyrim_cast(point), px, py, depth, 1e-5f))
         return false;
 
     Rect port;
@@ -69,7 +69,7 @@ bool project(RE::NiCamera* camera, RE::NiPoint3 const& point, float width, float
     return true;
 }
 
-bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, RE::NiPoint3 const& point, float width, float height, float& px, float& py, float& depth)
+bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_data, DirectX::XMFLOAT3 const& point, float width, float height, float& px, float& py, float& depth)
 {
     if (project(camera, point, width, height, px, py, depth))
         return depth > 0.0f;
@@ -95,6 +95,16 @@ bool world_to_screen(RE::NiCamera* camera, RE::BSGraphics::ViewData const* view_
         }
     }
     return false;
+}
+
+DirectX::XMFLOAT3 render_cast(RE::NiPoint3 const& p)
+{
+    return {p.x, p.y, p.z};
+}
+
+RE::NiPoint3 skyrim_cast(DirectX::XMFLOAT3 const& p)
+{
+    return {p.x, p.y, p.z};
 }
 
 PLUGIN_NAMESPACE_END

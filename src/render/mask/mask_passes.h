@@ -4,9 +4,10 @@
 
 #pragma once
 
+#include "base/def.h"
+#include "mask_glow.h"
+#include "mask_roi.h"
 #include "mask_types.h"
-#include "outline_glow.h"
-#include "outline_roi.h"
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -28,12 +29,9 @@ public:
     void release();
 
     [[nodiscard]] bool matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept;
-    [[nodiscard]] REX::W32::ID3D11Device* device() const noexcept { return m_ref_device; }
     [[nodiscard]] REX::W32::ID3D11RenderTargetView* rtv() const noexcept { return m_rtv; }
     [[nodiscard]] REX::W32::ID3D11DepthStencilView* dsv() const noexcept { return m_dsv; }
     [[nodiscard]] REX::W32::ID3D11ShaderResourceView* srv() const noexcept { return m_srv; }
-    [[nodiscard]] uint32_t width() const noexcept { return m_width; }
-    [[nodiscard]] uint32_t height() const noexcept { return m_height; }
 private:
     REX::W32::ID3D11Device* m_ref_device;
     REX::W32::ID3D11Texture2D* m_texture;
@@ -72,13 +70,12 @@ public:
 
     // Draw every draw (the palette skinning is built here).
     void draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws);
-
 private:
     // InputLayout cache key (skinned, precision, attribute offsets, stride)
     struct LayoutKey
     {
         bool skinned;
-        bool full_prec;
+        bool full_precision;
         uint32_t position_format;  // the position format is a calibration result and must enter the key so different formats do not share a layout
         uint32_t position_offset;
         uint32_t skinning_offset;
@@ -89,18 +86,43 @@ private:
         uint32_t weight_offset;
         uint32_t index_format;
         uint32_t index_offset;
-
-        bool operator==(LayoutKey const&) const = default;
     };
 
+    struct LayoutKeyHash
+    {
+        size_t operator()(LayoutKey const& key) const noexcept
+        {
+            size_t val = Amazing_Hash;
+            hash_combine_mul(val, key.skinned, key.full_precision,
+                key.position_format, key.position_offset, key.skinning_offset, key.stride,
+                key.weight_format, key.weight_offset, key.index_format, key.index_offset);
+            return val;
+        }
+    };
+
+    struct LayoutKeyEqual
+    {
+        bool operator()(LayoutKey const& lhs, LayoutKey const& rhs) const noexcept
+        {
+            return lhs.skinned == rhs.skinned && lhs.full_precision == rhs.full_precision &&
+                    lhs.position_format == rhs.position_format && lhs.position_offset == rhs.position_offset &&
+                    lhs.skinning_offset == rhs.skinning_offset && lhs.stride == rhs.stride &&
+                    lhs.weight_format == rhs.weight_format && lhs.weight_offset == rhs.weight_offset &&
+                    lhs.index_format == rhs.index_format && lhs.index_offset == rhs.index_offset;
+        }
+    };
+private:
     bool create_pipeline(REX::W32::ID3D11Device* device);
-
     REX::W32::ID3D11InputLayout* get_layout(
-        REX::W32::ID3D11Device* device, REX::W32::ID3DBlob* blob, bool skinned, RE::BSGraphics::VertexDesc const& desc, uint32_t stride,
-        REX::W32::DXGI_FORMAT position_format, uint32_t position_offset, MaskSkinLayout const* skin_layout);
-
+        REX::W32::ID3D11Device* device,
+        REX::W32::ID3DBlob* blob,
+        bool skinned,
+        RE::BSGraphics::VertexDesc const& desc,
+        uint32_t stride,
+        REX::W32::DXGI_FORMAT position_format,
+        uint32_t position_offset,
+        MaskSkinLayout const* skin_layout);
     void release_layouts();
-
 private:
     REX::W32::ID3D11VertexShader* m_vs_static;
     REX::W32::ID3D11VertexShader* m_vs_skinned;
@@ -110,8 +132,6 @@ private:
     REX::W32::ID3D11Buffer* m_per_draw_cb;  // b0: row_major float4x4 + uint object_id (80 bytes)
     REX::W32::ID3D11Buffer* m_palette_cb;   // b1: row_major float4x4[Max_Palette_Bones]
     REX::W32::ID3D11DepthStencilState* m_depth_nearest;  // Reverse-Z nearest-depth test; no CommonStates equivalent.
-    bool m_ready;
-    bool m_failed;  // after a creation failure there is no per-frame retry (avoids continuously leaking D3D objects)
 
     // Constant-buffer upload byte orientation (auto-calibrated; direct upload is expected to hold, and on failure the byte order is transposed)
     bool m_upload_transposed;
@@ -119,7 +139,7 @@ private:
     // InputLayout cache: keyed by (skinned, precision, attribute offsets, stride) - the attribute
     // offsets come from each mesh's vertexDesc and creating a device object per mesh is not
     // acceptable, so the cache deduplicates (corpse meshes come in very few layout varieties).
-    std::vector<std::pair<LayoutKey, REX::W32::ID3D11InputLayout*>> m_layout_cache;
+    std::unordered_map<LayoutKey, REX::W32::ID3D11InputLayout*, LayoutKeyHash, LayoutKeyEqual> m_layout_cache;
 };
 
 // Shared full-screen shaders and a private, dynamically sized target style table.
@@ -140,13 +160,9 @@ protected:
 
     REX::W32::ID3D11Buffer* m_cb;
 
-    bool m_ready;
-    bool m_failed;
-
     REX::W32::ID3D11Buffer* m_style_buffer;
     REX::W32::ID3D11ShaderResourceView* m_style_srv;
     size_t m_style_capacity;
-    bool m_styles_valid;
 };
 
 class GlowScratch
@@ -207,13 +223,9 @@ public:
         ROI::Rect horizontal_rect,
         ROI::Rect vertical_rect,
         CommonStates const& states);
-
-    [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_none_scissor() const noexcept { return m_cull_none_scissor; }
-
 private:
     GlowScratch m_scratch;
     REX::W32::ID3D11PixelShader* m_horizontal_shader;
-    REX::W32::ID3D11RasterizerState* m_cull_none_scissor;
 };
 
 MASK_NAMESPACE_END

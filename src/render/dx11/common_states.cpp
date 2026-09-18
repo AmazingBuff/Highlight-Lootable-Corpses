@@ -64,13 +64,14 @@ namespace
         return true;
     }
 
-    bool create_rasterizer_state(REX::W32::ID3D11Device* device, REX::W32::D3D11_CULL_MODE cull_mode, REX::W32::D3D11_FILL_MODE fill_mode,
+    bool create_rasterizer_state(REX::W32::ID3D11Device* device, REX::W32::D3D11_CULL_MODE cull_mode, REX::W32::D3D11_FILL_MODE fill_mode, bool scissor_enable,
         REX::W32::ID3D11RasterizerState** result)
     {
         REX::W32::D3D11_RASTERIZER_DESC desc{};
 
         desc.cullMode = cull_mode;
         desc.fillMode = fill_mode;
+        desc.scissorEnable = scissor_enable;
         desc.depthClipEnable = true;
         desc.multisampleEnable = true;
 
@@ -118,6 +119,7 @@ CommonStates::CommonStates(REX::W32::ID3D11Device* device) :
     m_depth_read(nullptr),
     m_depth_none(nullptr),
     m_cull_none(nullptr),
+    m_cull_none_scissor(nullptr),
     m_cull_clockwise(nullptr),
     m_cull_counter_clockwise(nullptr),
     m_wireframe(nullptr),
@@ -143,10 +145,11 @@ CommonStates::CommonStates(REX::W32::ID3D11Device* device) :
               create_depth_stencil_state(device, true, true, &m_depth_default) &&
               create_depth_stencil_state(device, true, false, &m_depth_read) &&
               create_depth_stencil_state(device, false, false, &m_depth_none) &&
-              create_rasterizer_state(device, REX::W32::D3D11_CULL_NONE, REX::W32::D3D11_FILL_SOLID, &m_cull_none) &&
-              create_rasterizer_state(device, REX::W32::D3D11_CULL_FRONT, REX::W32::D3D11_FILL_SOLID, &m_cull_clockwise) &&
-              create_rasterizer_state(device, REX::W32::D3D11_CULL_BACK, REX::W32::D3D11_FILL_SOLID, &m_cull_counter_clockwise) &&
-              create_rasterizer_state(device, REX::W32::D3D11_CULL_NONE, REX::W32::D3D11_FILL_WIREFRAME, &m_wireframe) &&
+              create_rasterizer_state(device, REX::W32::D3D11_CULL_NONE, REX::W32::D3D11_FILL_SOLID, false, &m_cull_none) &&
+              create_rasterizer_state(device, REX::W32::D3D11_CULL_NONE, REX::W32::D3D11_FILL_SOLID, true, &m_cull_none_scissor) &&
+              create_rasterizer_state(device, REX::W32::D3D11_CULL_FRONT, REX::W32::D3D11_FILL_SOLID, false, &m_cull_clockwise) &&
+              create_rasterizer_state(device, REX::W32::D3D11_CULL_BACK, REX::W32::D3D11_FILL_SOLID, false, &m_cull_counter_clockwise) &&
+              create_rasterizer_state(device, REX::W32::D3D11_CULL_NONE, REX::W32::D3D11_FILL_WIREFRAME,false, &m_wireframe) &&
               create_sampler_state(device, REX::W32::D3D11_FILTER_MIN_MAG_MIP_POINT, REX::W32::D3D11_TEXTURE_ADDRESS_WRAP, &m_point_wrap) &&
               create_sampler_state(device, REX::W32::D3D11_FILTER_MIN_MAG_MIP_POINT, REX::W32::D3D11_TEXTURE_ADDRESS_CLAMP, &m_point_clamp) &&
               create_sampler_state(device, REX::W32::D3D11_FILTER_MIN_MAG_MIP_LINEAR, REX::W32::D3D11_TEXTURE_ADDRESS_WRAP, &m_linear_wrap) &&
@@ -287,6 +290,11 @@ REX::W32::ID3D11DepthStencilState* CommonStates::depth_none() const
 REX::W32::ID3D11RasterizerState* CommonStates::cull_none() const
 {
     return m_cull_none;
+}
+
+REX::W32::ID3D11RasterizerState* CommonStates::cull_none_scissor() const
+{
+    return m_cull_none_scissor;
 }
 
 REX::W32::ID3D11RasterizerState* CommonStates::cull_clockwise() const

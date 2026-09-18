@@ -4,18 +4,13 @@
 
 #pragma once
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstddef>
+#include "mask_types.h"
 
-PLUGIN_NAMESPACE_BEGIN
+MASK_NAMESPACE_BEGIN
 
-namespace Mask::Glow
+namespace Glow
 {
 
-inline constexpr int Min_Thickness = 1;
-inline constexpr int Max_Thickness = 5;
 inline constexpr int Max_Radius = 18;
 inline constexpr std::size_t Kernel_Slot_Count = (Max_Radius + 4) / 4;
 
@@ -32,7 +27,7 @@ struct KernelProfile
 [[nodiscard]] inline KernelProfile make_kernel_profile(int thickness) noexcept
 {
     KernelProfile profile{};
-    profile.thickness = std::clamp(thickness, Min_Thickness, Max_Thickness);
+    profile.thickness = thickness;
     profile.radius = 3 * profile.thickness + 3;
     profile.halo_sigma = static_cast<float>(profile.radius) / 3.0f;
     profile.core_sigma = 0.45f + 0.20f * static_cast<float>(profile.thickness);
@@ -60,4 +55,4 @@ struct KernelProfile
 
 } // namespace Mask::Glow
 
-PLUGIN_NAMESPACE_END
+MASK_NAMESPACE_END
