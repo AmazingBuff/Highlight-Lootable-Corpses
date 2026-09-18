@@ -58,6 +58,8 @@ D3D11StateCapture::D3D11StateCapture(REX::W32::ID3D11DeviceContext* context) :
     m_rasterizer(nullptr),
     m_viewport_count(0),
     m_viewports{},
+    m_scissor_count(0),
+    m_scissor_rects{},
     m_input_layout(nullptr),
     m_topology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED),
     m_vertex_buffer(nullptr),
@@ -131,6 +133,8 @@ void D3D11StateCapture::capture()
 
     m_viewport_count = REX::W32::D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
     m_ref_context->RSGetViewports(&m_viewport_count, m_viewports);
+    m_scissor_count = REX::W32::D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    m_ref_context->RSGetScissorRects(&m_scissor_count, m_scissor_rects);
 
     m_ref_context->IAGetInputLayout(&m_input_layout);
     m_ref_context->IAGetPrimitiveTopology(&m_topology);
@@ -140,7 +144,7 @@ void D3D11StateCapture::capture()
     m_ref_context->VSGetShader(&m_vertex_shader, m_vertex_instances, &m_vertex_instance_count);
     m_ref_context->PSGetShader(&m_pixel_shader, m_pixel_instances, &m_pixel_instance_count);
     m_ref_context->VSGetConstantBuffers(0, 2, m_vertex_cbs);
-    m_ref_context->PSGetShaderResources(0, 2, m_pixel_srvs);
+    m_ref_context->PSGetShaderResources(0, 3, m_pixel_srvs);
     m_ref_context->PSGetSamplers(0, 1, &m_pixel_sampler);
 }
 
@@ -151,6 +155,7 @@ void D3D11StateCapture::restore() const
     m_ref_context->OMSetDepthStencilState(m_depth, m_stencil_ref);
     m_ref_context->RSSetState(m_rasterizer);
     m_ref_context->RSSetViewports(m_viewport_count, m_viewports);
+    m_ref_context->RSSetScissorRects(m_scissor_count, m_scissor_rects);
     m_ref_context->IASetInputLayout(m_input_layout);
     m_ref_context->IASetPrimitiveTopology(m_topology);
     m_ref_context->IASetVertexBuffers(0, 1, &m_vertex_buffer, &m_vertex_stride, &m_vertex_offset);
@@ -158,7 +163,7 @@ void D3D11StateCapture::restore() const
     m_ref_context->VSSetShader(m_vertex_shader, m_vertex_instances, m_vertex_instance_count);
     m_ref_context->PSSetShader(m_pixel_shader, m_pixel_instances, m_pixel_instance_count);
     m_ref_context->VSSetConstantBuffers(0, 2, m_vertex_cbs);
-    m_ref_context->PSSetShaderResources(0, 2, m_pixel_srvs);
+    m_ref_context->PSSetShaderResources(0, 3, m_pixel_srvs);
     m_ref_context->PSSetSamplers(0, 1, &m_pixel_sampler);
 }
 

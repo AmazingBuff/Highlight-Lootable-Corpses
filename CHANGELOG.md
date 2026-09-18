@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Restrict outline glow geometry and Gaussian passes to conservative projected target regions, clear the integer mask once per outline frame, and fall back to the full viewport when bounds are unavailable or unsafe.
+
+- Replace hard outline bands with bright narrow cores and diffuse outward Gaussian halos while retaining independent target colors, fade and pulse alpha.
+
 - Change icon markers to bordered downward arrows above corpse bounds, with bounded distance scaling and the existing opacity fade; retain the `IconRadius` key as base half-width and label its menu control "Icon Size".
 
 - Change silhouettes to show the nearest highlighted surface per pixel, including intersecting targets, while preserving wall penetration.

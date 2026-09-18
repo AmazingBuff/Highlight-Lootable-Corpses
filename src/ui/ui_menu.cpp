@@ -104,7 +104,7 @@ namespace
             cfg.display_mode = s_display_modes[mode_index];
         }
         if (cfg.display_mode == Config::DisplayMode::e_outline)
-            ImGuiMCP::SliderInt("Outline Thickness", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
+            ImGuiMCP::SliderInt("Outline Glow Size", &cfg.outline_thickness, Setting::Min_Outline_Thickness, Setting::Max_Outline_Thickness);
         else if (cfg.display_mode == Config::DisplayMode::e_icon)
             ImGuiMCP::SliderInt("Icon Size", &cfg.icon_radius, Setting::Min_Icon_Radius, Setting::Max_Icon_Radius);
 

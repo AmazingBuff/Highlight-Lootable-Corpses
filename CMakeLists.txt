@@ -24,6 +24,7 @@ set(RENDER_SHADER_EMBED
     icon_overlay.hlsl:IconOverlay
     mask_geometry.hlsl:MaskGeometry
     mask_composite.hlsl:MaskComposite
+    mask_glow.hlsl:MaskGlow
 )
 set(RENDER_SHADER_FILES "")
 set(GENERATED_SHADER_HEADER ${CMAKE_CURRENT_BINARY_DIR}/src/render/shader_sources.h)
@@ -46,8 +47,8 @@ add_custom_command(
 # 生成的头位于构建树，MSBuild 对 include 目录内生成头的依赖扫描不可靠——
 # 显式声明消费它的翻译单元，保证 .hlsl 变更后相关 .cpp 一定重编。
 set_source_files_properties(
-    src/render/ui_overlay.cpp
-    src/render/mask_passes.cpp
+    src/render/mask/mask_passes.cpp
+    src/render/icon/icon_overlay.cpp
     PROPERTIES OBJECT_DEPENDS ${GENERATED_SHADER_HEADER}
 )
 

@@ -36,6 +36,7 @@ float4 ps_silhouette_main(PS_IN ps_in) : SV_Target
     return styled_pixel(g_mask.Load(int3(int2(ps_in.pos.xy), 0)), g_fill);
 }
 
+// Legacy comparison-only entry; production outline rendering uses mask_glow.hlsl.
 float4 ps_outline_main(PS_IN ps_in) : SV_Target
 {
     const int2 pixel = int2(ps_in.pos.xy);

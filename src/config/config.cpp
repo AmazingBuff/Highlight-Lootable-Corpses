@@ -109,8 +109,8 @@ void Setting::save() noexcept
     body += s_option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", m_config.pulse_duration_ms));
     body += s_option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", m_config.scan_interval_ms));
     body += s_section("Display");
-    body += s_option("corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
-    body += s_option("outline thickness in pixels", fmt::format("OutlineThickness={}", m_config.outline_thickness));
+    body += s_option("corpse display style: silhouette (filled mask, 0) | outline (bright core plus outward glow, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
+    body += s_option("outline glow size (1-5; larger values widen the bright rim and outer halo)", fmt::format("OutlineThickness={}", m_config.outline_thickness));
     body += s_option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", m_config.icon_radius));
     body += s_option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", m_config.outline_color));
     body += s_option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", m_config.min_opacity));

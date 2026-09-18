@@ -5,6 +5,8 @@
 #pragma once
 
 #include "mask_types.h"
+#include "outline_glow.h"
+#include "outline_roi.h"
 
 PLUGIN_NAMESPACE_BEGIN
 
@@ -55,6 +57,7 @@ public:
     void release();
 
     [[nodiscard]] REX::W32::ID3D11DepthStencilState* depth_nearest() const noexcept { return m_depth_nearest; }
+    [[nodiscard]] bool upload_transposed() const noexcept { return m_upload_transposed; }
 
     // On the first frame that has a draw, auto-calibrate the byte orientation of the CB upload
     // (direct upload is expected to hold as the ground truth; on failure the byte order is
@@ -146,6 +149,30 @@ protected:
     bool m_styles_valid;
 };
 
+class GlowScratch
+{
+public:
+    GlowScratch();
+    ~GlowScratch();
+    GlowScratch(GlowScratch const&) = delete;
+    GlowScratch& operator=(GlowScratch const&) = delete;
+
+    bool init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height);
+    void release();
+
+    [[nodiscard]] bool matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept;
+    [[nodiscard]] REX::W32::ID3D11RenderTargetView* rtv() const noexcept { return m_rtv; }
+    [[nodiscard]] REX::W32::ID3D11ShaderResourceView* srv() const noexcept { return m_srv; }
+
+private:
+    REX::W32::ID3D11Device* m_ref_device;
+    REX::W32::ID3D11Texture2D* m_texture;
+    REX::W32::ID3D11RenderTargetView* m_rtv;
+    REX::W32::ID3D11ShaderResourceView* m_srv;
+    uint32_t m_width;
+    uint32_t m_height;
+};
+
 class SilhouettePass final : public FullscreenPass
 {
 public:
@@ -164,17 +191,29 @@ public:
 class OutlinePass final : public FullscreenPass
 {
 public:
+    OutlinePass();
     ~OutlinePass() override;
     bool init(REX::W32::ID3D11Device* device) override;
     void release() override;
     bool draw(
+        REX::W32::ID3D11Device* device,
         REX::W32::ID3D11DeviceContext* context,
         REX::W32::ID3D11RenderTargetView* target,
         REX::W32::ID3D11ShaderResourceView* mask_srv,
         uint32_t width,
         uint32_t height,
+        uint32_t object_id,
         int thickness,
-        CommonStates const& states) const;
+        ROI::Rect horizontal_rect,
+        ROI::Rect vertical_rect,
+        CommonStates const& states);
+
+    [[nodiscard]] REX::W32::ID3D11RasterizerState* cull_none_scissor() const noexcept { return m_cull_none_scissor; }
+
+private:
+    GlowScratch m_scratch;
+    REX::W32::ID3D11PixelShader* m_horizontal_shader;
+    REX::W32::ID3D11RasterizerState* m_cull_none_scissor;
 };
 
 MASK_NAMESPACE_END

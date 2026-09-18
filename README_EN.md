@@ -12,7 +12,7 @@ Works on dead NPCs and creatures, ash piles left behind by reanimated enemies, a
 - **Static corpse support** — container-type corpses such as `TreasDraugrAmbushCorpse*`, `TreasBurntCorpse*`, `defaultGhostCorpse`, including DLC variants
 - **Optional loot filter** — show only corpses whose inventory contains quest items, keys, enchanted gear, high-value items, books, consumables (arrows, potions, scrolls, ingredients, soul gems — filled-only option available)
 - **Distance fade** — the `icon` marker keeps the existing opacity fade and scales smoothly from 1.25x nearby to 0.75x far away
-- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the nearest highlighted surface per pixel using private depth, `outline` merges each target's independent outer border so occluded borders remain visible, and `icon` points downward above the corpse bounds; nearby crowded corpses share a slightly larger double arrow
+- **Three display modes** — pick one via `DisplayMode`: `silhouette` fills the nearest highlighted surface per pixel using private depth, `outline` gives each target a bright narrow core and a smooth outward colored halo so occluded borders remain visible, and `icon` points downward above the corpse bounds; nearby crowded corpses share a slightly larger double arrow
 - **Accurate placement** — marker positions come from Havok collision shapes and ragdoll bodies, matching the corpse's real footprint
 - **Hotkey toggle** — optionally turn the overlay on/off with a single key (unbound by default; bind one via the "Hotkey" button in the MCP menu or the `Hotkey` INI key; toggles print `HighlightLootableCorpses: ON/OFF` to the console)
 - **In-game settings menu** — every option can be adjusted live in the Mod Control Panel ("Highlight Lootable Corpses > Settings") and saved to the INI
@@ -65,7 +65,7 @@ IconRadius=10
 OutlineColor=00FF66
 ; minimum opacity at max distance
 MinOpacity=0.15
-; outline thickness in pixels
+; outline glow size (1-5; larger values widen the bright rim and outer halo)
 OutlineThickness=2.0
 ; distance where fading begins (fully opaque below)
 FadeStartDistance=500.0
@@ -113,6 +113,6 @@ ValueConsumables=false
 - [SKSE Menu Framework](https://github.com/QTR-Modding/SKSE-Menu-Framework-3) & [SKSE-MCP](https://github.com/QTR-Modding/SKSE-MCP)
 ## Feature documentation
 
-See the [feature index](docs/features/README.md) and [mask rendering](docs/features/mask-rendering.md) for mode semantics, per-target colors, resource lifetime and validation.
+See the [feature index](docs/features/README.md) and [mask rendering](docs/features/mask-rendering.md) for mode semantics, per-target colors, dual-pass glow resources, conservative local regions, lifetime and validation.
 
 See [Icon rendering](docs/features/icon-rendering.md) for thresholds, stable grouping, top anchors and verification. Groups receive a 1.2x size multiplier, capped at 1.5x base size. All candidates participate before selecting the nearest 16 groups. World and height limits prevent unrelated aligned targets from merging, so some screen overlap remains possible. Thresholds need in-game tuning; synthetic WARP checks are not game validation.

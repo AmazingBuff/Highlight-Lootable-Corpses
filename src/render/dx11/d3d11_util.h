@@ -34,6 +34,8 @@ private:
     REX::W32::ID3D11RasterizerState* m_rasterizer;
     uint32_t m_viewport_count;
     REX::W32::D3D11_VIEWPORT m_viewports[REX::W32::D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+    uint32_t m_scissor_count;
+    REX::W32::D3D11_RECT m_scissor_rects[REX::W32::D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     REX::W32::ID3D11InputLayout* m_input_layout;
     REX::W32::D3D11_PRIMITIVE_TOPOLOGY m_topology;
     REX::W32::ID3D11Buffer* m_vertex_buffer;
@@ -49,7 +51,7 @@ private:
     REX::W32::ID3D11ClassInstance* m_pixel_instances[8];
     uint32_t m_pixel_instance_count;
     REX::W32::ID3D11Buffer* m_vertex_cbs[2];
-    REX::W32::ID3D11ShaderResourceView* m_pixel_srvs[2];
+    REX::W32::ID3D11ShaderResourceView* m_pixel_srvs[3];
     REX::W32::ID3D11SamplerState* m_pixel_sampler;
 };
 

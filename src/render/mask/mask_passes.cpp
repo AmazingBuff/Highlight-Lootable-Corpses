@@ -126,6 +126,21 @@ namespace
     static_assert(offsetof(PerDrawCBData, object_id) == 64);
     static_assert(sizeof(DirectX::XMFLOAT4) == 16);
 
+    struct GlowCBData
+    {
+        DirectX::XMFLOAT4 narrow[Glow::Kernel_Slot_Count];
+        DirectX::XMFLOAT4 wide[Glow::Kernel_Slot_Count];
+        uint32_t radius;
+        uint32_t width;
+        uint32_t height;
+        uint32_t object_id;
+        int32_t horizontal_left;
+        int32_t horizontal_top;
+        int32_t horizontal_right;
+        int32_t horizontal_bottom;
+    };
+    static_assert(sizeof(GlowCBData) == 192);
+
     // Silhouette inner fill factor (keeps the existing brightness)
     constexpr float Silhouette_Fill_Alpha = 0.5f;
 
@@ -137,11 +152,33 @@ namespace
         REX::W32::ID3D11Buffer* cb0, void const* cb0_data, size_t cb0_bytes,
         REX::W32::ID3D11ShaderResourceView* style_srv)
     {
-        if (!target || !mask_srv || !vs || !ps || !blend || !cb0 || !style_srv)
+        if (!context || !target || !mask_srv || !vs || !ps || !blend || !cb0 || !style_srv)
             return false;
+
+        REX::W32::ID3D11ShaderResourceView* previous_srvs[2]{};
+        context->PSGetShaderResources(0, 2, previous_srvs);
+        REX::W32::ID3D11Buffer* previous_cb = nullptr;
+        context->PSGetConstantBuffers(0, 1, &previous_cb);
+        auto const restore_bindings = [&]() {
+            context->PSSetConstantBuffers(0, 1, &previous_cb);
+            context->PSSetShaderResources(0, 2, previous_srvs);
+            if (previous_cb)
+                previous_cb->Release();
+            for (REX::W32::ID3D11ShaderResourceView* srv : previous_srvs)
+            {
+                if (srv)
+                    srv->Release();
+            }
+        };
+
+        REX::W32::ID3D11ShaderResourceView* const empty_srvs[2]{};
+        context->PSSetShaderResources(0, 2, empty_srvs);
         REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
         if (!REX::W32::SUCCESS(context->Map(cb0, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            restore_bindings();
             return false;
+        }
         std::memcpy(mapped.data, cb0_data, cb0_bytes);
         context->Unmap(cb0, 0);
 
@@ -161,15 +198,9 @@ namespace
         context->PSSetShader(ps, nullptr, 0);
         REX::W32::ID3D11ShaderResourceView* const srvs[] = { mask_srv, style_srv };
         context->PSSetShaderResources(0, 2, srvs);
-        REX::W32::ID3D11Buffer* previous_cb = nullptr;
-        context->PSGetConstantBuffers(0, 1, &previous_cb);
         context->PSSetConstantBuffers(0, 1, &cb0);
         context->Draw(3, 0);
-        context->PSSetConstantBuffers(0, 1, &previous_cb);
-        if (previous_cb)
-            previous_cb->Release();
-        REX::W32::ID3D11ShaderResourceView* const empty_srvs[2]{};
-        context->PSSetShaderResources(0, 2, empty_srvs);
+        restore_bindings();
         return true;
     }
 }
@@ -181,6 +212,8 @@ namespace
 RenderTarget::RenderTarget() :
     m_ref_device(nullptr),
     m_texture(nullptr),
+    m_depth_texture(nullptr),
+    m_dsv(nullptr),
     m_rtv(nullptr),
     m_srv(nullptr),
     m_width(0),
@@ -266,6 +299,85 @@ bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t
         return false;
     }
 
+    m_ref_device = device;
+    m_width = width;
+    m_height = height;
+    return true;
+}
+
+GlowScratch::GlowScratch() :
+    m_ref_device(nullptr),
+    m_texture(nullptr),
+    m_rtv(nullptr),
+    m_srv(nullptr),
+    m_width(0),
+    m_height(0) {}
+
+GlowScratch::~GlowScratch()
+{
+    release();
+}
+
+bool GlowScratch::matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
+{
+    return m_ref_device == device && m_width == width && m_height == height && m_rtv && m_srv;
+}
+
+void GlowScratch::release()
+{
+    if (m_srv)
+    {
+        m_srv->Release();
+        m_srv = nullptr;
+    }
+    if (m_rtv)
+    {
+        m_rtv->Release();
+        m_rtv = nullptr;
+    }
+    if (m_texture)
+    {
+        m_texture->Release();
+        m_texture = nullptr;
+    }
+    m_ref_device = nullptr;
+    m_width = 0;
+    m_height = 0;
+}
+
+bool GlowScratch::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
+{
+    if (!device || width == 0 || height == 0)
+        return false;
+    if (matches(device, width, height))
+        return true;
+
+    release();
+    REX::W32::D3D11_TEXTURE2D_DESC desc{};
+    desc.width = width;
+    desc.height = height;
+    desc.mipLevels = 1;
+    desc.arraySize = 1;
+    desc.format = REX::W32::DXGI_FORMAT_R16G16_FLOAT;
+    desc.sampleDesc.count = 1;
+    desc.usage = REX::W32::D3D11_USAGE_DEFAULT;
+    desc.bindFlags = REX::W32::D3D11_BIND_RENDER_TARGET | REX::W32::D3D11_BIND_SHADER_RESOURCE;
+
+    REX::W32::HRESULT const texture_hr = device->CreateTexture2D(&desc, nullptr, &m_texture);
+    if (!REX::W32::SUCCESS(texture_hr) || !m_texture)
+    {
+        logger::error("Outline glow: failed to create R16G16_FLOAT scratch ({:X})", static_cast<unsigned int>(texture_hr));
+        release();
+        return false;
+    }
+    REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
+    REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
+    if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
+    {
+        logger::error("Outline glow: failed to create scratch views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
+        release();
+        return false;
+    }
     m_ref_device = device;
     m_width = width;
     m_height = height;
@@ -631,6 +743,8 @@ bool FullscreenPass::init(REX::W32::ID3D11Device* device)
 
 void FullscreenPass::release()
 {
+    m_ready = false;
+    m_failed = false;
     m_styles_valid = false;
     m_style_capacity = 0;
     if (m_style_srv)
@@ -741,8 +855,7 @@ void SilhouettePass::release()
         m_pixel_shader->Release();
         m_pixel_shader = nullptr;
     }
-    m_ready = false;
-    m_failed = false;  // allow a rebuild after a device change (same behaviour as the original release_pipeline → rebuild)
+    FullscreenPass::release();
 }
 
 bool SilhouettePass::draw(
@@ -762,6 +875,11 @@ bool SilhouettePass::draw(
         m_cb, cb_data, sizeof(cb_data), m_style_srv);
 }
 
+OutlinePass::OutlinePass() :
+    m_scratch(),
+    m_horizontal_shader(nullptr),
+    m_cull_none_scissor(nullptr) {}
+
 OutlinePass::~OutlinePass()
 {
     release();
@@ -771,69 +889,182 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
 {
     if (m_ready || m_failed)
         return m_ready;
-
-    if (!FullscreenPass::init(device))
+    if (!device || !FullscreenPass::init(device))
     {
         m_failed = true;
         return false;
     }
 
-    REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_outline_main", "ps_5_0", "outline mask outline", "outline mask");
-    if (ps_blob)
+    REX::W32::ID3DBlob* horizontal_blob = compile_shader(render_shaders::MaskGlow, "ps_glow_horizontal", "ps_5_0", "outline glow horizontal", "outline glow");
+    if (horizontal_blob)
     {
-        device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &m_pixel_shader);
-        ps_blob->Release();
+        device->CreatePixelShader(horizontal_blob->GetBufferPointer(), horizontal_blob->GetBufferSize(), nullptr, &m_horizontal_shader);
+        horizontal_blob->Release();
+    }
+    REX::W32::ID3DBlob* vertical_blob = compile_shader(render_shaders::MaskGlow, "ps_glow_vertical", "ps_5_0", "outline glow vertical", "outline glow");
+    if (vertical_blob)
+    {
+        device->CreatePixelShader(vertical_blob->GetBufferPointer(), vertical_blob->GetBufferSize(), nullptr, &m_pixel_shader);
+        vertical_blob->Release();
     }
 
-    // b0: radius, fill factor, padding.
-    REX::W32::D3D11_BUFFER_DESC ocb{};
-    ocb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
-    ocb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
-    ocb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
-    ocb.byteWidth = 16;
-    device->CreateBuffer(&ocb, nullptr, &m_cb);
+    REX::W32::D3D11_BUFFER_DESC glow_cb{};
+    glow_cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
+    glow_cb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
+    glow_cb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
+    glow_cb.byteWidth = sizeof(GlowCBData);
+    device->CreateBuffer(&glow_cb, nullptr, &m_cb);
 
-    m_ready = m_pixel_shader && m_cb;
+    REX::W32::D3D11_RASTERIZER_DESC scissor_desc{};
+    scissor_desc.cullMode = REX::W32::D3D11_CULL_NONE;
+    scissor_desc.fillMode = REX::W32::D3D11_FILL_SOLID;
+    scissor_desc.depthClipEnable = true;
+    scissor_desc.scissorEnable = true;
+    scissor_desc.multisampleEnable = true;
+    device->CreateRasterizerState(&scissor_desc, &m_cull_none_scissor);
+
+    m_ready = m_horizontal_shader && m_pixel_shader && m_cb && m_cull_none_scissor;
     if (!m_ready)
     {
+        release();
         m_failed = true;
-        logger::warn("outline mask outline pass unavailable, corpse outline band disabled (mask rendering stays active)");
+        logger::warn("outline glow pass unavailable, corpse outline glow disabled (mask rendering stays active)");
     }
     return m_ready;
 }
 
 void OutlinePass::release()
 {
+    m_scratch.release();
     if (m_cb)
     {
         m_cb->Release();
         m_cb = nullptr;
+    }
+    if (m_horizontal_shader)
+    {
+        m_horizontal_shader->Release();
+        m_horizontal_shader = nullptr;
     }
     if (m_pixel_shader)
     {
         m_pixel_shader->Release();
         m_pixel_shader = nullptr;
     }
-    m_ready = false;
-    m_failed = false;
+    if (m_cull_none_scissor)
+    {
+        m_cull_none_scissor->Release();
+        m_cull_none_scissor = nullptr;
+    }
+    FullscreenPass::release();
 }
 
 bool OutlinePass::draw(
+    REX::W32::ID3D11Device* device,
     REX::W32::ID3D11DeviceContext* context,
     REX::W32::ID3D11RenderTargetView* target,
     REX::W32::ID3D11ShaderResourceView* mask_srv,
     uint32_t width,
     uint32_t height,
+    uint32_t object_id,
     int thickness,
-    CommonStates const& states) const
+    ROI::Rect horizontal_rect,
+    ROI::Rect vertical_rect,
+    CommonStates const& states)
 {
-    if (!m_ready || !m_styles_valid)
+    if (!device || !context || !target || !mask_srv || !m_ready || !m_styles_valid || !m_style_srv ||
+        !states.opaque() || !states.alpha_blend() || !states.depth_none() || !states.cull_none() || !m_cull_none_scissor ||
+        object_id == 0 || width == 0 || height == 0 || horizontal_rect.left < 0 || horizontal_rect.top < 0 ||
+        horizontal_rect.right > static_cast<int32_t>(width) || horizontal_rect.bottom > static_cast<int32_t>(height) ||
+        horizontal_rect.right <= horizontal_rect.left || horizontal_rect.bottom <= horizontal_rect.top ||
+        vertical_rect.left < 0 || vertical_rect.top < 0 || vertical_rect.right > static_cast<int32_t>(width) ||
+        vertical_rect.bottom > static_cast<int32_t>(height) || vertical_rect.right <= vertical_rect.left || vertical_rect.bottom <= vertical_rect.top)
         return false;
 
-    float const cb_data[4] = { static_cast<float>(thickness), 1.0f, 0.0f, 0.0f };
-    return draw_fullscreen_triangle(context, target, mask_srv, width, height,
-        m_vertex_shader, m_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
-        m_cb, cb_data, sizeof(cb_data), m_style_srv);
+    Glow::KernelProfile const profile = Glow::make_kernel_profile(thickness);
+    GlowCBData cb_data{};
+    std::memcpy(cb_data.narrow, profile.narrow.data(), sizeof(profile.narrow));
+    std::memcpy(cb_data.wide, profile.wide.data(), sizeof(profile.wide));
+    cb_data.radius = static_cast<uint32_t>(profile.radius);
+    cb_data.width = width;
+    cb_data.height = height;
+    cb_data.object_id = object_id;
+    cb_data.horizontal_left = horizontal_rect.left;
+    cb_data.horizontal_top = horizontal_rect.top;
+    cb_data.horizontal_right = horizontal_rect.right;
+    cb_data.horizontal_bottom = horizontal_rect.bottom;
+
+    REX::W32::ID3D11ShaderResourceView* previous_srvs[3]{};
+    context->PSGetShaderResources(0, 3, previous_srvs);
+    REX::W32::ID3D11Buffer* previous_cb = nullptr;
+    context->PSGetConstantBuffers(0, 1, &previous_cb);
+    auto const restore_bindings = [&]() {
+        context->PSSetConstantBuffers(0, 1, &previous_cb);
+        context->PSSetShaderResources(0, 3, previous_srvs);
+        if (previous_cb)
+            previous_cb->Release();
+        for (REX::W32::ID3D11ShaderResourceView* srv : previous_srvs)
+        {
+            if (srv)
+                srv->Release();
+        }
+    };
+
+    REX::W32::ID3D11ShaderResourceView* const empty_srvs[3]{};
+    context->PSSetShaderResources(0, 3, empty_srvs);
+    if (!m_scratch.init(device, width, height))
+    {
+        restore_bindings();
+        return false;
+    }
+
+    REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (!REX::W32::SUCCESS(context->Map(m_cb, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        restore_bindings();
+        return false;
+    }
+    std::memcpy(mapped.data, &cb_data, sizeof(cb_data));
+    context->Unmap(m_cb, 0);
+
+    REX::W32::D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
+    context->RSSetViewports(1, &viewport);
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    REX::W32::ID3D11Buffer* const no_vb = nullptr;
+    uint32_t const zero = 0;
+    context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
+    context->IASetIndexBuffer(nullptr, REX::W32::DXGI_FORMAT_UNKNOWN, 0);
+    context->VSSetShader(m_vertex_shader, nullptr, 0);
+    context->PSSetConstantBuffers(0, 1, &m_cb);
+
+    REX::W32::ID3D11RenderTargetView* const scratch_rtv = m_scratch.rtv();
+    context->OMSetRenderTargets(1, &scratch_rtv, nullptr);
+    context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(states.depth_none(), 0);
+    context->RSSetState(m_cull_none_scissor);
+    REX::W32::D3D11_RECT const horizontal_scissor{
+        horizontal_rect.left, horizontal_rect.top, horizontal_rect.right, horizontal_rect.bottom };
+    context->RSSetScissorRects(1, &horizontal_scissor);
+    context->PSSetShader(m_horizontal_shader, nullptr, 0);
+    REX::W32::ID3D11ShaderResourceView* const horizontal_srvs[] = { mask_srv };
+    context->PSSetShaderResources(0, 1, horizontal_srvs);
+    context->Draw(3, 0);
+
+    context->PSSetShaderResources(0, 3, empty_srvs);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(states.alpha_blend(), nullptr, 0xFFFFFFFF);
+    context->RSSetState(m_cull_none_scissor);
+    REX::W32::D3D11_RECT const vertical_scissor{
+        vertical_rect.left, vertical_rect.top, vertical_rect.right, vertical_rect.bottom };
+    context->RSSetScissorRects(1, &vertical_scissor);
+    context->PSSetShader(m_pixel_shader, nullptr, 0);
+    REX::W32::ID3D11ShaderResourceView* const vertical_srvs[] = { mask_srv, m_scratch.srv(), m_style_srv };
+    context->PSSetShaderResources(0, 3, vertical_srvs);
+    context->Draw(3, 0);
+
+    restore_bindings();
+    return true;
 }
 
 MASK_NAMESPACE_END
