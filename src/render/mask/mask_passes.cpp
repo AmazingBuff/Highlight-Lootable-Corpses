@@ -6,13 +6,13 @@
 
 #include "mask_geometry.h"
 
+#include "render/render_util.h"
 #include "render/shader_sources.h"
 
 #include "render/dx11/d3d11_util.h"
 
 #include "Plugin.h"
 
-#include <algorithm>
 #include <cstring>
 
 MASK_NAMESPACE_BEGIN

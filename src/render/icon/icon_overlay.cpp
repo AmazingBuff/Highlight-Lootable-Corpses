@@ -15,7 +15,6 @@
 #include <d3d11.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 
 PLUGIN_NAMESPACE_BEGIN

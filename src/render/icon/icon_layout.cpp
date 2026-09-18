@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <numeric>
 
 namespace Amazing::HighlightLootableCorpses
 {

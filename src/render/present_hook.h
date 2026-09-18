@@ -6,7 +6,9 @@
 
 #include "Plugin.h"
 
-#include <d3d11.h>
+#include <combaseapi.h>
+
+struct IDXGISwapChain;
 
 PLUGIN_NAMESPACE_BEGIN
 

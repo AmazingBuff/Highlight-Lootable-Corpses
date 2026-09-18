@@ -6,9 +6,12 @@
 
 #include "mask_types.h"
 
-#include "render/render_util.h"
-
 #include "Plugin.h"
+
+namespace RE
+{
+    class NiCamera;
+}
 
 #include <DirectXMath.h>
 #include <d3d11.h>

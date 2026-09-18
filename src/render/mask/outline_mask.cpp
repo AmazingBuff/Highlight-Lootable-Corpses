@@ -13,9 +13,6 @@
 
 #include "Plugin.h"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
 #include <span>
 
 PLUGIN_NAMESPACE_BEGIN
