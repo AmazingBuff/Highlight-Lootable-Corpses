@@ -91,7 +91,7 @@ void InputManager::install()
 {
     RE::BSInputDeviceManager::GetSingleton()->AddEventSink(InputHandler::instance());
 
-    logger::info("Installed input handler!");
+    logger::info("Input handler added");
 }
 
 PLUGIN_NAMESPACE_END

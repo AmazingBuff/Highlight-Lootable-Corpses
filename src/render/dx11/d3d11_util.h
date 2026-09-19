@@ -6,7 +6,6 @@
 
 PLUGIN_NAMESPACE_BEGIN
 [[nodiscard]] REX::W32::ID3DBlob* compile_shader(char const* source, char const* entry, char const* target, char const* name, char const* log_prefix);
-void update_constant_buffer(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11Buffer* buffer, void const* data, size_t bytes);
 
 class D3D11StateCapture
 {
@@ -51,6 +50,7 @@ private:
     REX::W32::ID3D11ClassInstance* m_pixel_instances[8];
     uint32_t m_pixel_instance_count;
     REX::W32::ID3D11Buffer* m_vertex_cbs[2];
+    REX::W32::ID3D11Buffer* m_pixel_cbs[2];
     REX::W32::ID3D11ShaderResourceView* m_pixel_srvs[3];
     REX::W32::ID3D11SamplerState* m_pixel_sampler;
 };

@@ -37,15 +37,6 @@ REX::W32::ID3DBlob* compile_shader(char const* source, char const* entry, char c
     return blob;
 }
 
-void update_constant_buffer(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11Buffer* buffer, void const* data, size_t bytes)
-{
-    REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (!REX::W32::SUCCESS(context->Map(buffer, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-        return;
-    std::memcpy(mapped.data, data, bytes);
-    context->Unmap(buffer, 0);
-}
-
 D3D11StateCapture::D3D11StateCapture(REX::W32::ID3D11DeviceContext* context) :
     m_ref_context(context),
     m_render_target(nullptr),
@@ -75,6 +66,7 @@ D3D11StateCapture::D3D11StateCapture(REX::W32::ID3D11DeviceContext* context) :
     m_pixel_instances{},
     m_pixel_instance_count(8),
     m_vertex_cbs{},
+    m_pixel_cbs{},
     m_pixel_srvs{},
     m_pixel_sampler(nullptr) {}
 
@@ -115,6 +107,11 @@ D3D11StateCapture::~D3D11StateCapture()
         if (cb)
             cb->Release();
     }
+    for (REX::W32::ID3D11Buffer* cb : m_pixel_cbs)
+    {
+        if (cb)
+            cb->Release();
+    }
     for (REX::W32::ID3D11ShaderResourceView* srv : m_pixel_srvs)
     {
         if (srv)
@@ -144,6 +141,7 @@ void D3D11StateCapture::capture()
     m_ref_context->VSGetShader(&m_vertex_shader, m_vertex_instances, &m_vertex_instance_count);
     m_ref_context->PSGetShader(&m_pixel_shader, m_pixel_instances, &m_pixel_instance_count);
     m_ref_context->VSGetConstantBuffers(0, 2, m_vertex_cbs);
+    m_ref_context->PSGetConstantBuffers(0, 2, m_pixel_cbs);
     m_ref_context->PSGetShaderResources(0, 3, m_pixel_srvs);
     m_ref_context->PSGetSamplers(0, 1, &m_pixel_sampler);
 }
@@ -163,6 +161,7 @@ void D3D11StateCapture::restore() const
     m_ref_context->VSSetShader(m_vertex_shader, m_vertex_instances, m_vertex_instance_count);
     m_ref_context->PSSetShader(m_pixel_shader, m_pixel_instances, m_pixel_instance_count);
     m_ref_context->VSSetConstantBuffers(0, 2, m_vertex_cbs);
+    m_ref_context->PSSetConstantBuffers(0, 2, m_pixel_cbs);
     m_ref_context->PSSetShaderResources(0, 3, m_pixel_srvs);
     m_ref_context->PSSetSamplers(0, 1, &m_pixel_sampler);
 }

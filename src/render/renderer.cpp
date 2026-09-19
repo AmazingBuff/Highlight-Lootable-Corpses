@@ -20,8 +20,6 @@ PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
-    constexpr size_t Icon_Max_Vertex_Count = Icon::Icon_Marker_Vertex_Count * Max_Corpse_Count;
-
     constexpr float Hold_Fraction = 0.10f;
 
     float pulse_alpha(float progress)
@@ -211,7 +209,7 @@ namespace
                         for (Icon::IconMarker const& marker : std::views::reverse(markers))
                         {
                             Icon::IconGeometry const geometry = Icon::icon_geometry(marker, { color.r(), color.g(), color.b() }, static_cast<float>(w), static_cast<float>(h));
-                            if (vertices.size() + geometry.count <= Icon_Max_Vertex_Count)
+                            if (vertices.size() + geometry.count <= Icon::Icon_Max_Vertex_Count)
                                 vertices.insert(vertices.end(), geometry.vertices.begin(), geometry.vertices.begin() + static_cast<int64_t>(geometry.count));
                         }
                         m_icon_overlay.draw(context, m_render_target, vertices, *m_states);
@@ -249,7 +247,7 @@ namespace
                 return true;
 
             // All HLSL passes are compiled once, before any overlay picks them up.
-            if (!ShaderManager::instance().init(device))
+            if (!ShaderManager::instance().compile())
                 return false;
 
             // CommonStates is the local REX::W32-typed mirror; it takes the REX device pointer directly.

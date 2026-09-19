@@ -33,13 +33,6 @@ void IconOverlay::begin_frame(uint32_t width, uint32_t height)
     m_height = height;
 }
 
-void IconOverlay::add_marker(IconMarker const& marker, DirectX::XMFLOAT3 const& color)
-{
-    IconGeometry const geometry = icon_geometry(marker, color, static_cast<float>(m_width), static_cast<float>(m_height));
-    if (m_vertices.size() + geometry.count <= Max_Vertex_Count)
-        m_vertices.insert(m_vertices.end(), geometry.vertices.begin(), geometry.vertices.begin() + geometry.count);
-}
-
 bool IconOverlay::create_pipeline(REX::W32::ID3D11Device* device)
 {
     // Both shaders and the VS bytecode are precompiled and owned by the ShaderManager.
@@ -74,14 +67,14 @@ bool IconOverlay::create_pipeline(REX::W32::ID3D11Device* device)
 
     REX::W32::D3D11_BUFFER_DESC bd = {};
     bd.usage = REX::W32::D3D11_USAGE_DYNAMIC;
-    bd.byteWidth = static_cast<uint32_t>(Max_Vertex_Count * sizeof(IconVertex));
+    bd.byteWidth = static_cast<uint32_t>(Icon_Max_Vertex_Count * sizeof(IconVertex));
     bd.bindFlags = REX::W32::D3D11_BIND_VERTEX_BUFFER;
     bd.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
     device->CreateBuffer(&bd, nullptr, &m_vertex_buffer);
 
     if (m_ref_vertex_shader && m_ref_pixel_shader && m_input_layout && m_vertex_buffer)
     {
-        logger::info("Icon overlay pipeline ready ({} vertices max)", Max_Vertex_Count);
+        logger::info("Icon overlay pipeline ready ({} vertices max)", Icon_Max_Vertex_Count);
         return true;
     }
 
@@ -107,17 +100,17 @@ void IconOverlay::release_pipeline()
     m_ref_vertex_shader = nullptr;
 }
 
-void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, std::vector<IconVertex> const& vertices, CommonStates const& states)
+void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, std::vector<IconVertex> const& vertices, CommonStates const& states) const
 {
+    if (vertices.empty())
+        return;
+
     D3D11StateCapture capture(context);
     capture.capture();
 
     REX::W32::D3D11_MAPPED_SUBRESOURCE mapped = {};
     if (!REX::W32::SUCCESS(context->Map(m_vertex_buffer, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-    {
-        m_vertices.clear();
         return;
-    }
     std::memcpy(mapped.data, vertices.data(), vertices.size() * sizeof(IconVertex));
     context->Unmap(m_vertex_buffer, 0);
 
@@ -125,7 +118,7 @@ void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11R
     static constexpr uint32_t s_offset = 0;
     // CommonStates is the local REX::W32-typed mirror; its getters return the REX state pointers directly.
     context->OMSetRenderTargets(1, &target, nullptr);
-    context->OMSetBlendState(states.alpha_blend(), nullptr, 0xFFFFFFFF);
+    context->OMSetBlendState(states.non_premultiplied(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(states.depth_none(), 0);
     context->RSSetState(states.cull_none());
 
@@ -143,14 +136,13 @@ void IconOverlay::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11R
     context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(m_ref_vertex_shader, nullptr, 0);
     context->PSSetShader(m_ref_pixel_shader, nullptr, 0);
-    context->Draw(static_cast<uint32_t>(count), 0);
+    context->Draw(static_cast<uint32_t>(vertices.size()), 0);
 
     capture.restore();
 }
 
 void IconOverlay::end_frame()
 {
-    m_vertices.clear();
 }
 
 ICON_NAMESPACE_END

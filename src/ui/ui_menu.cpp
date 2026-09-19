@@ -191,7 +191,7 @@ void Menu::register_menu()
     SKSEMenuFramework::AddSectionItem("Settings", render_settings);
     s_registered = true;
 
-    logger::info("Registered Highlight Lootable Corpses settings page (SKSE Menu Framework v{:.2f})", SKSEMenuFramework::GetMenuFrameworkVersion());
+    logger::info("Registered settings page (SKSE Menu Framework v{:.2f})", SKSEMenuFramework::GetMenuFrameworkVersion());
 }
 
 PLUGIN_NAMESPACE_END

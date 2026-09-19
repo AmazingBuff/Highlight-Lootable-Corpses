@@ -65,33 +65,47 @@ namespace
 }
 
 
-MaskOverlay::MaskOverlay() : m_ref_device(nullptr), m_width(0), m_height(0), m_ready(false) {}
+MaskOverlay::MaskOverlay() : m_ref_device(nullptr), m_mask_rt(REX::W32::DXGI_FORMAT_R32_UINT, REX::W32::DXGI_FORMAT_D32_FLOAT), m_width(0), m_height(0), m_pass_ready(false), m_rt_ready(false) {}
 
 MaskOverlay::~MaskOverlay() = default;
 
 bool MaskOverlay::init(REX::W32::ID3D11Device* device)
 {
-    if (m_ready)
+    if (m_pass_ready)
         return true;
     
     const bool geometry_ready = m_geometry_pass.init(device);
     const bool silhouette_ready = m_silhouette_pass.init(device);
     const bool outline_ready = m_outline_pass.init(device);
     
-    m_ready = geometry_ready && silhouette_ready && outline_ready;
+    m_pass_ready = geometry_ready && silhouette_ready && outline_ready;
     m_ref_device = device;
-    return m_ready;
+    return m_pass_ready;
 }
 
 bool MaskOverlay::begin_frame(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
 {
-    if (!m_mask_rt.matches(device, width, height))
-    {
-        m_mask_rt.release();
-        m_ready = init(device) && m_mask_rt.init(m_ref_device, width, height);
-    }
+    RenderTarget& scratch_render_target = m_outline_pass.scratch_render_target();
 
-    return m_ready;
+    if (m_rt_ready)
+    {
+        if (!m_mask_rt.matches(device, width, height))
+        {
+            m_mask_rt.release();
+            scratch_render_target.release();
+
+            m_geometry_pass.release();
+            m_silhouette_pass.release();
+            m_outline_pass.release();
+
+            m_pass_ready = init(device);
+            m_rt_ready = m_mask_rt.init(m_ref_device, width, height) && scratch_render_target.init(m_ref_device, width, height);
+        }
+    }
+    else
+        m_rt_ready = m_mask_rt.init(m_ref_device, width, height) && scratch_render_target.init(m_ref_device, width, height);
+
+    return m_pass_ready && m_rt_ready;
 }
 
 void MaskOverlay::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, RE::NiCamera* camera,
@@ -132,81 +146,19 @@ void MaskOverlay::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceCon
 
     D3D11StateCapture capture(context);
     capture.capture();
-    
-    REX::W32::D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
-    REX::W32::ID3D11RenderTargetView* mask_rtv = m_mask_rt.rtv();
-    auto const draw_mask = [&](std::span<MaskDraw const> group,
-                               bool clear_mask,
-                               REX::W32::ID3D11RasterizerState* rasterizer,
-                               REX::W32::D3D11_RECT const* scissor)
-    {
-        REX::W32::ID3D11ShaderResourceView* const empty_srvs[3]{};
-        context->PSSetShaderResources(0, 3, empty_srvs);
-        context->OMSetRenderTargets(1, &mask_rtv, silhouette ? m_mask_rt.dsv() : nullptr);
-        if (clear_mask)
-            context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
-        if (silhouette)
-            context->ClearDepthStencilView(m_mask_rt.dsv(), REX::W32::D3D11_CLEAR_DEPTH, 0.0f, 0);
-        context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
-        context->OMSetDepthStencilState(silhouette ? m_geometry_pass.depth_nearest() : states.depth_none(), 0);
-        context->RSSetState(rasterizer);
-        if (scissor)
-            context->RSSetScissorRects(1, scissor);
-        context->RSSetViewports(1, &vp);
-        m_geometry_pass.draw(device, context, view_proj, group);
+
+    REX::W32::D3D11_VIEWPORT const viewport{
+        .topLeftX = 0.0f, .topLeftY = 0.0f,
+        .width = static_cast<float>(width),
+        .height = static_cast<float>(height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f
     };
+
     if (silhouette)
-    {
-        draw_mask(draws, true, states.cull_none(), nullptr);
-        m_silhouette_pass.draw(context, overlay_target, m_mask_rt.srv(), width, height, states);
-    }
+        draw_silhouette(device, context, overlay_target, draws, view_proj, viewport, states);
     else
-    {
-        REX::W32::ID3D11ShaderResourceView* const empty_srvs[3]{};
-        context->PSSetShaderResources(0, 3, empty_srvs);
-        context->OMSetRenderTargets(1, &mask_rtv, nullptr);
-        context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
-        Glow::KernelProfile const profile = Glow::make_kernel_profile(cfg.outline_thickness);
-        ROI::Viewport const viewport{ static_cast<int32_t>(width), static_cast<int32_t>(height) };
-        // Collection appends all meshes of a target contiguously, in target order.
-        std::span<MaskDraw const> const all_draws(draws);
-        for (size_t begin = 0; begin < draws.size();)
-        {
-            size_t end = begin + 1;
-            while (end < draws.size() && draws[end].target_index == draws[begin].target_index)
-                ++end;
-            std::span<MaskDraw const> const group = all_draws.subspan(begin, end - begin);
-            ROI::Region const base_region = group_region(group, view_proj, width, height);
-            if (base_region.kind == ROI::RegionKind::e_empty)
-            {
-                begin = end;
-                continue;
-            }
-            ROI::Region const horizontal_region = ROI::expand(base_region, profile.radius, true, false, viewport);
-            ROI::Region const vertical_region = ROI::expand(base_region, profile.radius, true, true, viewport);
-            if (horizontal_region.kind == ROI::RegionKind::e_empty || vertical_region.kind == ROI::RegionKind::e_empty)
-            {
-                begin = end;
-                continue;
-            }
-            ROI::Rect const base_rect = base_region.kind == ROI::RegionKind::e_full
-                                                  ? full_rect(width, height)
-                                                  : base_region.rect;
-            ROI::Rect const horizontal_rect = horizontal_region.kind == ROI::RegionKind::e_full
-                                                        ? full_rect(width, height)
-                                                        : horizontal_region.rect;
-            ROI::Rect const vertical_rect = vertical_region.kind == ROI::RegionKind::e_full
-                                                      ? full_rect(width, height)
-                                                      : vertical_region.rect;
-            REX::W32::D3D11_RECT const geometry_scissor{
-                base_rect.left, base_rect.top, base_rect.right, base_rect.bottom };
-            draw_mask(group, false, states.cull_none_scissor(), &geometry_scissor);
-            if (!m_outline_pass.draw(device, context, overlay_target, m_mask_rt.srv(), width, height,
-                    draws[begin].target_index + 1, profile.thickness, horizontal_rect, vertical_rect, states))
-                break;
-            begin = end;
-        }
-    }
+        draw_outline(device, context, overlay_target, draws, view_proj, viewport, states);
     
     capture.restore();
 }
@@ -214,5 +166,92 @@ void MaskOverlay::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceCon
 void MaskOverlay::end_frame()
 {
 
+}
+
+void MaskOverlay::draw_silhouette(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context,
+    REX::W32::ID3D11RenderTargetView* overlay_target, std::span<MaskDraw const> group,
+    DirectX::XMFLOAT4X4 const& view_proj, REX::W32::D3D11_VIEWPORT const& viewport, CommonStates const& states)
+{
+    REX::W32::ID3D11RenderTargetView* mask_rtv = m_mask_rt.rtv();
+    context->OMSetRenderTargets(1, &mask_rtv, m_mask_rt.dsv());
+    context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
+    context->ClearDepthStencilView(m_mask_rt.dsv(), REX::W32::D3D11_CLEAR_DEPTH, 0.0f, 0);
+
+    context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(m_geometry_pass.depth_nearest(), 0);
+    context->RSSetState(states.cull_none());
+    context->RSSetViewports(1, &viewport);
+    m_geometry_pass.draw(device, context, view_proj, group);
+
+    context->OMSetRenderTargets(1, &overlay_target, nullptr);
+    context->OMSetBlendState(states.non_premultiplied(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(states.depth_none(), 0);
+    context->RSSetState(states.cull_none());
+    context->RSSetViewports(1, &viewport);
+    m_silhouette_pass.draw(context, m_mask_rt.srv());
+}
+
+void MaskOverlay::draw_outline(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context,
+    REX::W32::ID3D11RenderTargetView* overlay_target, std::vector<MaskDraw> const& draws,
+    DirectX::XMFLOAT4X4 const& view_proj, REX::W32::D3D11_VIEWPORT const& vp, CommonStates const& states)
+{
+    REX::W32::ID3D11RenderTargetView* mask_rtv = m_mask_rt.rtv();
+
+    context->OMSetDepthStencilState(states.depth_none(), 0);
+    context->RSSetState(states.cull_none_scissor());
+    context->RSSetViewports(1, &vp);
+
+    ROI::Viewport const viewport{
+        .width = static_cast<int32_t>(vp.width),
+        .height = static_cast<int32_t>(vp.height)
+    };
+
+    Glow::KernelProfile const profile = Glow::make_kernel_profile(Setting::instance().get_config().outline_thickness);
+    // Collection appends all meshes of a target contiguously, in target order.
+    std::span<MaskDraw const> const all_draws(draws);
+    for (size_t begin = 0; begin < draws.size();)
+    {
+        size_t end = begin + 1;
+        while (end < draws.size() && draws[end].target_index == draws[begin].target_index)
+            ++end;
+        std::span<MaskDraw const> const group = all_draws.subspan(begin, end - begin);
+        ROI::Region const base_region = group_region(group, view_proj, static_cast<uint32_t>(viewport.width), static_cast<uint32_t>(viewport.height));
+        if (base_region.kind == ROI::RegionKind::e_empty)
+        {
+            begin = end;
+            continue;
+        }
+        ROI::Region const horizontal_region = ROI::expand(base_region, profile.radius, true, false, viewport);
+        ROI::Region const vertical_region = ROI::expand(base_region, profile.radius, true, true, viewport);
+        if (horizontal_region.kind == ROI::RegionKind::e_empty || vertical_region.kind == ROI::RegionKind::e_empty)
+        {
+            begin = end;
+            continue;
+        }
+        ROI::Rect const base_rect = base_region.kind == ROI::RegionKind::e_full ?
+            full_rect(viewport.width, viewport.height) : base_region.rect;
+        ROI::Rect const horizontal_rect = horizontal_region.kind == ROI::RegionKind::e_full ?
+            full_rect(viewport.width, viewport.height) : horizontal_region.rect;
+        ROI::Rect const vertical_rect = vertical_region.kind == ROI::RegionKind::e_full ?
+            full_rect(viewport.width, viewport.height) : vertical_region.rect;
+
+        REX::W32::D3D11_RECT const geometry_scissor{
+            base_rect.left,
+            base_rect.top,
+            base_rect.right,
+            base_rect.bottom
+        };
+        context->RSSetScissorRects(1, &geometry_scissor);
+
+        context->OMSetRenderTargets(1, &mask_rtv, nullptr);
+        context->ClearRenderTargetView(mask_rtv, Mask_Clear_Color);
+
+        context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
+        m_geometry_pass.draw(device, context, view_proj, group);
+
+        if (!m_outline_pass.draw(context, overlay_target, m_mask_rt.srv(), vp, draws[begin].target_index + 1, profile.thickness, horizontal_rect, vertical_rect, states))
+            break;
+        begin = end;
+    }
 }
 MASK_NAMESPACE_END

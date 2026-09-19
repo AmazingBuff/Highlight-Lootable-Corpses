@@ -43,7 +43,7 @@ bool PresentHook::install(Callback on_present)
     m_ref_original_present = reinterpret_cast<PresentFunc>(vtable.write_vfunc(8, &PresentHook::present_thunk));
     m_callback = on_present;
 
-    logger::info("Installed swap chain Present hook (swap chain={}, original={})", fmt::ptr(swap_chain), fmt::ptr(m_ref_original_present));
+    logger::info("Hook swap chain present");
     return true;
 }
 

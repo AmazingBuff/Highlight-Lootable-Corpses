@@ -27,30 +27,6 @@ namespace
     constexpr float Skinned_Weight_Sum_Max = 1.02f;
 
     // ---------------------------------------------------------------------------
-    // One-shot diagnostic logging: deduplicated by key (a given key is emitted once). The signature
-    // container is only touched by the render thread (inside the Present callback).
-    // ---------------------------------------------------------------------------
-    void log_once(bool warn, std::string key, std::string_view message)
-    {
-        static std::unordered_set<std::string> s_signatures;
-        if (s_signatures.emplace(std::move(key)).second)
-        {
-            if (warn)
-                logger::warn("{}", message);
-            else
-                logger::info("{}", message);
-        }
-    }
-
-    void log_static_skip_once(RE::FormID form_id, char const* node_name, std::string_view reason, std::string_view details)
-    {
-        char const* const node = node_name ? node_name : "?";
-        log_once(false,
-            fmt::format("static|{:08X}|{}|{}", form_id, node, reason),
-            fmt::format("Mask overlay: skip static draw [{}] target={:08X} node=\"{}\" {}", reason, form_id, node, details));
-    }
-
-    // ---------------------------------------------------------------------------
     // Vertex layout: CLibNG's VertexDesc::GetSize() miscounts the half-precision position (16) and
     // UV (4), so the stride is derived as the max of offset+size over all attributes instead -
     // offsets come from the engine-written desc, sizes are the fixed SSE formats (position/UV are
@@ -96,11 +72,6 @@ namespace
     REX::W32::DXGI_FORMAT position_format_of(RE::BSGraphics::VertexDesc const& desc)
     {
         return desc.HasFlag(RE::BSGraphics::Vertex::VF_FULLPREC) ? REX::W32::DXGI_FORMAT_R32G32B32_FLOAT : REX::W32::DXGI_FORMAT_R16G16B16A16_FLOAT;
-    }
-
-    bool is_finite(RE::NiPoint3 const& p)
-    {
-        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
     }
 
     // Column-vector point transform M·p (translation included): XMVector3Transform computes p·M, so
@@ -186,7 +157,7 @@ namespace
                 DirectX::PackedVector::XMConvertHalfToFloat(half[2]),
             };
         }
-        return is_finite(out);
+        return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
     }
 
     // Sample-decode the model-space AABB centre/radius and min/max (the sample cap flattens large meshes); any non-finite value → failure
@@ -278,7 +249,7 @@ namespace
             result.format = position_format_of(desc);
             result.offset = desc_offset;
             result.state = PositionCalibrationState::e_desc_fallback;
-            log_once(false, fmt::format("calib-pos|{:018x}|fallback", desc_raw),
+            logger::info("{}",
                 fmt::format("Mask overlay: position calibration unavailable (raw vertex data missing), using desc-derived layout {} format={:#06x} offset={}",
                     desc_fields, static_cast<unsigned>(result.format), result.offset));
             if (s_calibrations.size() < Max_Position_Calibrations)
@@ -357,7 +328,7 @@ namespace
         if (best < 0)
         {
             result.state = PositionCalibrationState::e_unresolved;
-            log_once(true, fmt::format("calib-pos|{:018x}|unresolved", desc_raw),
+            logger::warn("{}",
                 fmt::format("Mask overlay: position calibration found no matching candidate, draw skipped {} candidates:{}",
                     desc_fields, table));
         }
@@ -366,7 +337,7 @@ namespace
             result.format = results[best].format;
             result.offset = results[best].offset;
             result.state = PositionCalibrationState::e_measured;
-            log_once(false, fmt::format("calib-pos|{:018x}|measured", desc_raw),
+            logger::info("{}",
                 fmt::format("Mask overlay: position calibration selected fmt={:#06x} off={} (center err {:.2f}) desc={:#018x}",
                     static_cast<unsigned>(result.format), result.offset, results[best].center_error, desc_raw));
         }
@@ -778,7 +749,7 @@ namespace
         if (candidate_count == 0)
         {
             result.state = SkinnedCalibrationState::e_unresolved;
-            log_once(true, fmt::format("calib-skin|{:018x}|unavailable", desc_raw),
+            logger::warn("{}",
                 fmt::format("Mask overlay: skinned layout calibration unavailable ({}), draw skipped {}",
                     (renderer_data && renderer_data->rawVertexData) ? "geometry has no usable candidate" : "raw vertex data missing",
                     desc_fields));
@@ -803,7 +774,7 @@ namespace
         if (best < 0)
         {
             result.state = SkinnedCalibrationState::e_unresolved;
-            log_once(true, fmt::format("calib-skin|{:018x}|unresolved", desc_raw),
+            logger::warn("{}",
                 fmt::format("Mask overlay: skinned layout calibration found no matching candidate, draw skipped {} candidates:{}",
                     desc_fields, table));
         }
@@ -813,7 +784,7 @@ namespace
             result.layout_id = candidates[best].layout;
             result.skin = candidate_skin[best];
             result.state = SkinnedCalibrationState::e_measured;
-            log_once(false, fmt::format("calib-skin|{:018x}|measured", desc_raw),
+            logger::info("{}",
                 fmt::format("Mask overlay: skinned layout calibration selected pos(fmt={:#06x},off={}) stride={} layout={} weight(fmt={:#06x},off={}) index(fmt={:#06x},off={}) desc={:#018x}",
                     static_cast<unsigned>(result.position_format), result.position_offset,
                     result.stride, static_cast<unsigned>(result.layout_id),
@@ -850,8 +821,7 @@ namespace
         if (target.has_skinned)
         {
             char const* const node_name = geom->name.c_str();
-            log_once(false,
-                fmt::format("static-on-skinned|{}|{:08X}", node_name ? node_name : "?", target.form_id),
+            logger::info("{}",
                 fmt::format("Mask overlay: skip static geometry on skinned corpse (static prop is not part of the body silhouette) target={:08X} node=\"{}\"",
                     target.form_id, node_name ? node_name : "?"));
             return;
@@ -887,7 +857,7 @@ namespace
 
         if (exclusion_reason)
         {
-            log_once(false, fmt::format("static-exclusion|{}", exclusion_reason),
+            logger::info("{}",
                 fmt::format("Mask overlay: skip static geometry ({}) rtti={} node=\"{}\"", exclusion_reason, rtti_name, node_name ? node_name : "?"));
             return;
         }
@@ -903,7 +873,7 @@ namespace
         auto const& tri_rt = tri->GetTrishapeRuntimeData();
         if (tri_rt.vertexCount == 0 || tri_rt.triangleCount == 0)
         {
-            log_once(false, "static|empty-geometry",
+            logger::info("{}",
                 fmt::format("Mask overlay: skip empty geometry (verts={} tris={}) rtti={} node=\"{}\"",
                     tri_rt.vertexCount, tri_rt.triangleCount, rtti_name, node_name ? node_name : "?"));
             return;
@@ -912,7 +882,7 @@ namespace
         RE::NiBound const& model_bound = geom->GetModelData().modelBound;
         if (model_bound.radius <= 0.0f)
         {
-            log_once(false, "static|invalid-model-bound",
+            logger::info("{}",
                 fmt::format("Mask overlay: skip geometry with invalid model bound rtti={} node=\"{}\"", rtti_name, node_name ? node_name : "?"));
             return;
         }
@@ -941,18 +911,11 @@ namespace
         }
         RE::NiPoint3 const world_center = transform_point(world, model_bound.center);
         float const world_radius = model_bound.radius * scale_max;
-        if (!is_finite(world_center) || !std::isfinite(world_radius))
-        {
-            log_static_skip_once(target.form_id, node_name, "world bound non-finite",
-                fmt::format("model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
-                    model_bound.center.x, model_bound.center.y, model_bound.center.z, model_bound.radius,
-                    world_center.x, world_center.y, world_center.z, world_radius));
-            return;
-        }
         if (world_radius <= 0.0f || world_radius > Max_Part_World_Radius)
         {
-            log_static_skip_once(target.form_id, node_name, "world radius out of range",
-                fmt::format("model_bound r={:.1f} world_radius={:.1f} cap={:.1f}", model_bound.radius, world_radius, Max_Part_World_Radius));
+            logger::info("{}",
+                fmt::format("Mask overlay: skip static draw [world radius out of range] target={:08X} node=\"{}\" model_bound r={:.1f} world_radius={:.1f} cap={:.1f}",
+                    target.form_id, node_name, model_bound.radius, world_radius, Max_Part_World_Radius));
             return;
         }
 
@@ -972,8 +935,9 @@ namespace
         float const proximity_limit = world_radius + Ref_Proximity_Slack;
         if (ref_distance > proximity_limit)
         {
-            log_static_skip_once(target.form_id, node_name, "geometry not at target",
-                fmt::format("distance={:.1f} limit={:.1f} ref=({:.1f},{:.1f},{:.1f}) world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
+            logger::info("{}",
+                fmt::format("Mask overlay: skip static draw [geometry not at target] target={:08X} node=\"{}\" distance={:.1f} limit={:.1f} ref=({:.1f},{:.1f},{:.1f}) world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
+                    target.form_id, node_name,
                     ref_distance, proximity_limit,
                     target.position.x, target.position.y, target.position.z,
                     world_center.x, world_center.y, world_center.z, world_radius));
@@ -1020,30 +984,30 @@ namespace
             note(skin && skin->skinData && !skin->skinData->GetBoneData(), "skinData->GetBoneData()");
             note(skin && !skin->boneWorldTransforms, "boneWorldTransforms");
             note(skin && !skin->bones, "bones");
-            log_skinned_skip_once(true, node_name, "skin instance incomplete",
-                fmt::format("missing=[{}] rtti={}", missing, rtti_name ? rtti_name : "?"));
+            logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [skin instance incomplete] node=\"{}\" {}", node_name,
+                fmt::format("missing=[{}] rtti={}", missing, rtti_name ? rtti_name : "?")));
             return;
         }
 
         uint32_t const partition_count = std::min(skin_partition->numPartitions, static_cast<uint32_t>(skin_partition->partitions.size()));
         if (partition_count < skin_partition->numPartitions)
         {
-            log_skinned_skip_once(false, node_name, "partition count exceeds array size",
+            logger::info("{}", fmt::format("Mask overlay: skip skinned draw [partition count exceeds array size] node=\"{}\" {}", node_name,
                 fmt::format("numPartitions={} partitions.size()={} extra partitions ignored",
-                    skin_partition->numPartitions, skin_partition->partitions.size()));
+                skin_partition->numPartitions, skin_partition->partitions.size())));
         }
         if (partition_count == 0)
         {
-            log_skinned_skip_once(false, node_name, "no skin partitions",
-                fmt::format("numPartitions={} partitions.size()={}", skin_partition->numPartitions, skin_partition->partitions.size()));
+            logger::info("{}", fmt::format("Mask overlay: skip skinned draw [no skin partitions] node=\"{}\" {}", node_name,
+                fmt::format("numPartitions={} partitions.size()={}", skin_partition->numPartitions, skin_partition->partitions.size())));
             return;
         }
 
         RE::NiAVObject* const root_parent = skin->rootParent;
         if (!root_parent)
         {
-            log_skinned_skip_once(true, node_name, "skin instance has no rootParent",
-                fmt::format("rtti={} partitions={}", rtti_name ? rtti_name : "?", partition_count));
+            logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [skin instance has no rootParent] node=\"{}\" {}", node_name,
+                fmt::format("rtti={} partitions={}", rtti_name ? rtti_name : "?", partition_count)));
             return;
         }
 
@@ -1053,13 +1017,12 @@ namespace
         RE::NiBound const& world_bound = geom->worldBound;
         if (world_bound.radius > 0.0f)
         {
-            bool const finite = is_finite(world_bound.center) && std::isfinite(world_bound.radius);
-            if (!finite || world_bound.radius > Max_Part_World_Radius)
+            if (world_bound.radius > Max_Part_World_Radius)
             {
-                log_skinned_skip_once(true, node_name, "world bound out of range",
-                    fmt::format("world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} cap={:.1f} finite={}",
-                        world_bound.center.x, world_bound.center.y, world_bound.center.z, world_bound.radius,
-                        Max_Part_World_Radius, finite));
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [world bound out of range] node=\"{}\" {}", node_name,
+                    fmt::format("world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} cap={:.1f}",
+                    world_bound.center.x, world_bound.center.y, world_bound.center.z, world_bound.radius,
+                    Max_Part_World_Radius)));
                 return;
             }
         }
@@ -1083,16 +1046,16 @@ namespace
                 reject = "partition triList missing";
             if (reject)
             {
-                log_skinned_skip_once(false, node_name, reject,
-                    fmt::format("partition={} vertices={} triangles={}", p, part.vertices, part.triangles));
+                logger::info("{}", fmt::format("Mask overlay: skip skinned draw [{}] node=\"{}\" {}", reject, node_name,
+                    fmt::format("partition={} vertices={} triangles={}", p, part.vertices, part.triangles)));
                 continue;
             }
 
             if (part.strips != 0)
             {
                 // A strip partition (stripLengths index layout) cannot be drawn as a triangle list - skip to avoid errors
-                log_skinned_skip_once(false, node_name, "partition is a triangle strip",
-                    fmt::format("partition={} strips={} vertices={} triangles={}", p, part.strips, part.vertices, part.triangles));
+                logger::info("{}", fmt::format("Mask overlay: skip skinned draw [partition is a triangle strip] node=\"{}\" {}", node_name,
+                    fmt::format("partition={} strips={} vertices={} triangles={}", p, part.strips, part.vertices, part.triangles)));
                 continue;
             }
 
@@ -1103,8 +1066,8 @@ namespace
             uint32_t const palette_count = palette_slot_count(skin);
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
-                log_skinned_skip_once(true, node_name, "palette slot count out of range",
-                    fmt::format("partition={} P={} budget={}", p, palette_count, Max_Palette_Bones));
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [palette slot count out of range] node=\"{}\" {}", node_name,
+                    fmt::format("partition={} P={} budget={}", p, palette_count, Max_Palette_Bones)));
                 continue;
             }
 
@@ -1134,9 +1097,9 @@ namespace
 
             if (verdict == SkinnedMeshVerdict::e_position_bad)
             {
-                log_skinned_skip_once(true, node_name, "mesh positions non-finite",
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [mesh positions non-finite] node=\"{}\" {}", node_name,
                     fmt::format("partition={} verts={} stride={} pos(fmt={:#06x},off={})",
-                        p, part.vertices, calibration.stride, static_cast<unsigned>(calibration.position_format), calibration.position_offset));
+                    p, part.vertices, calibration.stride, static_cast<unsigned>(calibration.position_format), calibration.position_offset)));
                 continue;
             }
             if (verdict == SkinnedMeshVerdict::e_weights_bad)
@@ -1159,10 +1122,10 @@ namespace
                 }
                 if (switch_to < 0)
                 {
-                    log_skinned_skip_once(true, node_name, "no skinned layout fits this mesh",
+                    logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [no skinned layout fits this mesh] node=\"{}\" {}", node_name,
                         fmt::format("partition={} verts={} P={} cached_layout={} candidates:{}",
-                            p, part.vertices, palette_count, static_cast<unsigned>(calibration.layout_id),
-                            format_skinned_candidate_table(candidates, candidate_skin, candidate_count, palette_count)));
+                        p, part.vertices, palette_count, static_cast<unsigned>(calibration.layout_id),
+                        format_skinned_candidate_table(candidates, candidate_skin, candidate_count, palette_count))));
                     continue;
                 }
                 calibration.stride = candidates[switch_to].stride;
@@ -1175,9 +1138,9 @@ namespace
                     part.vertices, palette_count, stats);
                 if (verdict != SkinnedMeshVerdict::e_ok)
                 {
-                    log_skinned_skip_once(true, node_name, "switched layout still fails mesh validation",
+                    logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [switched layout still fails mesh validation] node=\"{}\" {}", node_name,
                         fmt::format("partition={} verts={} P={} stride={} layout={}",
-                            p, part.vertices, palette_count, calibration.stride, static_cast<unsigned>(calibration.layout_id)));
+                        p, part.vertices, palette_count, calibration.stride, static_cast<unsigned>(calibration.layout_id))));
                     continue;
                 }
             }
@@ -1186,10 +1149,10 @@ namespace
             // replica fill is a no-op for zero-weight slots, which are only counted in the stats).
             if (stats.out_of_range_weighted_count > 0)
             {
-                log_skinned_skip_once(true, node_name, "bone index exceeds palette bounds with non-zero weight",
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [bone index exceeds palette bounds with non-zero weight] node=\"{}\" {}", node_name,
                     fmt::format("partition={} P={} oob_weighted={} index_max={} first_oob_index={} first_oob_weight={:.4f}",
-                        p, palette_count, stats.out_of_range_weighted_count, stats.index_max,
-                        stats.first_out_of_range_index, stats.first_out_of_range_weight));
+                    p, palette_count, stats.out_of_range_weighted_count, stats.index_max,
+                    stats.first_out_of_range_index, stats.first_out_of_range_weight)));
                 continue;
             }
 
@@ -1235,7 +1198,7 @@ namespace
         if (geom_rt.shaderProperty && geom_rt.shaderProperty->GetRTTI() &&
             strcmp(geom_rt.shaderProperty->GetRTTI()->GetName(), "BSEffectShaderProperty") == 0)
         {
-            log_once(false, "static|effect-shader",
+            logger::info("{}",
                 fmt::format("Mask overlay: skip effect-shader geometry (BSEffectShaderProperty, fx attachment is not part of the corpse silhouette) node=\"{}\"",
                     geom->name.c_str() ? geom->name.c_str() : "?"));
             return;
@@ -1255,14 +1218,6 @@ uint32_t palette_slot_count(RE::NiSkinInstance const* skin)
     uint32_t const skin_bones = skin->skinData->GetBoneCount();
     uint32_t const matrix_count = skin->numMatrices;
     return std::min(skin_bones, matrix_count);
-}
-
-void log_skinned_skip_once(bool warn, char const* node_name, std::string_view reason, std::string_view details)
-{
-    char const* const node = node_name ? node_name : "?";
-    log_once(warn,
-        fmt::format("skinned|{}|{}", node, reason),
-        fmt::format("Mask overlay: skip skinned draw [{}] node=\"{}\" {}", reason, node, details));
 }
 
 void collect_mask_draws(std::vector<MaskTarget> const& targets, std::vector<MaskDraw>& draws)

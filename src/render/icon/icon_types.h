@@ -17,6 +17,7 @@ struct IconVertex
 
 inline constexpr size_t Icon_Arrow_Vertex_Count = 21;
 inline constexpr size_t Icon_Marker_Vertex_Count = 2 * Icon_Arrow_Vertex_Count;
+inline constexpr size_t Icon_Max_Vertex_Count = Icon_Marker_Vertex_Count * Max_Corpse_Count;
 
 struct IconGeometry
 {

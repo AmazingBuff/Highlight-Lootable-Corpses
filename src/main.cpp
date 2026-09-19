@@ -2,6 +2,7 @@
 #include "input/input.h"
 #include "quickloot_compat/quickloot_compat.h"
 #include "render/renderer.h"
+#include "render/shader_manager.h"
 #include "search/searched_corpses.h"
 #include "ui/ui_menu.h"
 
@@ -33,6 +34,7 @@ namespace
         {
         case SKSE::MessagingInterface::kDataLoaded:
             (void)PLUGIN_NAMESPACE::QuickLootCompat::install();
+            (void)PLUGIN_NAMESPACE::ShaderManager::instance().compile();
             break;
         case SKSE::MessagingInterface::kPostLoadGame:
             PLUGIN_NAMESPACE::Renderer::install();

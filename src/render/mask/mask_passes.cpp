@@ -10,9 +10,151 @@
 #include "render/shader_sources.h"
 
 #include "render/dx11/common_states.h"
-#include "render/dx11/d3d11_util.h"
 
 MASK_NAMESPACE_BEGIN
+
+namespace
+{
+    struct PerDrawCBData
+    {
+        DirectX::XMFLOAT4X4 mvp;
+        uint32_t object_id;
+        float pad[3];
+    };
+
+    struct GlowCBData
+    {
+        DirectX::XMFLOAT4 narrow[Glow::Kernel_Slot_Count];
+        DirectX::XMFLOAT4 wide[Glow::Kernel_Slot_Count];
+        int radius;
+        int width;
+        int height;
+        uint32_t object_id;
+        REX::W32::D3D11_RECT rect;
+    };
+}
+
+// ---------------------------------------------------------------------------
+// MaskRenderTarget
+// ---------------------------------------------------------------------------
+
+RenderTarget::RenderTarget(REX::W32::DXGI_FORMAT color_format, REX::W32::DXGI_FORMAT depth_format) :
+    m_color_format(color_format),
+    m_depth_format(depth_format),
+    m_ref_device(nullptr),
+    m_texture(nullptr),
+    m_depth_texture(nullptr),
+    m_dsv(nullptr),
+    m_rtv(nullptr),
+    m_srv(nullptr),
+    m_width(0),
+    m_height(0) {}
+
+RenderTarget::~RenderTarget()
+{
+    release();
+}
+
+bool RenderTarget::matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const
+{
+    const bool unchanged = m_ref_device == device && m_width == width && m_height == height && m_srv && m_dsv;
+    return unchanged;
+}
+
+void RenderTarget::release()
+{
+    if (m_dsv)
+    {
+        m_dsv->Release();
+        m_dsv = nullptr;
+    }
+    if (m_depth_texture)
+    {
+        m_depth_texture->Release();
+        m_depth_texture = nullptr;
+    }
+    if (m_srv)
+    {
+        m_srv->Release();
+        m_srv = nullptr;
+    }
+    if (m_rtv)
+    {
+        m_rtv->Release();
+        m_rtv = nullptr;
+    }
+    if (m_texture)
+    {
+        m_texture->Release();
+        m_texture = nullptr;
+    }
+    m_width = 0;
+    m_height = 0;
+    m_ref_device = nullptr;
+}
+
+bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
+{
+    REX::W32::D3D11_TEXTURE2D_DESC td{};
+    td.width = width;
+    td.height = height;
+    td.mipLevels = 1;
+    td.arraySize = 1;
+    td.format = m_color_format;
+    td.sampleDesc.count = 1;
+    td.usage = REX::W32::D3D11_USAGE_DEFAULT;
+    td.bindFlags = REX::W32::D3D11_BIND_RENDER_TARGET | REX::W32::D3D11_BIND_SHADER_RESOURCE;
+
+    REX::W32::HRESULT const tex_hr = device->CreateTexture2D(&td, nullptr, &m_texture);
+    if (!REX::W32::SUCCESS(tex_hr) || !m_texture)
+    {
+        logger::error("Mask overlay: failed to create mask texture ({:X})", static_cast<unsigned int>(tex_hr));
+        release();
+        return false;
+    }
+    REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
+    REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
+    if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
+    {
+        logger::error("Mask overlay: failed to create mask views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
+        release();
+        return false;
+    }
+
+    if (m_depth_format != REX::W32::DXGI_FORMAT_UNKNOWN)
+    {
+        td.format = m_depth_format;
+        td.bindFlags = REX::W32::D3D11_BIND_DEPTH_STENCIL;
+        REX::W32::HRESULT const depth_hr = device->CreateTexture2D(&td, nullptr, &m_depth_texture);
+        if (!REX::W32::SUCCESS(depth_hr) || !REX::W32::SUCCESS(device->CreateDepthStencilView(m_depth_texture, nullptr, &m_dsv))) {
+          logger::error("Mask overlay: failed to create private depth target");
+          release();
+          return false;
+        }
+    }
+
+    m_ref_device = device;
+    m_width = width;
+    m_height = height;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// MaskGeometryPass
+// ---------------------------------------------------------------------------
+
+MaskGeometryPass::MaskGeometryPass() :
+    m_ref_vs_static(nullptr),
+    m_ref_vs_skinned(nullptr),
+    m_ref_ps_mask(nullptr),
+    m_per_draw_cb(nullptr),
+    m_palette_cb(nullptr),
+    m_depth_nearest(nullptr) {}
+
+MaskGeometryPass::~MaskGeometryPass()
+{
+    release();
+}
 
 // ---------------------------------------------------------------------------
 // MaskGeometryPass InputLayout cache: keyed by (skinned, precision, attribute offsets, stride) -
@@ -117,293 +259,6 @@ void MaskGeometryPass::release_layouts()
     m_layout_cache.clear();
 }
 
-namespace
-{
-    struct PerDrawCBData
-    {
-        DirectX::XMFLOAT4X4 mvp;
-        uint32_t object_id;
-        float pad[3];
-    };
-    static_assert(sizeof(PerDrawCBData) == 80);
-    static_assert(offsetof(PerDrawCBData, object_id) == 64);
-    static_assert(sizeof(DirectX::XMFLOAT4) == 16);
-
-    struct GlowCBData
-    {
-        DirectX::XMFLOAT4 narrow[Glow::Kernel_Slot_Count];
-        DirectX::XMFLOAT4 wide[Glow::Kernel_Slot_Count];
-        uint32_t radius;
-        uint32_t width;
-        uint32_t height;
-        uint32_t object_id;
-        int32_t horizontal_left;
-        int32_t horizontal_top;
-        int32_t horizontal_right;
-        int32_t horizontal_bottom;
-    };
-    static_assert(sizeof(GlowCBData) == 192);
-
-    // Silhouette inner fill factor (keeps the existing brightness)
-    constexpr float Silhouette_Fill_Alpha = 0.5f;
-
-    bool draw_fullscreen_triangle(
-        REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, REX::W32::ID3D11ShaderResourceView* mask_srv,
-        uint32_t width, uint32_t height,
-        REX::W32::ID3D11VertexShader* vs, REX::W32::ID3D11PixelShader* ps, REX::W32::ID3D11BlendState* blend,
-        REX::W32::ID3D11DepthStencilState* depth_none, REX::W32::ID3D11RasterizerState* cull_none,
-        REX::W32::ID3D11Buffer* cb0, void const* cb0_data, size_t cb0_bytes,
-        REX::W32::ID3D11ShaderResourceView* style_srv)
-    {
-        if (!context || !target || !mask_srv || !vs || !ps || !blend || !cb0 || !style_srv)
-            return false;
-
-        REX::W32::ID3D11ShaderResourceView* previous_srvs[2]{};
-        context->PSGetShaderResources(0, 2, previous_srvs);
-        REX::W32::ID3D11Buffer* previous_cb = nullptr;
-        context->PSGetConstantBuffers(0, 1, &previous_cb);
-        auto const restore_bindings = [&]() {
-            context->PSSetConstantBuffers(0, 1, &previous_cb);
-            context->PSSetShaderResources(0, 2, previous_srvs);
-            if (previous_cb)
-                previous_cb->Release();
-            for (REX::W32::ID3D11ShaderResourceView* srv : previous_srvs)
-            {
-                if (srv)
-                    srv->Release();
-            }
-        };
-
-        REX::W32::ID3D11ShaderResourceView* const empty_srvs[2]{};
-        context->PSSetShaderResources(0, 2, empty_srvs);
-        REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (!REX::W32::SUCCESS(context->Map(cb0, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-        {
-            restore_bindings();
-            return false;
-        }
-        std::memcpy(mapped.data, cb0_data, cb0_bytes);
-        context->Unmap(cb0, 0);
-
-        REX::W32::D3D11_VIEWPORT const vp{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
-        context->OMSetRenderTargets(1, &target, nullptr);
-        context->OMSetBlendState(blend, nullptr, 0xFFFFFFFF);
-        context->OMSetDepthStencilState(depth_none, 0);
-        context->RSSetState(cull_none);
-        context->RSSetViewports(1, &vp);
-        context->IASetInputLayout(nullptr);
-        context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        REX::W32::ID3D11Buffer* const no_vb = nullptr;
-        uint32_t const zero = 0;
-        context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
-        context->IASetIndexBuffer(nullptr, REX::W32::DXGI_FORMAT_UNKNOWN, 0);
-        context->VSSetShader(vs, nullptr, 0);
-        context->PSSetShader(ps, nullptr, 0);
-        REX::W32::ID3D11ShaderResourceView* const srvs[] = { mask_srv, style_srv };
-        context->PSSetShaderResources(0, 2, srvs);
-        context->PSSetConstantBuffers(0, 1, &cb0);
-        context->Draw(3, 0);
-        restore_bindings();
-        return true;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MaskRenderTarget
-// ---------------------------------------------------------------------------
-
-RenderTarget::RenderTarget() :
-    m_ref_device(nullptr),
-    m_texture(nullptr),
-    m_depth_texture(nullptr),
-    m_dsv(nullptr),
-    m_rtv(nullptr),
-    m_srv(nullptr),
-    m_width(0),
-    m_height(0) {}
-
-RenderTarget::~RenderTarget()
-{
-    release();
-}
-
-bool RenderTarget::matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
-{
-    return m_ref_device == device && m_width == width && m_height == height && m_srv && m_dsv;
-}
-
-void RenderTarget::release()
-{
-    if (m_dsv)
-    {
-        m_dsv->Release();
-        m_dsv = nullptr;
-    }
-    if (m_depth_texture)
-    {
-        m_depth_texture->Release();
-        m_depth_texture = nullptr;
-    }
-    if (m_srv)
-    {
-        m_srv->Release();
-        m_srv = nullptr;
-    }
-    if (m_rtv)
-    {
-        m_rtv->Release();
-        m_rtv = nullptr;
-    }
-    if (m_texture)
-    {
-        m_texture->Release();
-        m_texture = nullptr;
-    }
-    m_width = 0;
-    m_height = 0;
-    m_ref_device = nullptr;
-}
-
-bool RenderTarget::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
-{
-    REX::W32::D3D11_TEXTURE2D_DESC td{};
-    td.width = width;
-    td.height = height;
-    td.mipLevels = 1;
-    td.arraySize = 1;
-    td.format = REX::W32::DXGI_FORMAT_R32_UINT;
-    td.sampleDesc.count = 1;
-    td.usage = REX::W32::D3D11_USAGE_DEFAULT;
-    td.bindFlags = REX::W32::D3D11_BIND_RENDER_TARGET | REX::W32::D3D11_BIND_SHADER_RESOURCE;
-
-    REX::W32::HRESULT const tex_hr = device->CreateTexture2D(&td, nullptr, &m_texture);
-    if (!REX::W32::SUCCESS(tex_hr) || !m_texture)
-    {
-        logger::error("Mask overlay: failed to create mask texture ({:X})", static_cast<unsigned int>(tex_hr));
-        release();
-        return false;
-    }
-    REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
-    REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
-    if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
-    {
-        logger::error("Mask overlay: failed to create mask views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
-        release();
-        return false;
-    }
-
-    td.format = REX::W32::DXGI_FORMAT_D32_FLOAT;
-    td.bindFlags = REX::W32::D3D11_BIND_DEPTH_STENCIL;
-    REX::W32::HRESULT const depth_hr = device->CreateTexture2D(&td, nullptr, &m_depth_texture);
-    if (!REX::W32::SUCCESS(depth_hr) || !REX::W32::SUCCESS(device->CreateDepthStencilView(m_depth_texture, nullptr, &m_dsv)))
-    {
-        logger::error("Mask overlay: failed to create private depth target");
-        release();
-        return false;
-    }
-
-    m_ref_device = device;
-    m_width = width;
-    m_height = height;
-    return true;
-}
-
-GlowScratch::GlowScratch() :
-    m_ref_device(nullptr),
-    m_texture(nullptr),
-    m_rtv(nullptr),
-    m_srv(nullptr),
-    m_width(0),
-    m_height(0) {}
-
-GlowScratch::~GlowScratch()
-{
-    release();
-}
-
-bool GlowScratch::matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept
-{
-    return m_ref_device == device && m_width == width && m_height == height && m_rtv && m_srv;
-}
-
-void GlowScratch::release()
-{
-    if (m_srv)
-    {
-        m_srv->Release();
-        m_srv = nullptr;
-    }
-    if (m_rtv)
-    {
-        m_rtv->Release();
-        m_rtv = nullptr;
-    }
-    if (m_texture)
-    {
-        m_texture->Release();
-        m_texture = nullptr;
-    }
-    m_ref_device = nullptr;
-    m_width = 0;
-    m_height = 0;
-}
-
-bool GlowScratch::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height)
-{
-    if (!device || width == 0 || height == 0)
-        return false;
-    if (matches(device, width, height))
-        return true;
-
-    release();
-    REX::W32::D3D11_TEXTURE2D_DESC desc{};
-    desc.width = width;
-    desc.height = height;
-    desc.mipLevels = 1;
-    desc.arraySize = 1;
-    desc.format = REX::W32::DXGI_FORMAT_R16G16_FLOAT;
-    desc.sampleDesc.count = 1;
-    desc.usage = REX::W32::D3D11_USAGE_DEFAULT;
-    desc.bindFlags = REX::W32::D3D11_BIND_RENDER_TARGET | REX::W32::D3D11_BIND_SHADER_RESOURCE;
-
-    REX::W32::HRESULT const texture_hr = device->CreateTexture2D(&desc, nullptr, &m_texture);
-    if (!REX::W32::SUCCESS(texture_hr) || !m_texture)
-    {
-        logger::error("Mask glow: failed to create R16G16_FLOAT scratch ({:X})", static_cast<unsigned int>(texture_hr));
-        release();
-        return false;
-    }
-    REX::W32::HRESULT const rtv_hr = device->CreateRenderTargetView(m_texture, nullptr, &m_rtv);
-    REX::W32::HRESULT const srv_hr = device->CreateShaderResourceView(m_texture, nullptr, &m_srv);
-    if (!REX::W32::SUCCESS(rtv_hr) || !m_rtv || !REX::W32::SUCCESS(srv_hr) || !m_srv)
-    {
-        logger::error("Mask glow: failed to create scratch views (rtv={:X}, srv={:X})", static_cast<unsigned int>(rtv_hr), static_cast<unsigned int>(srv_hr));
-        release();
-        return false;
-    }
-    m_ref_device = device;
-    m_width = width;
-    m_height = height;
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// MaskGeometryPass
-// ---------------------------------------------------------------------------
-
-MaskGeometryPass::MaskGeometryPass() :
-    m_ref_vs_static(nullptr),
-    m_ref_vs_skinned(nullptr),
-    m_ref_ps_mask(nullptr),
-    m_per_draw_cb(nullptr),
-    m_palette_cb(nullptr),
-    m_depth_nearest(nullptr) {}
-
-MaskGeometryPass::~MaskGeometryPass()
-{
-    release();
-}
-
 bool MaskGeometryPass::init(REX::W32::ID3D11Device* device)
 {
     const bool ready = create_pipeline(device);
@@ -427,7 +282,7 @@ bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
     cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
     cb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
     cb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
-    cb.byteWidth = 80;  // PerDrawCBData: float4x4 + uint object_id + pad[3]
+    cb.byteWidth = sizeof(PerDrawCBData);
     device->CreateBuffer(&cb, nullptr, &m_per_draw_cb);
     cb.byteWidth = static_cast<uint32_t>(Palette_CB_Bytes);
     device->CreateBuffer(&cb, nullptr, &m_palette_cb);
@@ -511,7 +366,11 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
         cb_data.mvp = per_draw;
 
         cb_data.object_id = draw.target_index + 1;
-        update_constant_buffer(context, m_per_draw_cb, &cb_data, sizeof(cb_data));
+        REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (!REX::W32::SUCCESS(context->Map(m_per_draw_cb, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return;
+        std::memcpy(mapped.data, &cb_data, sizeof(PerDrawCBData));
+        context->Unmap(m_per_draw_cb, 0);
         context->VSSetConstantBuffers(0, 1, &m_per_draw_cb);
 
         if (draw.skinned)
@@ -534,8 +393,9 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
             uint32_t const palette_count = palette_slot_count(skin);
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
-                log_skinned_skip_once(true, draw.node ? draw.node->name.c_str() : nullptr, "palette slot count out of range",
-                    fmt::format("partition={} P={} budget={}", draw.partition, palette_count, Max_Palette_Bones));
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [palette slot count out of range] node=\"{}\" {}",
+                    draw.node ? draw.node->name.c_str() : "?",
+                    fmt::format("partition={} P={} budget={}", draw.partition, palette_count, Max_Palette_Bones)));
                 continue;
             }
 
@@ -573,14 +433,18 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
             }
             if (!palette_ok)
             {
-                log_skinned_skip_once(true, draw.node ? draw.node->name.c_str() : nullptr, "null bone world transform in palette range",
-                    fmt::format("partition={} P={}", draw.partition, palette_count));
+                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [null bone world transform in palette range] node=\"{}\" {}",
+                    draw.node ? draw.node->name.c_str() : "?",
+                    fmt::format("partition={} P={}", draw.partition, palette_count)));
                 continue;
             }
             for (size_t k = palette_count; k < Max_Palette_Bones; ++k)
                 palette[k] = palette[palette_count - 1];
-            size_t const palette_bytes = Max_Palette_Bones * sizeof(DirectX::XMFLOAT4X4);
-            update_constant_buffer(context, m_palette_cb, palette, palette_bytes);
+
+            if (!REX::W32::SUCCESS(context->Map(m_palette_cb, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+                return;
+            std::memcpy(mapped.data, palette, Max_Palette_Bones * sizeof(DirectX::XMFLOAT4X4));
+            context->Unmap(m_palette_cb, 0);
             context->VSSetConstantBuffers(1, 1, &m_palette_cb);
         }
 
@@ -604,8 +468,6 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
 
 FullscreenPass::FullscreenPass() :
     m_ref_vertex_shader(nullptr),
-    m_ref_pixel_shader(nullptr),
-    m_cb(nullptr),
     m_style_buffer(nullptr),
     m_style_srv(nullptr),
     m_style_capacity(0) {}
@@ -653,6 +515,7 @@ bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3
         m_style_srv = nullptr;
         m_style_buffer = nullptr;
         m_style_capacity = 0;
+
         REX::W32::D3D11_BUFFER_DESC desc{};
         desc.byteWidth = static_cast<uint32_t>(targets.size() * sizeof(DirectX::XMFLOAT4));
         desc.usage = REX::W32::D3D11_USAGE_DEFAULT;
@@ -661,6 +524,7 @@ bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3
         desc.structureByteStride = sizeof(DirectX::XMFLOAT4);
         if (!REX::W32::SUCCESS(device->CreateBuffer(&desc, nullptr, &m_style_buffer)))
             return false;
+
         REX::W32::D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
         srv.viewDimension = REX::W32::D3D11_SRV_DIMENSION_BUFFER;
         srv.buffer.numElements = static_cast<uint32_t>(targets.size());
@@ -680,6 +544,12 @@ bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3
     return REX::W32::SUCCESS(device->GetDeviceRemovedReason());
 }
 
+// ---------------------------------------------------------------------------
+// Silhouette consumption passes
+// ---------------------------------------------------------------------------
+
+SilhouettePass::SilhouettePass() : m_ref_silhouette_shader(nullptr) {  }
+
 SilhouettePass::~SilhouettePass()
 {
     release();
@@ -690,17 +560,9 @@ bool SilhouettePass::init(REX::W32::ID3D11Device* device)
     if (!FullscreenPass::init(device))
         return false;
 
-    m_ref_pixel_shader = ShaderManager::instance().silhouette_ps();
+    m_ref_silhouette_shader = ShaderManager::instance().silhouette_ps();
 
-    // b0: radius, fill factor, padding.
-    REX::W32::D3D11_BUFFER_DESC ccb{};
-    ccb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
-    ccb.bindFlags = REX::W32::D3D11_BIND_CONSTANT_BUFFER;
-    ccb.cpuAccessFlags = REX::W32::D3D11_CPU_ACCESS_WRITE;
-    ccb.byteWidth = 16;
-    device->CreateBuffer(&ccb, nullptr, &m_cb);
-
-    const bool ready = m_ref_pixel_shader && m_cb;
+    const bool ready = m_ref_silhouette_shader;
     if (!ready)
     {
         release();
@@ -711,30 +573,38 @@ bool SilhouettePass::init(REX::W32::ID3D11Device* device)
 
 void SilhouettePass::release()
 {
-    if (m_cb)
-    {
-        m_cb->Release();
-        m_cb = nullptr;
-    }
     // m_pixel_shader is owned by the ShaderManager - only the borrowing pointer is cleared.
-    m_ref_pixel_shader = nullptr;
+    m_ref_silhouette_shader = nullptr;
+    FullscreenPass::release();
 }
 
-bool SilhouettePass::draw(
-    REX::W32::ID3D11DeviceContext* context,
-    REX::W32::ID3D11RenderTargetView* target,
-    REX::W32::ID3D11ShaderResourceView* mask_srv,
-    uint32_t width,
-    uint32_t height,
-    CommonStates const& states) const
+bool SilhouettePass::draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11ShaderResourceView* mask_srv) const
 {
-    float const cb_data[4] = { 0.0f, Silhouette_Fill_Alpha, 0.0f, 0.0f };
-    return draw_fullscreen_triangle(context, target, mask_srv, width, height,
-        m_ref_vertex_shader, m_ref_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
-        m_cb, cb_data, sizeof(cb_data), m_style_srv);
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    REX::W32::ID3D11Buffer* const no_vb = nullptr;
+    uint32_t const zero = 0;
+    context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
+    context->IASetIndexBuffer(nullptr, REX::W32::DXGI_FORMAT_UNKNOWN, 0);
+    context->VSSetShader(m_ref_vertex_shader, nullptr, 0);
+
+    REX::W32::ID3D11ShaderResourceView* const srvs[] = { mask_srv, m_style_srv };
+    context->PSSetShader(m_ref_silhouette_shader, nullptr, 0);
+    context->PSSetShaderResources(0, 2, srvs);
+    context->Draw(3, 0);
+    return true;
 }
 
-OutlinePass::OutlinePass() : m_horizontal_shader(nullptr) {}
+// ---------------------------------------------------------------------------
+// Outline consumption passes
+// ---------------------------------------------------------------------------
+
+OutlinePass::OutlinePass() :
+    m_scratch_rt(REX::W32::DXGI_FORMAT_R16G16_FLOAT, REX::W32::DXGI_FORMAT_UNKNOWN),
+    m_cb(nullptr),
+    m_ref_horizontal_shader(nullptr),
+    m_ref_vertical_shader(nullptr) {}
 
 OutlinePass::~OutlinePass()
 {
@@ -748,8 +618,8 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
 
     // Both glow shaders are precompiled and owned by the ShaderManager.
     ShaderManager& shaders = ShaderManager::instance();
-    m_horizontal_shader = shaders.glow_horizontal_ps();
-    m_ref_pixel_shader = shaders.glow_vertical_ps();
+    m_ref_horizontal_shader = shaders.glow_horizontal_ps();
+    m_ref_vertical_shader = shaders.glow_vertical_ps();
 
     REX::W32::D3D11_BUFFER_DESC glow_cb{};
     glow_cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
@@ -758,7 +628,7 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
     glow_cb.byteWidth = sizeof(GlowCBData);
     device->CreateBuffer(&glow_cb, nullptr, &m_cb);
 
-    const bool ready = m_horizontal_shader && m_ref_pixel_shader && m_cb;
+    const bool ready = m_ref_horizontal_shader && m_ref_vertical_shader && m_cb;
     if (!ready)
     {
         release();
@@ -769,80 +639,50 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
 
 void OutlinePass::release()
 {
-    m_scratch.release();
+    m_scratch_rt.release();
     if (m_cb)
     {
         m_cb->Release();
         m_cb = nullptr;
     }
     // Both glow shaders are owned by the ShaderManager - only the borrowing pointers are cleared.
-    m_horizontal_shader = nullptr;
-    m_ref_pixel_shader = nullptr;
+    m_ref_horizontal_shader = nullptr;
+    FullscreenPass::release();
 }
 
 bool OutlinePass::draw(
-    REX::W32::ID3D11Device* device,
     REX::W32::ID3D11DeviceContext* context,
     REX::W32::ID3D11RenderTargetView* target,
     REX::W32::ID3D11ShaderResourceView* mask_srv,
-    uint32_t width,
-    uint32_t height,
+    REX::W32::D3D11_VIEWPORT const& viewport,
     uint32_t object_id,
     int thickness,
     ROI::Rect horizontal_rect,
     ROI::Rect vertical_rect,
-    CommonStates const& states)
+    CommonStates const& states) const
 {
     Glow::KernelProfile const profile = Glow::make_kernel_profile(thickness);
     GlowCBData cb_data{};
     std::memcpy(cb_data.narrow, profile.narrow.data(), sizeof(profile.narrow));
     std::memcpy(cb_data.wide, profile.wide.data(), sizeof(profile.wide));
-    cb_data.radius = static_cast<uint32_t>(profile.radius);
-    cb_data.width = width;
-    cb_data.height = height;
+    cb_data.radius = profile.radius;
+    cb_data.width = static_cast<int>(viewport.width);
+    cb_data.height = static_cast<int>(viewport.height);
     cb_data.object_id = object_id;
-    cb_data.horizontal_left = horizontal_rect.left;
-    cb_data.horizontal_top = horizontal_rect.top;
-    cb_data.horizontal_right = horizontal_rect.right;
-    cb_data.horizontal_bottom = horizontal_rect.bottom;
-
-    REX::W32::ID3D11ShaderResourceView* previous_srvs[3]{};
-    context->PSGetShaderResources(0, 3, previous_srvs);
-    REX::W32::ID3D11Buffer* previous_cb = nullptr;
-    context->PSGetConstantBuffers(0, 1, &previous_cb);
-    auto const restore_bindings = [&]() {
-        context->PSSetConstantBuffers(0, 1, &previous_cb);
-        context->PSSetShaderResources(0, 3, previous_srvs);
-        if (previous_cb)
-            previous_cb->Release();
-        for (REX::W32::ID3D11ShaderResourceView* srv : previous_srvs)
-        {
-            if (srv)
-                srv->Release();
-        }
-    };
-
-    REX::W32::ID3D11ShaderResourceView* const empty_srvs[3]{};
-    context->PSSetShaderResources(0, 3, empty_srvs);
-    if (!m_scratch.init(device, width, height))
-    {
-        restore_bindings();
-        return false;
-    }
+    cb_data.rect.x1 = horizontal_rect.left;
+    cb_data.rect.y1 = horizontal_rect.top;
+    cb_data.rect.x2 = horizontal_rect.right;
+    cb_data.rect.y2 = horizontal_rect.bottom;
 
     REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
     if (!REX::W32::SUCCESS(context->Map(m_cb, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-    {
-        restore_bindings();
         return false;
-    }
     std::memcpy(mapped.data, &cb_data, sizeof(cb_data));
     context->Unmap(m_cb, 0);
 
-    REX::W32::D3D11_VIEWPORT const viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
-    context->RSSetViewports(1, &viewport);
     context->IASetInputLayout(nullptr);
     context->IASetPrimitiveTopology(REX::W32::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
     REX::W32::ID3D11Buffer* const no_vb = nullptr;
     uint32_t const zero = 0;
     context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
@@ -850,32 +690,30 @@ bool OutlinePass::draw(
     context->VSSetShader(m_ref_vertex_shader, nullptr, 0);
     context->PSSetConstantBuffers(0, 1, &m_cb);
 
-    REX::W32::ID3D11RenderTargetView* const scratch_rtv = m_scratch.rtv();
+    REX::W32::ID3D11RenderTargetView* const scratch_rtv = m_scratch_rt.rtv();
     context->OMSetRenderTargets(1, &scratch_rtv, nullptr);
+    context->ClearRenderTargetView(scratch_rtv, Mask_Clear_Color);
     context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
-    context->OMSetDepthStencilState(states.depth_none(), 0);
-    context->RSSetState(states.cull_none_scissor());
-    REX::W32::D3D11_RECT const horizontal_scissor{
-        horizontal_rect.left, horizontal_rect.top, horizontal_rect.right, horizontal_rect.bottom };
+
+    REX::W32::D3D11_RECT const horizontal_scissor{horizontal_rect.left, horizontal_rect.top, horizontal_rect.right, horizontal_rect.bottom };
     context->RSSetScissorRects(1, &horizontal_scissor);
-    context->PSSetShader(m_horizontal_shader, nullptr, 0);
+
     REX::W32::ID3D11ShaderResourceView* const horizontal_srvs[] = { mask_srv };
+    context->PSSetShader(m_ref_horizontal_shader, nullptr, 0);
     context->PSSetShaderResources(0, 1, horizontal_srvs);
     context->Draw(3, 0);
 
-    context->PSSetShaderResources(0, 3, empty_srvs);
     context->OMSetRenderTargets(1, &target, nullptr);
-    context->OMSetBlendState(states.alpha_blend(), nullptr, 0xFFFFFFFF);
-    context->RSSetState(states.cull_none_scissor());
-    REX::W32::D3D11_RECT const vertical_scissor{
-        vertical_rect.left, vertical_rect.top, vertical_rect.right, vertical_rect.bottom };
+    context->OMSetBlendState(states.non_premultiplied(), nullptr, 0xFFFFFFFF);
+
+    REX::W32::D3D11_RECT const vertical_scissor{vertical_rect.left, vertical_rect.top, vertical_rect.right, vertical_rect.bottom };
     context->RSSetScissorRects(1, &vertical_scissor);
-    context->PSSetShader(m_ref_pixel_shader, nullptr, 0);
-    REX::W32::ID3D11ShaderResourceView* const vertical_srvs[] = { mask_srv, m_scratch.srv(), m_style_srv };
+
+    REX::W32::ID3D11ShaderResourceView* const vertical_srvs[] = { mask_srv, m_scratch_rt.srv(), m_style_srv };
+    context->PSSetShader(m_ref_vertical_shader, nullptr, 0);
     context->PSSetShaderResources(0, 3, vertical_srvs);
     context->Draw(3, 0);
 
-    restore_bindings();
     return true;
 }
 

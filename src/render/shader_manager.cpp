@@ -62,37 +62,56 @@ ShaderManager::ShaderManager() :
     m_fullscreen_vs(nullptr),
     m_silhouette_ps(nullptr),
     m_glow_horizontal_ps(nullptr),
-    m_glow_vertical_ps(nullptr) {}
+    m_glow_vertical_ps(nullptr),
+    m_ready(false) {}
 
 ShaderManager::~ShaderManager()
 {
     release();
 }
 
-bool ShaderManager::init(REX::W32::ID3D11Device* device)
+bool ShaderManager::compile()
 {
-    bool const ready =
-        create_vertex_shader(device, render_shaders::IconOverlay, "vs_main", "ui overlay", &m_icon_vs, &m_icon_vs_blob) &&
-        create_pixel_shader(device, render_shaders::IconOverlay, "ps_main", "ui overlay", &m_icon_ps) &&
-
-        create_vertex_shader(device, render_shaders::MaskGeometry, "vs_static_main", "outline mask static", &m_mask_static_vs, &m_mask_static_vs_blob) &&
-        create_vertex_shader(device, render_shaders::MaskGeometry, "vs_skinned_main", "outline mask skinned", &m_mask_skinned_vs, &m_mask_skinned_vs_blob) &&
-        create_pixel_shader(device, render_shaders::MaskGeometry, "ps_main", "outline mask", &m_mask_ps) &&
-
-        create_vertex_shader(device, render_shaders::MaskComposite, "vs_main", "outline mask fullscreen", &m_fullscreen_vs, nullptr) &&
-        create_pixel_shader(device, render_shaders::MaskComposite, "ps_silhouette_main", "outline mask silhouette", &m_silhouette_ps) &&
-
-        create_pixel_shader(device, render_shaders::MaskGlow, "ps_glow_horizontal", "outline glow horizontal", &m_glow_horizontal_ps) &&
-        create_pixel_shader(device, render_shaders::MaskGlow, "ps_glow_vertical", "outline glow vertical", &m_glow_vertical_ps);
-
-    if (!ready)
+    if (!m_ready)
     {
-        release();
-        logger::error("Shader manager: shader compilation failed, overlay rendering disabled");
-        return false;
+        RE::BSGraphics::Renderer* renderer = RE::BSGraphics::Renderer::GetSingleton();
+        if (!renderer)
+        {
+            logger::info("Shader precompile skipped, renderer not available at data-loaded");
+            return false;
+        }
+
+        REX::W32::ID3D11Device* device = renderer->GetRuntimeData().forwarder;
+        if (!device)
+        {
+            logger::info("Shader precompile skipped, D3D11 device not available at data-loaded");
+            return false;
+        }
+
+        m_ready =
+            create_vertex_shader(device, render_shaders::IconOverlay, "vs_main", "ui overlay", &m_icon_vs, &m_icon_vs_blob) &&
+            create_pixel_shader(device, render_shaders::IconOverlay, "ps_main", "ui overlay", &m_icon_ps) &&
+
+            create_vertex_shader(device, render_shaders::MaskGeometry, "vs_static_main", "outline mask static", &m_mask_static_vs, &m_mask_static_vs_blob) &&
+            create_vertex_shader(device, render_shaders::MaskGeometry, "vs_skinned_main", "outline mask skinned", &m_mask_skinned_vs, &m_mask_skinned_vs_blob) &&
+            create_pixel_shader(device, render_shaders::MaskGeometry, "ps_main", "outline mask", &m_mask_ps) &&
+
+            create_vertex_shader(device, render_shaders::MaskComposite, "vs_main", "outline mask fullscreen", &m_fullscreen_vs, nullptr) &&
+            create_pixel_shader(device, render_shaders::MaskComposite, "ps_silhouette_main", "outline mask silhouette", &m_silhouette_ps) &&
+
+            create_pixel_shader(device, render_shaders::MaskGlow, "ps_glow_horizontal", "outline glow horizontal", &m_glow_horizontal_ps) &&
+            create_pixel_shader(device, render_shaders::MaskGlow, "ps_glow_vertical", "outline glow vertical", &m_glow_vertical_ps);
+
+        if (!m_ready)
+        {
+            release();
+            logger::error("Shader compilation failed, overlay rendering disabled");
+            return false;
+        }
+
+        logger::info("All overlay shaders compiled");
     }
 
-    logger::info("Shader manager: all overlay shaders compiled");
     return true;
 }
 

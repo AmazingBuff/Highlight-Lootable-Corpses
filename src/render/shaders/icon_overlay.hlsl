@@ -20,5 +20,5 @@ PS_IN vs_main(VS_IN input)
 
 float4 ps_main(PS_IN input) : SV_Target
 {
-    return float4(input.color.rgb * input.color.a, input.color.a);
+    return float4(input.color.rgb, input.color.a);
 }

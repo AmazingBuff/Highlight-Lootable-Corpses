@@ -9,12 +9,6 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-MarkCorpse& MarkCorpse::instance()
-{
-    static MarkCorpse s_instance;
-    return s_instance;
-}
-
 namespace
 {
     constexpr uint32_t Record_ID = static_cast<uint32_t>(hash_str(Plugin::Plugin_Name.data(), Plugin::Plugin_Name.size(), Amazing_Hash));
@@ -30,15 +24,15 @@ namespace
         }
 
         RE::BSEventNotifyControl ProcessEvent(
-            RE::TESActivateEvent const* a_event,
-            [[maybe_unused]] RE::BSTEventSource<RE::TESActivateEvent>* a_source) override
+            RE::TESActivateEvent const* event,
+            [[maybe_unused]] RE::BSTEventSource<RE::TESActivateEvent>* source) override
         {
-            if (a_event && a_event->objectActivated)
+            if (event && event->objectActivated)
             {
-                auto const* action = a_event->actionRef ? a_event->actionRef->As<RE::Actor>() : nullptr;
+                auto const* action = event->actionRef ? event->actionRef->As<RE::Actor>() : nullptr;
                 if (action && action->IsPlayerRef())
                 {
-                    RE::TESObjectREFR* const object = a_event->objectActivated.get();
+                    RE::TESObjectREFR* const object = event->objectActivated.get();
                     if (Util::is_corpse(object))
                         MarkCorpse::instance().mark(Util::get_container_object(object));
                 }
@@ -48,25 +42,31 @@ namespace
     };
 }
 
-void MarkCorpse::mark(RE::TESObjectREFR* a_ref)
+MarkCorpse& MarkCorpse::instance()
 {
-    if (a_ref)
+    static MarkCorpse s_instance;
+    return s_instance;
+}
+
+void MarkCorpse::mark(RE::TESObjectREFR* ref)
+{
+    if (ref)
     {
-        RE::FormID const form_id = a_ref->GetFormID();
+        RE::FormID const form_id = ref->GetFormID();
         if (!m_searched_corpses.contains(form_id))
         {
             m_searched_corpses.insert(form_id);
-            logger::info("{} ({:08x}) has been removed!", a_ref->GetDisplayFullName(), form_id);
+            logger::info("{} ({:08x}) has been removed!", ref->GetDisplayFullName(), form_id);
         }
     }
 }
 
-bool MarkCorpse::contains(RE::TESObjectREFR* a_ref)
+bool MarkCorpse::contains(RE::TESObjectREFR* ref) const
 {
-    if (!a_ref || m_searched_corpses.empty())
+    if (!ref || m_searched_corpses.empty())
         return false;
 
-    if (m_searched_corpses.contains(a_ref->GetFormID()))
+    if (m_searched_corpses.contains(ref->GetFormID()))
         return true;
     return false;
 }
@@ -82,17 +82,17 @@ void MarkCorpse::install()
 
     serialization->SetUniqueID(Record_ID);
 
-    serialization->SetSaveCallback([](SKSE::SerializationInterface* a_intfc)
+    serialization->SetSaveCallback([](SKSE::SerializationInterface* intfc)
     {
-        uint32_t const count = static_cast<uint32_t>(MarkCorpse::instance().m_searched_corpses.size());
-        if (!a_intfc->WriteRecord(Record_ID, Record_Version, &count, sizeof(count)))
+        uint32_t const count = static_cast<uint32_t>(instance().m_searched_corpses.size());
+        if (!intfc->WriteRecord(Record_ID, Record_Version, &count, sizeof(count)))
         {
             logger::error("Failed to write searched-corpses record header"sv);
             return;
         }
-        for (RE::FormID const& id : MarkCorpse::instance().m_searched_corpses)
+        for (RE::FormID const& id : instance().m_searched_corpses)
         {
-            if (!a_intfc->WriteRecordData(&id, sizeof(RE::FormID)))
+            if (!intfc->WriteRecordData(&id, sizeof(RE::FormID)))
             {
                 logger::error("Failed to write searched-corpses entry {:08X}"sv, id);
                 return;
@@ -101,14 +101,14 @@ void MarkCorpse::install()
         logger::info("Saved {} searched-corpses marks"sv, count);
     });
 
-    serialization->SetLoadCallback([](SKSE::SerializationInterface* a_intfc)
+    serialization->SetLoadCallback([](SKSE::SerializationInterface* intfc)
     {
-        MarkCorpse::instance().m_searched_corpses.clear();
+        instance().m_searched_corpses.clear();
 
         uint32_t type = 0;
         uint32_t version = 0;
         uint32_t length = 0;
-        while (a_intfc->GetNextRecordInfo(type, version, length))
+        while (intfc->GetNextRecordInfo(type, version, length))
         {
             if (type != Record_ID)
                 continue;
@@ -120,7 +120,7 @@ void MarkCorpse::install()
             }
 
             uint32_t count = 0;
-            if (length < sizeof(uint32_t) || !a_intfc->ReadRecordData(count))
+            if (length < sizeof(uint32_t) || !intfc->ReadRecordData(count))
             {
                 logger::error("Corrupt searched-corpses record header"sv);
                 continue;
@@ -130,15 +130,15 @@ void MarkCorpse::install()
             for (uint32_t i = 0; i < count; ++i)
             {
                 RE::FormID stored = 0;
-                if (!a_intfc->ReadRecordData(stored))
+                if (!intfc->ReadRecordData(stored))
                 {
                     logger::error("Corrupt searched-corpses entry #{}/{}"sv, i, count);
                     break;
                 }
                 RE::FormID resolved = 0;
-                if (a_intfc->ResolveFormID(stored, resolved))
+                if (intfc->ResolveFormID(stored, resolved))
                 {
-                    MarkCorpse::instance().m_searched_corpses.insert(resolved);
+                    instance().m_searched_corpses.insert(resolved);
                     ++kept;
                 }
             }
@@ -146,21 +146,19 @@ void MarkCorpse::install()
         }
     });
 
-    serialization->SetRevertCallback([]([[maybe_unused]] SKSE::SerializationInterface* a_intfc)
+    serialization->SetRevertCallback([]([[maybe_unused]] SKSE::SerializationInterface* intfc)
     {
-        MarkCorpse::instance().m_searched_corpses.clear();
+        instance().m_searched_corpses.clear();
     });
 
-    serialization->SetFormDeleteCallback([](RE::VMHandle a_handle)
+    serialization->SetFormDeleteCallback([](RE::VMHandle handle)
     {
-        MarkCorpse::instance().m_searched_corpses.erase(static_cast<RE::FormID>(a_handle & 0xFFFFFFFFu));
+        instance().m_searched_corpses.erase(static_cast<RE::FormID>(handle & 0xFFFFFFFFu));
     });
-
-    logger::info("Registered searched-corpses serialization callbacks"sv);
-
 
     RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(ActivateHandler::instance());
-    logger::info("Installed TESActivateEvent sinks"sv);
+
+    logger::info("Registered searched corpses serialization callbacks and activate event sink"sv);
 }
 
 MarkCorpse::MarkCorpse() = default;

@@ -39,7 +39,13 @@ public:
         CommonStates const& states);
 
     void end_frame();
-
+private:
+    void draw_silhouette(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context,
+        REX::W32::ID3D11RenderTargetView* overlay_target, std::span<MaskDraw const> group,
+        DirectX::XMFLOAT4X4 const& view_proj, REX::W32::D3D11_VIEWPORT const& viewport, CommonStates const& states);
+    void draw_outline(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context,
+    REX::W32::ID3D11RenderTargetView* overlay_target, std::vector<MaskDraw> const& draws,
+    DirectX::XMFLOAT4X4 const& view_proj, REX::W32::D3D11_VIEWPORT const& vp, CommonStates const& states);
 private:
     // Facade state (owned exclusively by the render thread)
     REX::W32::ID3D11Device* m_ref_device;
@@ -51,7 +57,8 @@ private:
     uint32_t m_width;
     uint32_t m_height;
 
-    bool m_ready;
+    bool m_pass_ready;
+    bool m_rt_ready;
 };
 
 MASK_NAMESPACE_END

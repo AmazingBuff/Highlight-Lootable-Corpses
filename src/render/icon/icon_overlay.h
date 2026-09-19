@@ -20,7 +20,7 @@ public:
 
     bool init(REX::W32::ID3D11Device* device);
     void begin_frame(uint32_t width, uint32_t height);
-    void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, std::vector<IconVertex> const& vertices, CommonStates const& states);
+    void draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11RenderTargetView* target, std::vector<IconVertex> const& vertices, CommonStates const& states) const;
     void end_frame();
 private:
     bool create_pipeline(REX::W32::ID3D11Device* a_device);
@@ -35,5 +35,4 @@ private:
     uint32_t m_width;
     uint32_t m_height;
 };
-
 ICON_NAMESPACE_END

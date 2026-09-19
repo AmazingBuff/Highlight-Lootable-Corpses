@@ -19,7 +19,7 @@ public:
     // all input must be a corpse with container
     void mark(RE::TESObjectREFR* a_ref);
     // all input must be a corpse with container
-    [[nodiscard]] bool contains(RE::TESObjectREFR* a_ref);
+    [[nodiscard]] bool contains(RE::TESObjectREFR* a_ref) const;
     void install();
 private:
     MarkCorpse();

@@ -19,9 +19,9 @@ cbuffer GlowCB : register(b0)
 {
     float4 g_narrow_weights[5];
     float4 g_wide_weights[5];
-    uint g_radius;
-    uint g_width;
-    uint g_height;
+    int g_radius;
+    int g_width;
+    int g_height;
     uint g_object_id;
     int4 g_horizontal_rect;
 };
@@ -31,23 +31,23 @@ float2 ps_glow_horizontal(PS_IN ps_in) : SV_Target
     int2 pixel = int2(ps_in.pos.xy);
     if (pixel.x < g_horizontal_rect.x || pixel.x >= g_horizontal_rect.z ||
         pixel.y < g_horizontal_rect.y || pixel.y >= g_horizontal_rect.w ||
-        pixel.x < 0 || pixel.x >= int(g_width) || pixel.y < 0 || pixel.y >= int(g_height) || g_object_id == 0)
+        pixel.x < 0 || pixel.x >= g_width || pixel.y < 0 || pixel.y >= g_height || g_object_id == 0)
         return 0.0f;
 
     float2 coverage = 0.0f;
     [loop]
-    for (int dx = -int(g_radius); dx <= int(g_radius); ++dx)
+    for (int dx = -g_radius; dx <= g_radius; ++dx)
     {
         int sample_x = pixel.x + dx;
-        if (sample_x < 0 || sample_x >= int(g_width))
+        if (sample_x < 0 || sample_x >= g_width)
             continue;
 
         if (g_mask.Load(int3(sample_x, pixel.y, 0)) == g_object_id)
         {
-            int distance = abs(dx);
-            float4 narrow_slot = g_narrow_weights[distance >> 2];
-            float4 wide_slot = g_wide_weights[distance >> 2];
-            coverage += float2(narrow_slot[distance & 3], wide_slot[distance & 3]);
+            int dist = abs(dx);
+            float4 narrow_slot = g_narrow_weights[dist >> 2];
+            float4 wide_slot = g_wide_weights[dist >> 2];
+            coverage += float2(narrow_slot[dist & 3], wide_slot[dist & 3]);
         }
     }
     return saturate(coverage);
@@ -57,7 +57,7 @@ float4 ps_glow_vertical(PS_IN ps_in) : SV_Target
 {
     int2 pixel = int2(ps_in.pos.xy);
     if (pixel.x < g_horizontal_rect.x || pixel.x >= g_horizontal_rect.z ||
-        pixel.x < 0 || pixel.x >= int(g_width) || pixel.y < 0 || pixel.y >= int(g_height) || g_object_id == 0)
+        pixel.x < 0 || pixel.x >= g_width || pixel.y < 0 || pixel.y >= g_height || g_object_id == 0)
         return 0.0f;
 
     if (g_mask.Load(int3(pixel, 0)) == g_object_id)
@@ -65,17 +65,17 @@ float4 ps_glow_vertical(PS_IN ps_in) : SV_Target
 
     float2 coverage = 0.0f;
     [loop]
-    for (int dy = -int(g_radius); dy <= int(g_radius); ++dy)
+    for (int dy = -g_radius; dy <= g_radius; ++dy)
     {
         int sample_y = pixel.y + dy;
         if (sample_y < g_horizontal_rect.y || sample_y >= g_horizontal_rect.w || sample_y < 0 || sample_y >= int(g_height))
             continue;
 
-        int distance = abs(dy);
-        float4 narrow_slot = g_narrow_weights[distance >> 2];
-        float4 wide_slot = g_wide_weights[distance >> 2];
+        int dist = abs(dy);
+        float4 narrow_slot = g_narrow_weights[dist >> 2];
+        float4 wide_slot = g_wide_weights[dist >> 2];
         float2 sample_coverage = g_horizontal.Load(int3(pixel.x, sample_y, 0));
-        coverage += sample_coverage * float2(narrow_slot[distance & 3], wide_slot[distance & 3]);
+        coverage += sample_coverage * float2(narrow_slot[dist & 3], wide_slot[dist & 3]);
     }
 
     const float core_alpha = saturate(coverage.x * 3.0f);

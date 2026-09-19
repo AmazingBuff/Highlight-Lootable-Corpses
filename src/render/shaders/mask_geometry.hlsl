@@ -38,7 +38,7 @@ VS_OUT vs_skinned_main(VS_SKIN_IN skin_in)
 {
     float4 p = 0.0f;
     [unroll]
-    for (int i = 0; i < 4; ++i)
+    for (uint i = 0; i < 4; ++i)
         p += skin_in.weights[i] * mul(g_bones[skin_in.indices[i]], float4(skin_in.pos, 1.0f));
     VS_OUT o;
     o.pos = mul(g_world_view_proj, p);

@@ -20,7 +20,8 @@ MASK_NAMESPACE_BEGIN
 class RenderTarget
 {
 public:
-    RenderTarget();
+    // depth_format == DXGI_FORMAT_UNKNOWN: no depth target (colour-only scratch targets).
+    RenderTarget(REX::W32::DXGI_FORMAT color_format, REX::W32::DXGI_FORMAT depth_format);
     ~RenderTarget();
     RenderTarget(RenderTarget const&) = delete;
     RenderTarget& operator=(RenderTarget const&) = delete;
@@ -28,11 +29,13 @@ public:
     bool init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height);
     void release();
 
-    [[nodiscard]] bool matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept;
+    [[nodiscard]] bool matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const;
     [[nodiscard]] REX::W32::ID3D11RenderTargetView* rtv() const noexcept { return m_rtv; }
     [[nodiscard]] REX::W32::ID3D11DepthStencilView* dsv() const noexcept { return m_dsv; }
     [[nodiscard]] REX::W32::ID3D11ShaderResourceView* srv() const noexcept { return m_srv; }
 private:
+    REX::W32::DXGI_FORMAT m_color_format;
+    REX::W32::DXGI_FORMAT m_depth_format;
     REX::W32::ID3D11Device* m_ref_device;
     REX::W32::ID3D11Texture2D* m_texture;
     REX::W32::ID3D11Texture2D* m_depth_texture;
@@ -139,52 +142,22 @@ public:
     virtual void release();
 protected:
     REX::W32::ID3D11VertexShader* m_ref_vertex_shader;
-    REX::W32::ID3D11PixelShader* m_ref_pixel_shader;
-
-    REX::W32::ID3D11Buffer* m_cb;
 
     REX::W32::ID3D11Buffer* m_style_buffer;
     REX::W32::ID3D11ShaderResourceView* m_style_srv;
     size_t m_style_capacity;
 };
 
-class GlowScratch
-{
-public:
-    GlowScratch();
-    ~GlowScratch();
-    GlowScratch(GlowScratch const&) = delete;
-    GlowScratch& operator=(GlowScratch const&) = delete;
-
-    bool init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height);
-    void release();
-
-    [[nodiscard]] bool matches(REX::W32::ID3D11Device* device, uint32_t width, uint32_t height) const noexcept;
-    [[nodiscard]] REX::W32::ID3D11RenderTargetView* rtv() const noexcept { return m_rtv; }
-    [[nodiscard]] REX::W32::ID3D11ShaderResourceView* srv() const noexcept { return m_srv; }
-
-private:
-    REX::W32::ID3D11Device* m_ref_device;
-    REX::W32::ID3D11Texture2D* m_texture;
-    REX::W32::ID3D11RenderTargetView* m_rtv;
-    REX::W32::ID3D11ShaderResourceView* m_srv;
-    uint32_t m_width;
-    uint32_t m_height;
-};
-
 class SilhouettePass final : public FullscreenPass
 {
 public:
+    SilhouettePass();
     ~SilhouettePass() override;
     bool init(REX::W32::ID3D11Device* device) override;
     void release() override;
-    bool draw(
-        REX::W32::ID3D11DeviceContext* context,
-        REX::W32::ID3D11RenderTargetView* target,
-        REX::W32::ID3D11ShaderResourceView* mask_srv,
-        uint32_t width,
-        uint32_t height,
-        CommonStates const& states) const;
+    bool draw(REX::W32::ID3D11DeviceContext* context, REX::W32::ID3D11ShaderResourceView* mask_srv) const;
+private:
+    REX::W32::ID3D11PixelShader* m_ref_silhouette_shader;
 };
 
 class OutlinePass final : public FullscreenPass
@@ -195,20 +168,25 @@ public:
     bool init(REX::W32::ID3D11Device* device) override;
     void release() override;
     bool draw(
-        REX::W32::ID3D11Device* device,
         REX::W32::ID3D11DeviceContext* context,
         REX::W32::ID3D11RenderTargetView* target,
         REX::W32::ID3D11ShaderResourceView* mask_srv,
-        uint32_t width,
-        uint32_t height,
+        REX::W32::D3D11_VIEWPORT const& viewport,
         uint32_t object_id,
         int thickness,
         ROI::Rect horizontal_rect,
         ROI::Rect vertical_rect,
-        CommonStates const& states);
+        CommonStates const& states) const;
+
+    RenderTarget& scratch_render_target() {return m_scratch_rt;}
 private:
-    GlowScratch m_scratch;
-    REX::W32::ID3D11PixelShader* m_horizontal_shader;
+    // R16G16_FLOAT intermediate target for the horizontal blur (rendered, then sampled by the
+    // vertical pass); recreated when the device or the swap-chain size changes.
+    RenderTarget m_scratch_rt;
+
+    REX::W32::ID3D11Buffer* m_cb;
+    REX::W32::ID3D11PixelShader* m_ref_horizontal_shader;
+    REX::W32::ID3D11PixelShader* m_ref_vertical_shader;
 };
 
 MASK_NAMESPACE_END
