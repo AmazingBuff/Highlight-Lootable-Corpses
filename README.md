@@ -51,30 +51,33 @@ All options live in `Data\SKSE\Plugins\HighlightLootableCorpses.ini` (auto-gener
 Enabled=true
 ; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
 Hotkey=118
-; search radius in game units (~17 m default)
-MaxDistance=2000.0
+; hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)
+HotkeyMode=0
+; pulse mode: highlight lifetime in milliseconds before fully fading out
+PulseDurationMs=3000
 ; corpse scan interval in milliseconds
 ScanIntervalMs=500
-
 [Display]
-; corpse display style: silhouette (filled mask, 0) | outline (band around the mask, 1) | icon (arrows above corpses; nearby crowded targets share a double arrow, 2)
-DisplayMode=0
-; icon base half-width in pixels, range 5-20 (example value; existing key remains compatible)
+; corpse display style: silhouette (filled mask, 0) | outline (bright core plus outward glow, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)
+; usually, icon mode has best performance, then silhouette mode, outline is the worst
+DisplayMode=1
+; outline glow size (1-5; larger values widen the bright rim and outer halo)
+OutlineThickness=10
+; icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)
 IconRadius=10
-; outline color (RGB hex)
-OutlineColor=00FF66
+; outline color (ARGB hex)
+OutlineColor=FF00FF66
 ; minimum opacity at max distance
 MinOpacity=0.15
-; outline glow size (1-5; larger values widen the bright rim and outer halo)
-OutlineThickness=2.0
+; search radius in game units (~17 m default)
+MaxDistance=2000.0
 ; distance where fading begins (fully opaque below)
 FadeStartDistance=500.0
 ; fade curve exponent (higher = faster fade)
 FadePower=2.0
-
 [LootFilter]
 ; stop outlining corpses the player has searched (activated) at least once, even if nothing was taken
-HideSearchedEnabled=false
+HideSearchedEnabled=true
 ; only outline corpses matching the categories below
 ValueFilterEnabled=false
 ; quest items
@@ -86,7 +89,7 @@ ValueEnchanted=false
 ; single item worth >= HighValueThreshold gold
 ValueHighValue=false
 ; high-value threshold (gold piles count by amount)
-HighValueThreshold=100.0
+HighValueThreshold=0
 ; bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all
 BookFilterMode=0
 ; arrows, ingredients, potions, scrolls, soul gems
