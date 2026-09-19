@@ -17,13 +17,14 @@ StructuredBuffer<float4> g_styles : register(t2);
 
 cbuffer GlowCB : register(b0)
 {
-    float4 g_narrow_weights[5];
-    float4 g_wide_weights[5];
+    float4 g_narrow_weights[16];
+    float4 g_wide_weights[16];
     int g_radius;
     int g_width;
     int g_height;
     uint g_object_id;
     int4 g_horizontal_rect;
+    int4 g_vertical_rect;
 };
 
 float2 ps_glow_horizontal(PS_IN ps_in) : SV_Target
@@ -56,7 +57,7 @@ float2 ps_glow_horizontal(PS_IN ps_in) : SV_Target
 float4 ps_glow_vertical(PS_IN ps_in) : SV_Target
 {
     int2 pixel = int2(ps_in.pos.xy);
-    if (pixel.x < g_horizontal_rect.x || pixel.x >= g_horizontal_rect.z ||
+    if (pixel.x < g_vertical_rect.x || pixel.x >= g_vertical_rect.z ||
         pixel.x < 0 || pixel.x >= g_width || pixel.y < 0 || pixel.y >= g_height || g_object_id == 0)
         return 0.0f;
 
@@ -68,7 +69,7 @@ float4 ps_glow_vertical(PS_IN ps_in) : SV_Target
     for (int dy = -g_radius; dy <= g_radius; ++dy)
     {
         int sample_y = pixel.y + dy;
-        if (sample_y < g_horizontal_rect.y || sample_y >= g_horizontal_rect.w || sample_y < 0 || sample_y >= int(g_height))
+        if (sample_y < g_vertical_rect.y || sample_y >= g_vertical_rect.w || sample_y < 0 || sample_y >= int(g_height))
             continue;
 
         int dist = abs(dy);

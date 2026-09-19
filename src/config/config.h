@@ -72,7 +72,7 @@ public:
 
 public:
     constexpr static int Min_Outline_Thickness = 1;
-    constexpr static int Max_Outline_Thickness = 5;
+    constexpr static int Max_Outline_Thickness = 20;
 
     constexpr static int Min_Icon_Radius = 5;
     constexpr static int Max_Icon_Radius = 20;

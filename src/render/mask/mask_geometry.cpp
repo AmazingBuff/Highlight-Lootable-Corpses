@@ -821,7 +821,7 @@ namespace
         if (target.has_skinned)
         {
             char const* const node_name = geom->name.c_str();
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip static geometry on skinned corpse (static prop is not part of the body silhouette) target={:08X} node=\"{}\"",
                     target.form_id, node_name ? node_name : "?"));
             return;
@@ -857,7 +857,7 @@ namespace
 
         if (exclusion_reason)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip static geometry ({}) rtti={} node=\"{}\"", exclusion_reason, rtti_name, node_name ? node_name : "?"));
             return;
         }
@@ -873,7 +873,7 @@ namespace
         auto const& tri_rt = tri->GetTrishapeRuntimeData();
         if (tri_rt.vertexCount == 0 || tri_rt.triangleCount == 0)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip empty geometry (verts={} tris={}) rtti={} node=\"{}\"",
                     tri_rt.vertexCount, tri_rt.triangleCount, rtti_name, node_name ? node_name : "?"));
             return;
@@ -882,7 +882,7 @@ namespace
         RE::NiBound const& model_bound = geom->GetModelData().modelBound;
         if (model_bound.radius <= 0.0f)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip geometry with invalid model bound rtti={} node=\"{}\"", rtti_name, node_name ? node_name : "?"));
             return;
         }
@@ -913,7 +913,7 @@ namespace
         float const world_radius = model_bound.radius * scale_max;
         if (world_radius <= 0.0f || world_radius > Max_Part_World_Radius)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip static draw [world radius out of range] target={:08X} node=\"{}\" model_bound r={:.1f} world_radius={:.1f} cap={:.1f}",
                     target.form_id, node_name, model_bound.radius, world_radius, Max_Part_World_Radius));
             return;
@@ -935,7 +935,7 @@ namespace
         float const proximity_limit = world_radius + Ref_Proximity_Slack;
         if (ref_distance > proximity_limit)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip static draw [geometry not at target] target={:08X} node=\"{}\" distance={:.1f} limit={:.1f} ref=({:.1f},{:.1f},{:.1f}) world_center=({:.1f},{:.1f},{:.1f}) world_radius={:.1f}",
                     target.form_id, node_name,
                     ref_distance, proximity_limit,
@@ -992,13 +992,13 @@ namespace
         uint32_t const partition_count = std::min(skin_partition->numPartitions, static_cast<uint32_t>(skin_partition->partitions.size()));
         if (partition_count < skin_partition->numPartitions)
         {
-            logger::info("{}", fmt::format("Mask overlay: skip skinned draw [partition count exceeds array size] node=\"{}\" {}", node_name,
+            logger::debug("{}", fmt::format("Mask overlay: skip skinned draw [partition count exceeds array size] node=\"{}\" {}", node_name,
                 fmt::format("numPartitions={} partitions.size()={} extra partitions ignored",
                 skin_partition->numPartitions, skin_partition->partitions.size())));
         }
         if (partition_count == 0)
         {
-            logger::info("{}", fmt::format("Mask overlay: skip skinned draw [no skin partitions] node=\"{}\" {}", node_name,
+            logger::debug("{}", fmt::format("Mask overlay: skip skinned draw [no skin partitions] node=\"{}\" {}", node_name,
                 fmt::format("numPartitions={} partitions.size()={}", skin_partition->numPartitions, skin_partition->partitions.size())));
             return;
         }
@@ -1046,7 +1046,7 @@ namespace
                 reject = "partition triList missing";
             if (reject)
             {
-                logger::info("{}", fmt::format("Mask overlay: skip skinned draw [{}] node=\"{}\" {}", reject, node_name,
+                logger::debug("{}", fmt::format("Mask overlay: skip skinned draw [{}] node=\"{}\" {}", reject, node_name,
                     fmt::format("partition={} vertices={} triangles={}", p, part.vertices, part.triangles)));
                 continue;
             }
@@ -1054,7 +1054,7 @@ namespace
             if (part.strips != 0)
             {
                 // A strip partition (stripLengths index layout) cannot be drawn as a triangle list - skip to avoid errors
-                logger::info("{}", fmt::format("Mask overlay: skip skinned draw [partition is a triangle strip] node=\"{}\" {}", node_name,
+                logger::debug("{}", fmt::format("Mask overlay: skip skinned draw [partition is a triangle strip] node=\"{}\" {}", node_name,
                     fmt::format("partition={} strips={} vertices={} triangles={}", p, part.strips, part.vertices, part.triangles)));
                 continue;
             }
@@ -1066,7 +1066,7 @@ namespace
             uint32_t const palette_count = palette_slot_count(skin);
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
-                logger::warn("{}", fmt::format("Mask overlay: skip skinned draw [palette slot count out of range] node=\"{}\" {}", node_name,
+                logger::debug("{}", fmt::format("Mask overlay: skip skinned draw [palette slot count out of range] node=\"{}\" {}", node_name,
                     fmt::format("partition={} P={} budget={}", p, palette_count, Max_Palette_Bones)));
                 continue;
             }
@@ -1198,7 +1198,7 @@ namespace
         if (geom_rt.shaderProperty && geom_rt.shaderProperty->GetRTTI() &&
             strcmp(geom_rt.shaderProperty->GetRTTI()->GetName(), "BSEffectShaderProperty") == 0)
         {
-            logger::info("{}",
+            logger::debug("{}",
                 fmt::format("Mask overlay: skip effect-shader geometry (BSEffectShaderProperty, fx attachment is not part of the corpse silhouette) node=\"{}\"",
                     geom->name.c_str() ? geom->name.c_str() : "?"));
             return;

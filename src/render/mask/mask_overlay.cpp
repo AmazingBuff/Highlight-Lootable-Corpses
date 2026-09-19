@@ -4,7 +4,6 @@
 
 #include "mask_overlay.h"
 
-#include "mask_depth.h"
 #include "mask_geometry.h"
 #include "mask_passes.h"
 
@@ -249,7 +248,7 @@ void MaskOverlay::draw_outline(REX::W32::ID3D11Device* device, REX::W32::ID3D11D
         context->OMSetBlendState(states.opaque(), nullptr, 0xFFFFFFFF);
         m_geometry_pass.draw(device, context, view_proj, group);
 
-        if (!m_outline_pass.draw(context, overlay_target, m_mask_rt.srv(), vp, draws[begin].target_index + 1, profile.thickness, horizontal_rect, vertical_rect, states))
+        if (!m_outline_pass.draw(context, overlay_target, m_mask_rt.srv(), vp, draws[begin].target_index + 1, profile, horizontal_rect, vertical_rect, states))
             break;
         begin = end;
     }

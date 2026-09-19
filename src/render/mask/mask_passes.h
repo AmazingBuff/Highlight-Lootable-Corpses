@@ -173,9 +173,9 @@ public:
         REX::W32::ID3D11ShaderResourceView* mask_srv,
         REX::W32::D3D11_VIEWPORT const& viewport,
         uint32_t object_id,
-        int thickness,
-        ROI::Rect horizontal_rect,
-        ROI::Rect vertical_rect,
+        Glow::KernelProfile const& profile,
+        ROI::Rect const& horizontal_rect,
+        ROI::Rect const& vertical_rect,
         CommonStates const& states) const;
 
     RenderTarget& scratch_render_target() {return m_scratch_rt;}

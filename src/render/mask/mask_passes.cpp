@@ -30,7 +30,8 @@ namespace
         int width;
         int height;
         uint32_t object_id;
-        REX::W32::D3D11_RECT rect;
+        REX::W32::D3D11_RECT horizontal_rect;
+        REX::W32::D3D11_RECT vertical_rect;
     };
 }
 
@@ -656,23 +657,20 @@ bool OutlinePass::draw(
     REX::W32::ID3D11ShaderResourceView* mask_srv,
     REX::W32::D3D11_VIEWPORT const& viewport,
     uint32_t object_id,
-    int thickness,
-    ROI::Rect horizontal_rect,
-    ROI::Rect vertical_rect,
+    Glow::KernelProfile const& profile,
+    ROI::Rect const& horizontal_rect,
+    ROI::Rect const& vertical_rect,
     CommonStates const& states) const
 {
-    Glow::KernelProfile const profile = Glow::make_kernel_profile(thickness);
     GlowCBData cb_data{};
     std::memcpy(cb_data.narrow, profile.narrow.data(), sizeof(profile.narrow));
     std::memcpy(cb_data.wide, profile.wide.data(), sizeof(profile.wide));
+    std::memcpy(&cb_data.horizontal_rect, &horizontal_rect, sizeof(horizontal_rect));
+    std::memcpy(&cb_data.vertical_rect, &vertical_rect, sizeof(vertical_rect));
     cb_data.radius = profile.radius;
     cb_data.width = static_cast<int>(viewport.width);
     cb_data.height = static_cast<int>(viewport.height);
     cb_data.object_id = object_id;
-    cb_data.rect.x1 = horizontal_rect.left;
-    cb_data.rect.y1 = horizontal_rect.top;
-    cb_data.rect.x2 = horizontal_rect.right;
-    cb_data.rect.y2 = horizontal_rect.bottom;
 
     REX::W32::D3D11_MAPPED_SUBRESOURCE mapped{};
     if (!REX::W32::SUCCESS(context->Map(m_cb, 0, REX::W32::D3D11_MAP_WRITE_DISCARD, 0, &mapped)))

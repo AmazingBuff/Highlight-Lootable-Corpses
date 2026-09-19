@@ -6,13 +6,16 @@
 
 #include "mask_types.h"
 
+#include "config/config.h"
+
 MASK_NAMESPACE_BEGIN
 
 namespace Glow
 {
 
-inline constexpr int Max_Radius = 18;
-inline constexpr std::size_t Kernel_Slot_Count = (Max_Radius + 4) / 4;
+inline constexpr int Kernel_Factor = 3;
+inline constexpr int Kernel_Max_Radius = 3 * Setting::Max_Outline_Thickness;
+inline constexpr std::size_t Kernel_Slot_Count = (Kernel_Max_Radius + 4) / 4;
 
 struct KernelProfile
 {
@@ -20,15 +23,15 @@ struct KernelProfile
     int radius;
     float halo_sigma;
     float core_sigma;
-    std::array<float, Max_Radius + 1> narrow;
-    std::array<float, Max_Radius + 1> wide;
+    std::array<float, Kernel_Max_Radius + 1> narrow;
+    std::array<float, Kernel_Max_Radius + 1> wide;
 };
 
 [[nodiscard]] inline KernelProfile make_kernel_profile(int thickness) noexcept
 {
     KernelProfile profile{};
     profile.thickness = thickness;
-    profile.radius = 3 * profile.thickness + 3;
+    profile.radius = Kernel_Factor * profile.thickness;
     profile.halo_sigma = static_cast<float>(profile.radius) / 3.0f;
     profile.core_sigma = 0.45f + 0.20f * static_cast<float>(profile.thickness);
 
