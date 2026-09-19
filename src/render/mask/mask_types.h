@@ -36,25 +36,22 @@ struct MaskTarget
     DirectX::XMFLOAT4 color;
 };
 
-// One geometry draw (a temporary list owned by the render thread; VB/IB are borrowed from game
-// objects). Lifetime: the node/rendererData/VB/IB borrowed by the static path are kept alive by
-// node_ref (a geometry NiPointer), so the game thread cannot unload the target 3D between
-// collection and drawing within the same frame and leave them dangling; the skinned path keeps
-// its buffData/VB/IB alive through the skin (NiSkinInstance→skinPartition→buffData) reference chain.
+// One geometry draw (a temporary render-thread list; VB/IB are borrowed from game objects).
+// Lifetime: node_ref keeps the static-path geometry (and its GPU buffers) alive; the skinned path
+// keeps its buffData/VB/IB alive through the skin (NiSkinInstance→skinPartition→buffData) chain.
 struct MaskDraw
 {
     REX::W32::ID3D11Buffer* vertex_buffer;
     REX::W32::ID3D11Buffer* index_buffer;
     RE::BSGraphics::VertexDesc vertex_desc;
-    RE::NiAVObject* node;  // world transform source of the static path (borrowed; lifetime described at node_ref)
+    RE::NiAVObject* node;  // world transform source of the static path (borrowed; alive via node_ref)
     RE::NiPointer<RE::BSGeometry> node_ref;  // keeps the static-path geometry (and its GPU buffers) alive
     uint32_t vertex_stride;
     uint32_t vertex_count;
     uint32_t triangle_count;
     uint32_t index_count;
     // Position attribute layout: the static path stores the calibrate_position_format result
-    // (UNKNOWN means derive from desc); the skinned path stores the attribute-offset spacing result
-    // (never UNKNOWN).
+    // (UNKNOWN means derive from desc); the skinned path stores the offset-spacing result.
     REX::W32::DXGI_FORMAT position_format;
     uint32_t position_offset;
     bool skinned;                            // true: draw per partition with palette skinning

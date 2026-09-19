@@ -55,18 +55,6 @@ public:
     void release();
 
     [[nodiscard]] REX::W32::ID3D11DepthStencilState* depth_nearest() const noexcept { return m_depth_nearest; }
-    [[nodiscard]] bool upload_transposed() const noexcept { return m_upload_transposed; }
-
-    // On the first frame that has a draw, auto-calibrate the byte orientation of the CB upload
-    // (direct upload is expected to hold as the ground truth; on failure the byte order is
-    // transposed): anchor = the world origin of the first recorded node, projected through the
-    // composed matrix and compared in pixels against the engine's WorldPtToScreenPt3.
-    void calibrate_upload_orientation(
-        RE::NiCamera* camera,
-        DirectX::XMFLOAT4X4 const& view_proj,
-        std::vector<MaskDraw> const& draws,
-        uint32_t width,
-        uint32_t height);
 
     // Draw every draw (the palette skinning is built here).
     void draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws);
@@ -124,17 +112,12 @@ private:
         MaskSkinLayout const* skin_layout);
     void release_layouts();
 private:
-    REX::W32::ID3D11VertexShader* m_vs_static;
-    REX::W32::ID3D11VertexShader* m_vs_skinned;
-    REX::W32::ID3D11PixelShader* m_ps_mask;
-    REX::W32::ID3DBlob* m_vs_static_blob;   // CreateInputLayout needs the VS bytecode, so it is kept with the pipeline
-    REX::W32::ID3DBlob* m_vs_skinned_blob;
+    REX::W32::ID3D11VertexShader* m_ref_vs_static;
+    REX::W32::ID3D11VertexShader* m_ref_vs_skinned;
+    REX::W32::ID3D11PixelShader* m_ref_ps_mask;
     REX::W32::ID3D11Buffer* m_per_draw_cb;  // b0: row_major float4x4 + uint object_id (80 bytes)
     REX::W32::ID3D11Buffer* m_palette_cb;   // b1: row_major float4x4[Max_Palette_Bones]
     REX::W32::ID3D11DepthStencilState* m_depth_nearest;  // Reverse-Z nearest-depth test; no CommonStates equivalent.
-
-    // Constant-buffer upload byte orientation (auto-calibrated; direct upload is expected to hold, and on failure the byte order is transposed)
-    bool m_upload_transposed;
 
     // InputLayout cache: keyed by (skinned, precision, attribute offsets, stride) - the attribute
     // offsets come from each mesh's vertexDesc and creating a device object per mesh is not
@@ -152,11 +135,11 @@ public:
     FullscreenPass& operator=(FullscreenPass const&) = delete;
     bool update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, std::span<MaskTarget const> targets);
 
-    virtual bool init(REX::W32::ID3D11Device* device);
+    virtual bool init([[maybe_unused]] REX::W32::ID3D11Device* device);
     virtual void release();
 protected:
-    REX::W32::ID3D11VertexShader* m_vertex_shader;
-    REX::W32::ID3D11PixelShader* m_pixel_shader;
+    REX::W32::ID3D11VertexShader* m_ref_vertex_shader;
+    REX::W32::ID3D11PixelShader* m_ref_pixel_shader;
 
     REX::W32::ID3D11Buffer* m_cb;
 

@@ -19,13 +19,9 @@ namespace
     [[nodiscard]] ROI::Region group_region(
         std::span<MaskDraw const> group,
         DirectX::XMFLOAT4X4 const& view_proj,
-        MaskGeometryPass const& geometry_pass,
         uint32_t width,
         uint32_t height)
     {
-        if (geometry_pass.upload_transposed())
-            return ROI::full_region();
-
         std::vector<ROI::Sphere> spheres;
         spheres.reserve(group.size());
         for (MaskDraw const& draw : group)
@@ -118,8 +114,6 @@ void MaskOverlay::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceCon
     collect_mask_draws(targets, draws);
     if (draws.empty())
         return;
-    
-    m_geometry_pass.calibrate_upload_orientation(camera, view_proj, draws, width, height);
 
     Config const& cfg = Setting::instance().get_config();
     bool const silhouette = cfg.display_mode == Config::DisplayMode::e_silhouette;
@@ -182,7 +176,7 @@ void MaskOverlay::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceCon
             while (end < draws.size() && draws[end].target_index == draws[begin].target_index)
                 ++end;
             std::span<MaskDraw const> const group = all_draws.subspan(begin, end - begin);
-            ROI::Region const base_region = group_region(group, view_proj, m_geometry_pass, width, height);
+            ROI::Region const base_region = group_region(group, view_proj, width, height);
             if (base_region.kind == ROI::RegionKind::e_empty)
             {
                 begin = end;

@@ -28,8 +28,7 @@ namespace
 
     // ---------------------------------------------------------------------------
     // One-shot diagnostic logging: deduplicated by key (a given key is emitted once). The signature
-    // container is only touched by the render thread (inside the Present callback) and only grows
-    // the first time each signature is hit.
+    // container is only touched by the render thread (inside the Present callback).
     // ---------------------------------------------------------------------------
     void log_once(bool warn, std::string key, std::string_view message)
     {
@@ -51,35 +50,13 @@ namespace
             fmt::format("Mask overlay: skip static draw [{}] target={:08X} node=\"{}\" {}", reason, form_id, node, details));
     }
 
-    void log_skinned_info_once(char const* node_name, std::string_view reason, std::string_view details)
-    {
-        char const* const node = node_name ? node_name : "?";
-        log_once(false,
-            fmt::format("skinned-info|{}|{}", node, reason),
-            fmt::format("Mask overlay: skinned draw [{}] node=\"{}\" {}", reason, node, details));
-    }
-
-    void log_skinned_summary_once(char const* node_name, std::string_view details)
-    {
-        char const* const node = node_name ? node_name : "?";
-        log_once(false,
-            fmt::format("skinned-summary|{}", node),
-            fmt::format("Mask overlay: skinned collect summary node=\"{}\" {}", node, details));
-    }
-
     // ---------------------------------------------------------------------------
-    // Vertex layout: derive the stride and the attribute formats from vertexDesc.
-    // CLibNG's VertexDesc::GetSize() always counts a half-precision position as 16 bytes (which only
-    // holds for full precision) and UV as 4 bytes (8 for full precision), so it does not match the
-    // real stride; instead take "the maximum of offset+size over all attributes" - offset comes
-    // straight from the desc the engine wrote (the authoritative layout) and the attribute sizes are
-    // the fixed SSE formats:
-    //   POSITION   FULLPREC ? R32G32B32(12) : R16G16B16A16(8)
-    //   TEXCOORDn  FULLPREC ? R32G32(8)     : R16G16(4)
-    //   NORMAL/TANGENT/COLOR/EYEDATA/LANDDATA 4 bytes
-    //   SKINNING   weights 4×f16(8) + indices 4×u8(4), weights first
-    // The SKINNING block byte count is parameterisable: the skinned partition stride is unknown, so
-    // both 8 and 12 have to be probed; the static path always passes 12.
+    // Vertex layout: CLibNG's VertexDesc::GetSize() miscounts the half-precision position (16) and
+    // UV (4), so the stride is derived as the max of offset+size over all attributes instead -
+    // offsets come from the engine-written desc, sizes are the fixed SSE formats (position/UV are
+    // FULLPREC-dependent, NORMAL/TANGENT/COLOR/EYEDATA/LANDDATA are 4 bytes, SKINNING is weights
+    // 4×f16 + indices 4×u8 with weights first). The SKINNING byte count is parameterisable: the
+    // skinned stride is unknown and both 8 and 12 are probed; the static path always passes 12.
     // ---------------------------------------------------------------------------
     uint32_t vertex_size_of_with_skinning(RE::BSGraphics::VertexDesc const& desc, uint32_t skinning_bytes)
     {
@@ -126,10 +103,8 @@ namespace
         return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
     }
 
-    // Transform a 3D point with an XMFLOAT4X4 world transform: column-vector consumption, translation
-    // included (for the convention see the matrix helper comment in mask_types.h).
-    // XMVector3Transform computes the row-vector product p·M, so transpose first, which is
-    // equivalent to M·p.
+    // Column-vector point transform M·p (translation included): XMVector3Transform computes p·M, so
+    // transpose first.
     RE::NiPoint3 transform_point(DirectX::XMFLOAT4X4 const& m, RE::NiPoint3 const& p)
     {
         DirectX::XMMATRIX const transposed = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&m));
@@ -148,12 +123,10 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // Position attribute format calibration: VF_FULLPREC in the desc is unreliable (0x1b/0x3b leave
-    // the flag clear although the position really is a float32 full-precision 16-byte slot -
-    // declaring it as half4 makes D3D11 read the first 8 bytes of every float32 as 4 halves, which
-    // scrambles all positions and stretches the triangles over the whole screen). So the format is no
-    // longer assumed: rawVertexData is decoded for real and compared against the engine modelBound
-    // (the model-space ground truth) to select the matching (format, byte offset), cached per desc.
+    // Position format calibration: VF_FULLPREC is unreliable (0x1b/0x3b leave the flag clear on a
+    // float32 position; misdeclaring it as half4 scrambles every position). Instead rawVertexData is
+    // decoded and compared against the engine modelBound to select the matching (format, offset),
+    // cached per desc.
     // ---------------------------------------------------------------------------
 
     struct PositionCandidate
@@ -182,7 +155,6 @@ namespace
     struct PositionCalibration
     {
         // Layout decision only (format/offset are desc attributes, so they can be cached per desc).
-        // The per-mesh model AABB only feeds candidate scoring and never enters the cache (to prevent cross-mesh pollution).
         REX::W32::DXGI_FORMAT format;
         uint32_t offset;
         PositionCalibrationState state;
@@ -395,8 +367,8 @@ namespace
             result.offset = results[best].offset;
             result.state = PositionCalibrationState::e_measured;
             log_once(false, fmt::format("calib-pos|{:018x}|measured", desc_raw),
-                fmt::format("Mask overlay: position calibration selected fmt={:#06x} off={} (center err {:.2f}) {} candidates:{}",
-                    static_cast<unsigned>(result.format), result.offset, results[best].center_error, desc_fields, table));
+                fmt::format("Mask overlay: position calibration selected fmt={:#06x} off={} (center err {:.2f}) desc={:#018x}",
+                    static_cast<unsigned>(result.format), result.offset, results[best].center_error, desc_raw));
         }
 
         if (s_calibrations.size() < Max_Position_Calibrations)
@@ -405,19 +377,13 @@ namespace
     }
 
     // ---------------------------------------------------------------------------
-    // Skinned partition vertex layout calibration: neither the skinned partition stride (the
-    // SKINNING block byte count) nor the position layout has an authoritative definition to check
-    // against, so the static path's method is reused - decode the partition's own rawVertexData for
-    // real and compare it with the geometry modelBound (the model-space ground truth, which covers
-    // every vertex of the mesh and of which the partition is a subset).
-    // The position format is determined by the attribute offset spacing (gap = offset of the next
-    // later attribute - position offset): the evidence is that for flags 0x5b/0x9/0x1b/0x3b the
-    // attribute immediately after the position always has offset 16, i.e. the position occupies a
-    // 16-byte slot (float32). A candidate is a three-dimensional combination of position format ×
-    // position offset × stride.
-    // Results are cached independently per raw partition desc value (kept apart from the static
-    // s_calibrations because the criteria differ); if no candidate passes or rawVertexData is
-    // missing → e_unresolved, and the caller skips the draw and warns.
+    // Skinned partition layout calibration: neither the stride (SKINNING byte count) nor the
+    // position layout has an authoritative definition, so the static path's method is reused -
+    // decode the partition's own rawVertexData and compare against the geometry modelBound. The
+    // position format comes from the attribute offset spacing (for flags 0x5b/0x9/0x1b/0x3b the
+    // attribute after the position always has offset 16, i.e. a float32 16-byte slot). Results are
+    // cached per raw partition desc; no candidate passes or rawVertexData missing → e_unresolved
+    // and the caller skips the draw.
     // ---------------------------------------------------------------------------
 
     enum class SkinnedCalibrationState : uint8_t
@@ -484,9 +450,8 @@ namespace
         uint32_t bad_weight_vertices;              // number of vertices with an out-of-range weight component
     };
 
-    // Per-mesh validation verdict: position failure → skip; weight failure → switch candidate; an
-    // out-of-range index with a non-zero weight is turned into a skip by the caller from the stats,
-    // while an out-of-range index with a zero weight is drawn as usual
+    // Per-mesh validation verdict: position failure → skip; weight failure → switch candidate;
+    // out-of-range index: non-zero weight → caller skips, zero weight → drawn as usual
     enum class SkinnedMeshVerdict : uint8_t
     {
         e_ok,
@@ -540,10 +505,9 @@ namespace
         return true;
     }
 
-    // Traverse **all** vertices of the given mesh's own data under the given position layout and
-    // SKINNING layout, fill in the statistics and return the verdict. Indices are interpreted as
-    // global bone indices with index_bound (the palette length P) as the out-of-range bound. The
-    // caller must already guarantee that every read stays within the stride (bounds filtering).
+    // Traverse all vertices under the given position and SKINNING layout, fill in the statistics
+    // and return the verdict. Indices are global bone indices with index_bound (the palette length
+    // P) as the out-of-range bound; the caller guarantees every read stays within the stride.
     SkinnedMeshVerdict validate_skinned_mesh(
         uint8_t const* raw, uint32_t stride, uint32_t pos_offset, uint32_t pos_bytes,
         SkinningLayoutSpec const& spec, uint32_t weight_offset, uint32_t index_offset,
@@ -647,9 +611,8 @@ namespace
         return table;
     }
 
-    // Enumerate (stride, SKINNING layout) candidates and validate each of them on the given mesh's
-    // own data (all vertices); the results are written to candidates/skin and the candidate count is
-    // returned. The cache is neither read nor written.
+    // Enumerate (stride, SKINNING layout) candidates and validate each on the mesh's own data;
+    // the cache is neither read nor written.
     size_t enumerate_skinned_candidates(
         RE::BSGraphics::VertexDesc const& desc,
         RE::BSGraphics::TriShape const* renderer_data,
@@ -851,12 +814,11 @@ namespace
             result.skin = candidate_skin[best];
             result.state = SkinnedCalibrationState::e_measured;
             log_once(false, fmt::format("calib-skin|{:018x}|measured", desc_raw),
-                fmt::format("Mask overlay: skinned layout calibration selected pos(fmt={:#06x},off={}) stride={} layout={} weight(fmt={:#06x},off={}) index(fmt={:#06x},off={}) {} candidates:{}",
+                fmt::format("Mask overlay: skinned layout calibration selected pos(fmt={:#06x},off={}) stride={} layout={} weight(fmt={:#06x},off={}) index(fmt={:#06x},off={}) desc={:#018x}",
                     static_cast<unsigned>(result.position_format), result.position_offset,
                     result.stride, static_cast<unsigned>(result.layout_id),
                     static_cast<unsigned>(result.skin.weight_format), result.skin.weight_offset,
-                    static_cast<unsigned>(result.skin.index_format), result.skin.index_offset,
-                    desc_fields, table));
+                    static_cast<unsigned>(result.skin.index_format), result.skin.index_offset, desc_raw));
         }
 
         // Only the layout decision is written to the cache (the result struct holds no per-mesh statistics)
@@ -883,10 +845,8 @@ namespace
 
     void collect_static(RE::BSGeometry* geom, RE::BSGeometry::GEOMETRY_RUNTIME_DATA const& geom_rt, TargetContext const& target, std::vector<MaskDraw>& draws)
     {
-        // ---- When the target 3D contains skinned geometry, its non-skinned geometry (icicles and
-        // similar decoration) is not part of the corpse body and is never drawn - the silhouette only
-        // reflects the skinned body. For a purely static target (ash pile / static corpse container
-        // and the like) has_skinned is false and the behaviour is unchanged. ----
+        // The target 3D contains skinned geometry → its static geometry (icicles and similar
+        // decoration) is not part of the body silhouette and is not drawn.
         if (target.has_skinned)
         {
             char const* const node_name = geom->name.c_str();
@@ -904,10 +864,8 @@ namespace
             return;
         }
 
-        // ---- Classification guard: these BSTriShape subclasses cannot be drawn as ordinary static
-        // geometry (dynamic vertex layout / instanced second vertex stream / sub-range index
-        // structure), and the same holds for the vertexDesc data flags - forcing a draw produces
-        // garbage triangles covering most of the screen. The reason is logged once at INFO. ----
+        // ---- Classification guard: these BSTriShape subclasses / data flags cannot be drawn as
+        // ordinary static geometry - forcing a draw produces garbage triangles over the screen. ----
         char const* const rtti_name = geom->GetRTTI() ? geom->GetRTTI()->GetName() : "";
         char const* const node_name = geom->name.c_str();
         char const* exclusion_reason = nullptr;
@@ -961,10 +919,9 @@ namespace
 
         uint32_t const vertex_stride = vertex_size_of(geom_rt.vertexDesc);
 
-        // ---- World bounding-sphere validation. modelBound is extrapolated through the node world
-        // transform and the largest column norm of the 3×3 block serves as the anisotropic scale
-        // upper bound; a non-finite/degenerate/over-budget world sphere means the mesh is not suitable
-        // to be drawn into the mask as ordinary static geometry (effect-type/anomalous data). ----
+        // ---- World bounding-sphere validation: modelBound extrapolated through the world transform,
+        // the largest column norm of the 3×3 block as the anisotropic scale upper bound; a
+        // non-finite/degenerate/over-budget sphere means effect-type/anomalous data. ----
         RE::NiTransform const& world_transform = geom->world;
         DirectX::XMFLOAT4X4 world{};
         DirectX::XMStoreFloat4x4(&world, DirectX::XMMatrixIdentity());
@@ -1008,11 +965,9 @@ namespace
         if (calibration.state == PositionCalibrationState::e_unresolved)
             return;
 
-        // ---- Ownership check - the mask only draws geometry that is "at the target". The engine
-        // metadata world bounding sphere is used uniformly (looser than a box test; empirically zero
-        // false skips). The per-mesh model AABB only feeds calibration candidate scoring and neither
-        // enters the cache nor takes part in the ownership test (to prevent cross-mesh pollution:
-        // different meshes with the same desc must be judged on their own data). ----
+        // ---- Ownership check: the mask only draws geometry "at the target" (engine world bounding
+        // sphere, looser than a box test). The per-mesh model AABB only feeds calibration scoring
+        // and never enters the cache or this test (to prevent cross-mesh pollution). ----
         float const ref_distance = distance_to_point(target.position, world_center);
         float const proximity_limit = world_radius + Ref_Proximity_Slack;
         if (ref_distance > proximity_limit)
@@ -1046,8 +1001,6 @@ namespace
         char const* const node_name = geom->name.c_str();
         char const* const rtti_name = geom->GetRTTI() ? geom->GetRTTI()->GetName() : "?";
 
-        size_t const draws_before = draws.size();
-
         RE::NiSkinInstance* skin = geom_rt.skinInstance.get();
         RE::NiSkinPartition* skin_partition = skin ? skin->skinPartition.get() : nullptr;
         if (!skin || !skin_partition || !skin->skinData || !skin->skinData->GetBoneData() || !skin->boneWorldTransforms || !skin->bones)
@@ -1069,7 +1022,6 @@ namespace
             note(skin && !skin->bones, "bones");
             log_skinned_skip_once(true, node_name, "skin instance incomplete",
                 fmt::format("missing=[{}] rtti={}", missing, rtti_name ? rtti_name : "?"));
-            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (incomplete skin instance)", draws.size() - draws_before));
             return;
         }
 
@@ -1084,7 +1036,6 @@ namespace
         {
             log_skinned_skip_once(false, node_name, "no skin partitions",
                 fmt::format("numPartitions={} partitions.size()={}", skin_partition->numPartitions, skin_partition->partitions.size()));
-            log_skinned_summary_once(node_name, fmt::format("skinned draws added=0 partitions={}", partition_count));
             return;
         }
 
@@ -1093,22 +1044,13 @@ namespace
         {
             log_skinned_skip_once(true, node_name, "skin instance has no rootParent",
                 fmt::format("rtti={} partitions={}", rtti_name ? rtti_name : "?", partition_count));
-            log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (no rootParent)", draws.size() - draws_before));
             return;
         }
 
-        // ---- The modelBound premise is dropped. For engine-managed skinned meshes modelBound is
-        // actually 0 (measured: every body/equipment/hair mesh has r=0.0), so it must not be used to
-        // skip. It is only recorded once at INFO; the bounding sphere serves as a cheap sanity gate
-        // only when the engine really provides one (worldBound.radius > 0) - only a non-finite or
-        // over-budget value skips (once, at WARN). ----
-        RE::NiBound const& model_bound = geom->GetModelData().modelBound;
+        // ---- modelBound is unusable for engine-managed skinned meshes (measured: every
+        // body/equipment/hair mesh has r=0.0), so it must not gate the draw; the worldBound serves
+        // as a sanity gate only when the engine provides one (radius > 0). ----
         RE::NiBound const& world_bound = geom->worldBound;
-        log_skinned_info_once(node_name, "world bound reported",
-            fmt::format("model_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f}",
-                model_bound.center.x, model_bound.center.y, model_bound.center.z, model_bound.radius,
-                world_bound.center.x, world_bound.center.y, world_bound.center.z, world_bound.radius));
-
         if (world_bound.radius > 0.0f)
         {
             bool const finite = is_finite(world_bound.center) && std::isfinite(world_bound.radius);
@@ -1118,7 +1060,6 @@ namespace
                     fmt::format("world_bound=({:.1f},{:.1f},{:.1f}) r={:.1f} cap={:.1f} finite={}",
                         world_bound.center.x, world_bound.center.y, world_bound.center.z, world_bound.radius,
                         Max_Part_World_Radius, finite));
-                log_skinned_summary_once(node_name, fmt::format("skinned draws added={} (world bound out of range)", draws.size() - draws_before));
                 return;
             }
         }
@@ -1157,23 +1098,13 @@ namespace
 
             // ---- The palette is built in **global bone index space** (a vertex index is a subscript
             // into the skin bone array: measured numBones=10/index_max=61/skin_bones=61). Its valid
-            // length is P = min(GetBoneCount(), numMatrices). From here on part.bones/numBones only
-            // feed diagnostic logs and take part in no decision. ----
-            uint32_t const skin_bone_count = skin->skinData->GetBoneCount();
-            uint32_t const matrix_count = skin->numMatrices;
+            // length is P = min(GetBoneCount(), numMatrices). part.bones/numBones feed diagnostic
+            // logs only and take part in no decision. ----
             uint32_t const palette_count = palette_slot_count(skin);
-            log_skinned_info_once(node_name, "bone arrays reported",
-                fmt::format("partition={} numBones={} bones=[{},{},{}] skin_bones={} numMatrices={} numRegisters={} P={}",
-                    p, part.numBones,
-                    part.bones ? part.bones[0] : static_cast<uint16_t>(0),
-                    (part.bones && part.numBones > 1) ? part.bones[1] : static_cast<uint16_t>(0),
-                    (part.bones && part.numBones > 2) ? part.bones[2] : static_cast<uint16_t>(0),
-                    skin_bone_count, matrix_count, skin->numRegisters, palette_count));
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
                 log_skinned_skip_once(true, node_name, "palette slot count out of range",
-                    fmt::format("partition={} P={} skin_bones={} numMatrices={} budget={}",
-                        p, palette_count, skin_bone_count, matrix_count, Max_Palette_Bones));
+                    fmt::format("partition={} P={} budget={}", p, palette_count, Max_Palette_Bones));
                 continue;
             }
 
@@ -1186,11 +1117,11 @@ namespace
             if (calibration.state != SkinnedCalibrationState::e_measured)
                 continue;
 
-            // ---- Per-mesh validation runs **on this mesh** (no verdict is reused from another mesh,
-            // full vertex traversal); indices are global with P as the bound. Position failure → skip;
-            // weights invalid → re-enumerate candidates (without writing the cache); an out-of-range
-            // index with a non-zero weight → skip; out of range but the slot's weight is 0 → drawn as
-            // usual (the replica fill makes it a no-op) and only counted in the diagnostics. ----
+            // ---- Per-mesh validation runs on this mesh (no verdict reused from another mesh, full
+            // vertex traversal); indices are global with P as the bound. Position failure → skip;
+            // weights invalid → re-enumerate candidates (without writing the cache); out-of-range
+            // index: non-zero weight → skip, zero weight → drawn (the replica fill makes it a
+            // no-op). ----
             uint8_t const* const raw = buff->rawVertexData;
             uint32_t const pos_bytes = (calibration.position_format == REX::W32::DXGI_FORMAT_R32G32B32_FLOAT) ? 12u : 8u;
             SkinningLayoutSpec const* spec = find_skinning_layout(calibration.layout_id);
@@ -1249,37 +1180,16 @@ namespace
                             p, part.vertices, palette_count, calibration.stride, static_cast<unsigned>(calibration.layout_id)));
                     continue;
                 }
-                log_skinned_info_once(node_name, "skinned layout switched for mesh",
-                    fmt::format("partition={} verts={} P={} stride={} layout={} w(fmt={:#06x},off={}) i(fmt={:#06x},off={})",
-                        p, part.vertices, palette_count, calibration.stride, static_cast<unsigned>(calibration.layout_id),
-                        static_cast<unsigned>(calibration.skin.weight_format), calibration.skin.weight_offset,
-                        static_cast<unsigned>(calibration.skin.index_format), calibration.skin.index_offset));
             }
 
-            // One diagnostic INFO per skinned mesh, emitted once (with P/skin_bones/numMatrices and the out-of-range counts)
-            log_skinned_info_once(node_name, "mesh diagnostics",
-                fmt::format("rtti={} verts={} numBones={} P={} skin_bones={} numMatrices={} index=[{},{}] oob={} oob_weighted={} wsum=[{:.3f},{:.3f}] wbad={} pos(fmt={:#06x},off={}) stride={} layout={}",
-                    rtti_name ? rtti_name : "?", part.vertices, part.numBones, palette_count,
-                    skin_bone_count, matrix_count,
-                    stats.index_min, stats.index_max, stats.out_of_range_index_count, stats.out_of_range_weighted_count,
-                    stats.weight_sum_min, stats.weight_sum_max, stats.bad_weight_vertices,
-                    static_cast<unsigned>(calibration.position_format), calibration.position_offset,
-                    calibration.stride, static_cast<unsigned>(calibration.layout_id)));
-
             // index >= P **with a non-zero weight** → it cannot render correctly, skip + WARN (the
-            // whole-block replica fill is a no-op only for zero-weight slots, so a zero-weight
-            // out-of-range index is not included here and is only counted in the diagnostics).
+            // replica fill is a no-op for zero-weight slots, which are only counted in the stats).
             if (stats.out_of_range_weighted_count > 0)
             {
                 log_skinned_skip_once(true, node_name, "bone index exceeds palette bounds with non-zero weight",
-                    fmt::format("partition={} verts={} P={} skin_bones={} numMatrices={} oob={} oob_weighted={} index_max={} first_oob_index={} first_oob_weight={:.4f} numBones={} bones=[{},{},{}]",
-                        p, part.vertices, palette_count, skin_bone_count, matrix_count,
-                        stats.out_of_range_index_count, stats.out_of_range_weighted_count, stats.index_max,
-                        stats.first_out_of_range_index, stats.first_out_of_range_weight,
-                        part.numBones,
-                        part.bones ? part.bones[0] : static_cast<uint16_t>(0),
-                        (part.bones && part.numBones > 1) ? part.bones[1] : static_cast<uint16_t>(0),
-                        (part.bones && part.numBones > 2) ? part.bones[2] : static_cast<uint16_t>(0)));
+                    fmt::format("partition={} P={} oob_weighted={} index_max={} first_oob_index={} first_oob_weight={:.4f}",
+                        p, palette_count, stats.out_of_range_weighted_count, stats.index_max,
+                        stats.first_out_of_range_index, stats.first_out_of_range_weight));
                 continue;
             }
 
@@ -1302,8 +1212,6 @@ namespace
             draw.target_index = target.target_index;
             draws.push_back(std::move(draw));
         }
-
-        log_skinned_summary_once(node_name, fmt::format("skinned draws added={} partitions={}", draws.size() - draws_before, partition_count));
     }
 
     void collect_geometry(RE::BSGeometry* geom, TargetContext const& target, std::vector<MaskDraw>& draws)

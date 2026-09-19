@@ -49,6 +49,7 @@ add_custom_command(
 set_source_files_properties(
     src/render/mask/mask_passes.cpp
     src/render/icon/icon_overlay.cpp
+    src/render/shader_manager.cpp
     PROPERTIES OBJECT_DEPENDS ${GENERATED_SHADER_HEADER}
 )
 

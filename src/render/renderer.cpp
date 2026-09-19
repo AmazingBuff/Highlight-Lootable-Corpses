@@ -12,6 +12,7 @@
 #include "icon/icon_overlay.h"
 #include "mask/mask_overlay.h"
 #include "render/dx11/common_states.h"
+#include "render/shader_manager.h"
 #include "search/corpse_finder.h"
 #include "ui/pulse_timer.h"
 
@@ -19,6 +20,8 @@ PLUGIN_NAMESPACE_BEGIN
 
 namespace
 {
+    constexpr size_t Icon_Max_Vertex_Count = Icon::Icon_Marker_Vertex_Count * Max_Corpse_Count;
+
     constexpr float Hold_Fraction = 0.10f;
 
     float pulse_alpha(float progress)
@@ -203,10 +206,15 @@ namespace
                             candidates.emplace_back(corpse.form_id, render_cast(corpse.anchor), tip, corpse.distance, alpha);
                         }
                         std::vector<Icon::IconMarker> const markers = Icon::icon_marker(candidates, static_cast<float>(cfg.icon_radius), cfg.max_distance, Max_Corpse_Count);
-                        for (Icon::IconMarker const& marker : std::views::reverse(markers))
-                            m_icon_overlay.add_marker(marker, { color.r(), color.g(), color.b() });
 
-                        m_icon_overlay.draw(context, m_render_target, *m_states);
+                        std::vector<Icon::IconVertex> vertices;
+                        for (Icon::IconMarker const& marker : std::views::reverse(markers))
+                        {
+                            Icon::IconGeometry const geometry = Icon::icon_geometry(marker, { color.r(), color.g(), color.b() }, static_cast<float>(w), static_cast<float>(h));
+                            if (vertices.size() + geometry.count <= Icon_Max_Vertex_Count)
+                                vertices.insert(vertices.end(), geometry.vertices.begin(), geometry.vertices.begin() + static_cast<int64_t>(geometry.count));
+                        }
+                        m_icon_overlay.draw(context, m_render_target, vertices, *m_states);
                         m_icon_overlay.end_frame();
                     }
                     else
@@ -239,6 +247,10 @@ namespace
         {
             if (m_ready)
                 return true;
+
+            // All HLSL passes are compiled once, before any overlay picks them up.
+            if (!ShaderManager::instance().init(device))
+                return false;
 
             // CommonStates is the local REX::W32-typed mirror; it takes the REX device pointer directly.
             m_states = std::make_unique<CommonStates>(device);
@@ -333,7 +345,7 @@ namespace
         bool m_ready;
     };
 
-    void __stdcall present_callback(REX::W32::IDXGISwapChain* swap_chain)
+    void present_callback(REX::W32::IDXGISwapChain* swap_chain)
     {
         OverlayDirector::instance().on_present(swap_chain);
     }

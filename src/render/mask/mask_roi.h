@@ -48,11 +48,6 @@ struct Region
     Rect rect;
 };
 
-[[nodiscard]] inline bool finite(double value) noexcept
-{
-    return std::isfinite(value);
-}
-
 [[nodiscard]] inline Region full_region() noexcept
 {
     return { RegionKind::e_full, {} };
@@ -68,21 +63,12 @@ struct Region
     if (viewport.width <= 0 || viewport.height <= 0 || spheres.empty())
         return full_region();
 
-    for (std::size_t row = 0; row < 4; ++row)
-        for (std::size_t col = 0; col < 4; ++col)
-            if (!finite(static_cast<double>(matrix.m[row][col])))
-                return full_region();
-
     double min_x = std::numeric_limits<double>::infinity();
     double min_y = std::numeric_limits<double>::infinity();
     double max_x = -std::numeric_limits<double>::infinity();
     double max_y = -std::numeric_limits<double>::infinity();
     for (Sphere const& sphere : spheres)
     {
-        if (!finite(sphere.center_x) || !finite(sphere.center_y) || !finite(sphere.center_z) ||
-            !finite(sphere.radius) || sphere.radius <= 0.0)
-            return full_region();
-
         for (int z = -1; z <= 1; z += 2)
             for (int y = -1; y <= 1; y += 2)
                 for (int x = -1; x <= 1; x += 2)
@@ -97,14 +83,9 @@ struct Region
                     for (std::size_t row = 0; row < 4; ++row)
                         for (std::size_t col = 0; col < 4; ++col)
                             clip[row] += static_cast<double>(matrix.m[row][col]) * point[col];
-                    if (!finite(clip[0]) || !finite(clip[1]) || !finite(clip[2]) || !finite(clip[3]) ||
-                        !(clip[3] > 0.0) || !(clip[3] > clip[2]))
-                        return full_region();
 
                     double const pixel_x = (clip[0] / clip[3] * 0.5 + 0.5) * static_cast<double>(viewport.width);
                     double const pixel_y = (1.0 - (clip[1] / clip[3] * 0.5 + 0.5)) * static_cast<double>(viewport.height);
-                    if (!finite(pixel_x) || !finite(pixel_y))
-                        return full_region();
                     min_x = std::min(min_x, pixel_x);
                     min_y = std::min(min_y, pixel_y);
                     max_x = std::max(max_x, pixel_x);

@@ -6,7 +6,7 @@
 
 #include "mask_geometry.h"
 
-#include "render/render_util.h"
+#include "render/shader_manager.h"
 #include "render/shader_sources.h"
 
 #include "render/dx11/common_states.h"
@@ -392,15 +392,12 @@ bool GlowScratch::init(REX::W32::ID3D11Device* device, uint32_t width, uint32_t 
 // ---------------------------------------------------------------------------
 
 MaskGeometryPass::MaskGeometryPass() :
-    m_vs_static(nullptr),
-    m_vs_skinned(nullptr),
-    m_ps_mask(nullptr),
-    m_vs_static_blob(nullptr),
-    m_vs_skinned_blob(nullptr),
+    m_ref_vs_static(nullptr),
+    m_ref_vs_skinned(nullptr),
+    m_ref_ps_mask(nullptr),
     m_per_draw_cb(nullptr),
     m_palette_cb(nullptr),
-    m_depth_nearest(nullptr),
-    m_upload_transposed(false) {}
+    m_depth_nearest(nullptr) {}
 
 MaskGeometryPass::~MaskGeometryPass()
 {
@@ -420,20 +417,11 @@ bool MaskGeometryPass::init(REX::W32::ID3D11Device* device)
 
 bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
 {
-    m_vs_static_blob = compile_shader(render_shaders::MaskGeometry, "vs_static_main", "vs_5_0", "outline mask static", "outline mask");
-    m_vs_skinned_blob = compile_shader(render_shaders::MaskGeometry, "vs_skinned_main", "vs_5_0", "outline mask skinned", "outline mask");
-    REX::W32::ID3DBlob* ps_mask_blob = compile_shader(render_shaders::MaskGeometry, "ps_main", "ps_5_0", "outline mask", "outline mask");
-    if (!m_vs_static_blob || !m_vs_skinned_blob || !ps_mask_blob)
-    {
-        if (ps_mask_blob)
-            ps_mask_blob->Release();
-        return false;
-    }
-
-    device->CreateVertexShader(m_vs_static_blob->GetBufferPointer(), m_vs_static_blob->GetBufferSize(), nullptr, &m_vs_static);
-    device->CreateVertexShader(m_vs_skinned_blob->GetBufferPointer(), m_vs_skinned_blob->GetBufferSize(), nullptr, &m_vs_skinned);
-    device->CreatePixelShader(ps_mask_blob->GetBufferPointer(), ps_mask_blob->GetBufferSize(), nullptr, &m_ps_mask);
-    ps_mask_blob->Release();
+    // The shaders are precompiled by the ShaderManager; only the device objects of this pass are created here.
+    ShaderManager& shaders = ShaderManager::instance();
+    m_ref_vs_static = shaders.mask_static_vs();
+    m_ref_vs_skinned = shaders.mask_skinned_vs();
+    m_ref_ps_mask = shaders.mask_ps();
 
     REX::W32::D3D11_BUFFER_DESC cb{};
     cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
@@ -451,7 +439,7 @@ bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
     depth.depthFunc = REX::W32::D3D11_COMPARISON_GREATER;
     device->CreateDepthStencilState(&depth, &m_depth_nearest);
 
-    bool const ready = m_vs_static && m_vs_skinned && m_ps_mask &&
+    bool const ready = m_ref_vs_static && m_ref_vs_skinned && m_ref_ps_mask &&
                        m_per_draw_cb && m_palette_cb && m_depth_nearest;
     if (!ready)
         return false;
@@ -462,6 +450,7 @@ bool MaskGeometryPass::create_pipeline(REX::W32::ID3D11Device* device)
 
 void MaskGeometryPass::release()
 {
+    // The shader objects and blobs are owned by the ShaderManager - not released here.
     if (m_depth_nearest)
     {
         m_depth_nearest->Release();
@@ -477,87 +466,10 @@ void MaskGeometryPass::release()
         m_per_draw_cb->Release();
         m_per_draw_cb = nullptr;
     }
-    if (m_vs_static_blob)
-    {
-        m_vs_static_blob->Release();
-        m_vs_static_blob = nullptr;
-    }
-    if (m_vs_skinned_blob)
-    {
-        m_vs_skinned_blob->Release();
-        m_vs_skinned_blob = nullptr;
-    }
-    if (m_ps_mask)
-    {
-        m_ps_mask->Release();
-        m_ps_mask = nullptr;
-    }
-    if (m_vs_skinned)
-    {
-        m_vs_skinned->Release();
-        m_vs_skinned = nullptr;
-    }
-    if (m_vs_static)
-    {
-        m_vs_static->Release();
-        m_vs_static = nullptr;
-    }
+    m_ref_ps_mask = nullptr;
+    m_ref_vs_skinned = nullptr;
+    m_ref_vs_static = nullptr;
     release_layouts();
-}
-
-void MaskGeometryPass::calibrate_upload_orientation(
-    RE::NiCamera* camera, DirectX::XMFLOAT4X4 const& view_proj, std::vector<MaskDraw> const& draws,
-    uint32_t width, uint32_t height)
-{
-    static bool s_checked = false;
-    if (s_checked || draws.empty() || !draws.front().node)
-        return;
-
-    RE::NiTransform const& model_transform = draws.front().node->world;
-    DirectX::XMFLOAT4X4 model{};
-    DirectX::XMStoreFloat4x4(&model, DirectX::XMMatrixIdentity());
-    for (int row = 0; row < 3; ++row)
-    {
-        for (int col = 0; col < 3; ++col)
-            model.m[row][col] = model_transform.rotate.entry[row][col] * model_transform.scale;
-        model.m[row][3] = model_transform.translate[row];
-    }
-
-    DirectX::XMFLOAT4X4 mvp{};
-    DirectX::XMStoreFloat4x4(&mvp, DirectX::XMMatrixMultiply(DirectX::XMLoadFloat4x4(&view_proj), DirectX::XMLoadFloat4x4(&model)));
-
-    // Engine pixels: normalised output with a lower-left origin; when the port is in pixels it is first normalised (handled inside project_engine)
-    float eng_px = 0.0f;
-    float eng_py = 0.0f;
-    float eng_depth = 0.0f;
-
-    RE::NiPoint3 const anchor = draws.front().node->world.translate;
-    bool const engine_ok = project(camera, render_cast(anchor), static_cast<float>(width), static_cast<float>(height), eng_px, eng_py, eng_depth);
-
-    // Direct upload: the clip coordinate of the local origin (0,0,0,1) = column 4 of mvp; transposed upload: = row 3 of mvp
-    float const cw = mvp.m[3][3];
-    if (engine_ok && cw > 1e-5f)
-    {
-        s_checked = true;
-        float const w = static_cast<float>(width);
-        float const h = static_cast<float>(height);
-        float const px_d = ((mvp.m[0][3] / cw) * 0.5f + 0.5f) * w;
-        float const py_d = (1.0f - ((mvp.m[1][3] / cw) * 0.5f + 0.5f)) * h;
-        float const px_t = ((mvp.m[3][0] / cw) * 0.5f + 0.5f) * w;
-        float const py_t = (1.0f - ((mvp.m[3][1] / cw) * 0.5f + 0.5f)) * h;
-        float const err_d = std::fabs(px_d - eng_px) + std::fabs(py_d - eng_py);
-        float const err_t = std::fabs(px_t - eng_px) + std::fabs(py_t - eng_py);
-        m_upload_transposed = err_t < err_d;
-        float const composed_px = m_upload_transposed ? px_t : px_d;
-        float const composed_py = m_upload_transposed ? py_t : py_d;
-        logger::info(
-            "Mask overlay: ground-truth delta direct=({:.4f},{:.4f})px transposed-upload=({:.4f},{:.4f})px "
-            "-> upload {} anchor engine=({:.2f},{:.2f}) composed=({:.2f},{:.2f})",
-            px_d - eng_px, py_d - eng_py, px_t - eng_px, py_t - eng_py,
-            m_upload_transposed ? "transposed" : "direct",
-            eng_px, eng_py, composed_px, composed_py);
-    }
-    // Anchor behind the camera / engine projection failed: retry on the next frame (do not latch)
 }
 
 void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, DirectX::XMFLOAT4X4 const& view_proj, std::span<MaskDraw const> draws)
@@ -568,13 +480,15 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
             continue;
 
         // Skinned draws pass the calibrated layout; static draws pass nullptr (behaviour exactly as before)
-        REX::W32::ID3D11InputLayout* layout = get_layout(device, draw.skinned ? m_vs_skinned_blob : m_vs_static_blob, draw.skinned, draw.vertex_desc, draw.vertex_stride,
+        ShaderManager& shaders = ShaderManager::instance();
+        REX::W32::ID3D11InputLayout* layout = get_layout(device, draw.skinned ? shaders.mask_skinned_vs_blob() : shaders.mask_static_vs_blob(),
+            draw.skinned, draw.vertex_desc, draw.vertex_stride,
             draw.position_format, draw.position_offset, draw.skinned ? &draw.skin_layout : nullptr);
         if (!layout)
             continue;
 
-        REX::W32::ID3D11VertexShader* vs = draw.skinned ? m_vs_skinned : m_vs_static;
-        if (!vs || !m_ps_mask)
+        REX::W32::ID3D11VertexShader* vs = draw.skinned ? m_ref_vs_skinned : m_ref_vs_static;
+        if (!vs || !m_ref_ps_mask)
             continue;
 
         // b0: static = ViewProj × world transform; palette skinning = ViewProj (the world transform lives in the palette)
@@ -594,10 +508,7 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
         }
 
         PerDrawCBData cb_data{};
-        if (m_upload_transposed)
-            DirectX::XMStoreFloat4x4(&cb_data.mvp, DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&per_draw)));
-        else
-            cb_data.mvp = per_draw;
+        cb_data.mvp = per_draw;
 
         cb_data.object_id = draw.target_index + 1;
         update_constant_buffer(context, m_per_draw_cb, &cb_data, sizeof(cb_data));
@@ -620,14 +531,11 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
             // valid length; part.bones is not used (it is partition-local). Unused slots are filled
             // with a replica of palette[P-1] (to prevent reading undefined content out of bounds)
             // and the whole block of Max_Palette_Bones matrices is uploaded.
-            uint32_t const skin_bones = skin->skinData->GetBoneCount();
-            uint32_t const matrix_count = skin->numMatrices;
             uint32_t const palette_count = palette_slot_count(skin);
             if (palette_count == 0 || palette_count > Max_Palette_Bones)
             {
                 log_skinned_skip_once(true, draw.node ? draw.node->name.c_str() : nullptr, "palette slot count out of range",
-                    fmt::format("partition={} P={} skin_bones={} numMatrices={} budget={}",
-                        draw.partition, palette_count, skin_bones, matrix_count, Max_Palette_Bones));
+                    fmt::format("partition={} P={} budget={}", draw.partition, palette_count, Max_Palette_Bones));
                 continue;
             }
 
@@ -666,23 +574,13 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
             if (!palette_ok)
             {
                 log_skinned_skip_once(true, draw.node ? draw.node->name.c_str() : nullptr, "null bone world transform in palette range",
-                    fmt::format("partition={} P={} skin_bones={} numMatrices={}", draw.partition, palette_count, skin_bones, matrix_count));
+                    fmt::format("partition={} P={}", draw.partition, palette_count));
                 continue;
             }
             for (size_t k = palette_count; k < Max_Palette_Bones; ++k)
                 palette[k] = palette[palette_count - 1];
             size_t const palette_bytes = Max_Palette_Bones * sizeof(DirectX::XMFLOAT4X4);
-            if (m_upload_transposed)
-            {
-                DirectX::XMFLOAT4X4 palette_upload[Max_Palette_Bones];
-                for (size_t k = 0; k < Max_Palette_Bones; ++k)
-                    DirectX::XMStoreFloat4x4(&palette_upload[k], DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&palette[k])));
-                update_constant_buffer(context, m_palette_cb, palette_upload, palette_bytes);
-            }
-            else
-            {
-                update_constant_buffer(context, m_palette_cb, palette, palette_bytes);
-            }
+            update_constant_buffer(context, m_palette_cb, palette, palette_bytes);
             context->VSSetConstantBuffers(1, 1, &m_palette_cb);
         }
 
@@ -695,7 +593,7 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
         // BSTriShape::vertexCount and a partition's vertices are both uint16_t: indices are always 16-bit
         context->IASetIndexBuffer(draw.index_buffer, REX::W32::DXGI_FORMAT_R16_UINT, 0);
         context->VSSetShader(vs, nullptr, 0);
-        context->PSSetShader(m_ps_mask, nullptr, 0);
+        context->PSSetShader(m_ref_ps_mask, nullptr, 0);
         context->DrawIndexed(draw.index_count, 0, 0);
     }
 }
@@ -705,8 +603,8 @@ void MaskGeometryPass::draw(REX::W32::ID3D11Device* device, REX::W32::ID3D11Devi
 // ---------------------------------------------------------------------------
 
 FullscreenPass::FullscreenPass() :
-    m_vertex_shader(nullptr),
-    m_pixel_shader(nullptr),
+    m_ref_vertex_shader(nullptr),
+    m_ref_pixel_shader(nullptr),
     m_cb(nullptr),
     m_style_buffer(nullptr),
     m_style_srv(nullptr),
@@ -717,17 +615,14 @@ FullscreenPass::~FullscreenPass()
     FullscreenPass::release();
 }
 
-bool FullscreenPass::init(REX::W32::ID3D11Device* device)
+bool FullscreenPass::init([[maybe_unused]] REX::W32::ID3D11Device* device)
 {
-    REX::W32::ID3DBlob* vs_blob = compile_shader(render_shaders::MaskComposite, "vs_main", "vs_5_0", "outline mask fullscreen", "outline mask");
-    if (vs_blob)
-    {
-        device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &m_vertex_shader);
-        vs_blob->Release();
-    }
+    // The fullscreen vertex shader is precompiled and owned by the ShaderManager; nothing is
+    // created on the device here anymore (the parameter stays for the shared pass interface).
+    m_ref_vertex_shader = ShaderManager::instance().fullscreen_vs();
 
     // The premultiplied-alpha blend state comes from the shared CommonStates (alpha_blend) at draw time.
-    return m_vertex_shader != nullptr;
+    return m_ref_vertex_shader != nullptr;
 }
 
 void FullscreenPass::release()
@@ -743,11 +638,8 @@ void FullscreenPass::release()
         m_style_buffer->Release();
         m_style_buffer = nullptr;
     }
-    if (m_vertex_shader)
-    {
-        m_vertex_shader->Release();
-        m_vertex_shader = nullptr;
-    }
+    // m_vertex_shader is owned by the ShaderManager - only the borrowing pointer is cleared.
+    m_ref_vertex_shader = nullptr;
 }
 
 bool FullscreenPass::update_styles(REX::W32::ID3D11Device* device, REX::W32::ID3D11DeviceContext* context, std::span<MaskTarget const> targets)
@@ -798,12 +690,7 @@ bool SilhouettePass::init(REX::W32::ID3D11Device* device)
     if (!FullscreenPass::init(device))
         return false;
 
-    REX::W32::ID3DBlob* ps_blob = compile_shader(render_shaders::MaskComposite, "ps_silhouette_main", "ps_5_0", "outline mask silhouette", "outline mask");
-    if (ps_blob)
-    {
-        device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &m_pixel_shader);
-        ps_blob->Release();
-    }
+    m_ref_pixel_shader = ShaderManager::instance().silhouette_ps();
 
     // b0: radius, fill factor, padding.
     REX::W32::D3D11_BUFFER_DESC ccb{};
@@ -813,7 +700,7 @@ bool SilhouettePass::init(REX::W32::ID3D11Device* device)
     ccb.byteWidth = 16;
     device->CreateBuffer(&ccb, nullptr, &m_cb);
 
-    const bool ready = m_pixel_shader && m_cb;
+    const bool ready = m_ref_pixel_shader && m_cb;
     if (!ready)
     {
         release();
@@ -829,11 +716,8 @@ void SilhouettePass::release()
         m_cb->Release();
         m_cb = nullptr;
     }
-    if (m_pixel_shader)
-    {
-        m_pixel_shader->Release();
-        m_pixel_shader = nullptr;
-    }
+    // m_pixel_shader is owned by the ShaderManager - only the borrowing pointer is cleared.
+    m_ref_pixel_shader = nullptr;
 }
 
 bool SilhouettePass::draw(
@@ -846,7 +730,7 @@ bool SilhouettePass::draw(
 {
     float const cb_data[4] = { 0.0f, Silhouette_Fill_Alpha, 0.0f, 0.0f };
     return draw_fullscreen_triangle(context, target, mask_srv, width, height,
-        m_vertex_shader, m_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
+        m_ref_vertex_shader, m_ref_pixel_shader, states.alpha_blend(), states.depth_none(), states.cull_none(),
         m_cb, cb_data, sizeof(cb_data), m_style_srv);
 }
 
@@ -862,18 +746,10 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
     if (!FullscreenPass::init(device))
         return false;
 
-    REX::W32::ID3DBlob* horizontal_blob = compile_shader(render_shaders::MaskGlow, "ps_glow_horizontal", "ps_5_0", "outline glow horizontal", "outline glow");
-    if (horizontal_blob)
-    {
-        device->CreatePixelShader(horizontal_blob->GetBufferPointer(), horizontal_blob->GetBufferSize(), nullptr, &m_horizontal_shader);
-        horizontal_blob->Release();
-    }
-    REX::W32::ID3DBlob* vertical_blob = compile_shader(render_shaders::MaskGlow, "ps_glow_vertical", "ps_5_0", "outline glow vertical", "outline glow");
-    if (vertical_blob)
-    {
-        device->CreatePixelShader(vertical_blob->GetBufferPointer(), vertical_blob->GetBufferSize(), nullptr, &m_pixel_shader);
-        vertical_blob->Release();
-    }
+    // Both glow shaders are precompiled and owned by the ShaderManager.
+    ShaderManager& shaders = ShaderManager::instance();
+    m_horizontal_shader = shaders.glow_horizontal_ps();
+    m_ref_pixel_shader = shaders.glow_vertical_ps();
 
     REX::W32::D3D11_BUFFER_DESC glow_cb{};
     glow_cb.usage = REX::W32::D3D11_USAGE_DYNAMIC;
@@ -882,7 +758,7 @@ bool OutlinePass::init(REX::W32::ID3D11Device* device)
     glow_cb.byteWidth = sizeof(GlowCBData);
     device->CreateBuffer(&glow_cb, nullptr, &m_cb);
 
-    const bool ready = m_horizontal_shader && m_pixel_shader && m_cb;
+    const bool ready = m_horizontal_shader && m_ref_pixel_shader && m_cb;
     if (!ready)
     {
         release();
@@ -899,16 +775,9 @@ void OutlinePass::release()
         m_cb->Release();
         m_cb = nullptr;
     }
-    if (m_horizontal_shader)
-    {
-        m_horizontal_shader->Release();
-        m_horizontal_shader = nullptr;
-    }
-    if (m_pixel_shader)
-    {
-        m_pixel_shader->Release();
-        m_pixel_shader = nullptr;
-    }
+    // Both glow shaders are owned by the ShaderManager - only the borrowing pointers are cleared.
+    m_horizontal_shader = nullptr;
+    m_ref_pixel_shader = nullptr;
 }
 
 bool OutlinePass::draw(
@@ -978,7 +847,7 @@ bool OutlinePass::draw(
     uint32_t const zero = 0;
     context->IASetVertexBuffers(0, 1, &no_vb, &zero, &zero);
     context->IASetIndexBuffer(nullptr, REX::W32::DXGI_FORMAT_UNKNOWN, 0);
-    context->VSSetShader(m_vertex_shader, nullptr, 0);
+    context->VSSetShader(m_ref_vertex_shader, nullptr, 0);
     context->PSSetConstantBuffers(0, 1, &m_cb);
 
     REX::W32::ID3D11RenderTargetView* const scratch_rtv = m_scratch.rtv();
@@ -1001,7 +870,7 @@ bool OutlinePass::draw(
     REX::W32::D3D11_RECT const vertical_scissor{
         vertical_rect.left, vertical_rect.top, vertical_rect.right, vertical_rect.bottom };
     context->RSSetScissorRects(1, &vertical_scissor);
-    context->PSSetShader(m_pixel_shader, nullptr, 0);
+    context->PSSetShader(m_ref_pixel_shader, nullptr, 0);
     REX::W32::ID3D11ShaderResourceView* const vertical_srvs[] = { mask_srv, m_scratch.srv(), m_style_srv };
     context->PSSetShaderResources(0, 3, vertical_srvs);
     context->Draw(3, 0);
