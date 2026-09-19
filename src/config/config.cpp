@@ -4,11 +4,56 @@
 
 PLUGIN_NAMESPACE_BEGIN
 
-Setting& Setting::instance()
-{
-    static Setting s_instance;
-    return s_instance;
-}
+static constexpr std::string_view Config_Instruction = R"(
+[General]
+; mod enabled on startup
+Enabled={}
+; toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)
+Hotkey={}
+; hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)
+HotkeyMode={}
+; pulse mode: highlight lifetime in milliseconds before fully fading out
+PulseDurationMs={}
+; corpse scan interval in milliseconds
+ScanIntervalMs={}
+[Display]
+; corpse display style: silhouette (filled mask, 0) | outline (bright core plus outward glow, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)
+; usually, icon mode has best performance, then silhouette mode, outline is the worst
+DisplayMode={}
+; outline glow size (1-5; larger values widen the bright rim and outer halo)
+OutlineThickness={}
+; icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)
+IconRadius={}
+; outline color (ARGB hex)
+OutlineColor={:06X}
+; minimum opacity at max distance
+MinOpacity={:.2f}
+; search radius in game units (~17 m default)
+MaxDistance={:.1f}
+; distance where fading begins (fully opaque below)
+FadeStartDistance={:.1f}
+; fade curve exponent (higher = faster fade)
+FadePower={:.1f}
+[LootFilter]
+; stop outlining corpses the player has searched (activated) at least once, even if nothing was taken
+HideSearchedEnabled={}
+; only outline corpses matching the categories below
+ValueFilterEnabled={}
+; quest items
+ValueQuestItems={}
+; keys
+ValueKeys={}
+; enchanted equipment
+ValueEnchanted={}
+; single item worth >= HighValueThreshold gold
+ValueHighValue={}
+; high-value threshold (gold piles count by amount)
+HighValueThreshold={}
+; bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all
+BookFilterMode={:01X}
+; arrows, ingredients, potions, scrolls, soul gems
+ValueConsumables={}
+)";
 
 namespace
 {
@@ -53,6 +98,12 @@ namespace
     }
 }
 
+Setting& Setting::instance()
+{
+    static Setting s_instance;
+    return s_instance;
+}
+
 void Setting::load() noexcept
 {
     CSimpleIniA ini;
@@ -94,39 +145,30 @@ void Setting::load() noexcept
 
 void Setting::save() noexcept
 {
-    static auto const s_section = [](std::string_view a_name) {
-        return fmt::format("[{}]\n", a_name);
-    };
-    static auto const s_option = [](std::string_view a_comment, std::string_view a_kv) {
-        return fmt::format("; {}\n{}\n", a_comment, a_kv);
-    };
-
-    std::string body;
-    body += s_section("General");
-    body += s_option("mod enabled on startup", fmt::format("Enabled={}", m_config.enabled ? "true" : "false"));
-    body += s_option("toggle key virtual-key code (0 = disabled, rebindable in the MCP menu)", fmt::format("Hotkey={}", m_config.hotkey));
-    body += s_option("hotkey behavior: constant (0, toggle on/off) | pulse (1, highlight unsearched corpses then fade out)", fmt::format("HotkeyMode={}", static_cast<int>(m_config.hotkey_mode)));
-    body += s_option("pulse mode: highlight lifetime in milliseconds before fully fading out", fmt::format("PulseDurationMs={}", m_config.pulse_duration_ms));
-    body += s_option("corpse scan interval in milliseconds", fmt::format("ScanIntervalMs={}", m_config.scan_interval_ms));
-    body += s_section("Display");
-    body += s_option("corpse display style: silhouette (filled mask, 0) | outline (bright core plus outward glow, 1) | icon (distance-scaled arrows above corpses; nearby crowded targets share a double arrow, 2)\n; usually, icon mode has best performance, then silhouette mode, outline is the worst",fmt::format("DisplayMode={}", static_cast<int>(m_config.display_mode)));
-    body += s_option("outline glow size (1-5; larger values widen the bright rim and outer halo)", fmt::format("OutlineThickness={}", m_config.outline_thickness));
-    body += s_option("icon base half-width in pixels; distance scaling 0.75-1.25, groups 1.2x (maximum 1.5x)", fmt::format("IconRadius={}", m_config.icon_radius));
-    body += s_option("outline color (ARGB hex)", fmt::format("OutlineColor={:06X}", m_config.outline_color));
-    body += s_option("minimum opacity at max distance", fmt::format("MinOpacity={:.2f}", m_config.min_opacity));
-    body += s_option("search radius in game units (~17 m default)", fmt::format("MaxDistance={:.1f}", m_config.max_distance));
-    body += s_option("distance where fading begins (fully opaque below)", fmt::format("FadeStartDistance={:.1f}", m_config.fade_start_distance));
-    body += s_option("fade curve exponent (higher = faster fade)", fmt::format("FadePower={:.1f}", m_config.fade_power));
-    body += s_section("LootFilter");
-    body += s_option("stop outlining corpses the player has searched (activated) at least once, even if nothing was taken", fmt::format("HideSearchedEnabled={}", m_config.hide_searched_enabled ? "true" : "false"));
-    body += s_option("only outline corpses matching the categories below", fmt::format("ValueFilterEnabled={}", m_config.value_filter_enabled ? "true" : "false"));
-    body += s_option("quest items", fmt::format("ValueQuestItems={}", m_config.value_quest_items ? "true" : "false"));
-    body += s_option("keys", fmt::format("ValueKeys={}", m_config.value_keys ? "true" : "false"));
-    body += s_option("enchanted equipment", fmt::format("ValueEnchanted={}", m_config.value_enchanted ? "true" : "false"));
-    body += s_option("single item worth >= HighValueThreshold gold", fmt::format("ValueHighValue={}", m_config.value_high_value ? "true" : "false"));
-    body += s_option("high-value threshold (gold piles count by amount)", fmt::format("HighValueThreshold={}", m_config.high_value_threshold));
-    body += s_option("bit flag, 1 for spell, 2 for skill, 4 for unread, 7 for all", fmt::format("BookFilterMode={:01X}", static_cast<int>(m_config.book_filter_mode.underlying())));
-    body += s_option("arrows, ingredients, potions, scrolls, soul gems", fmt::format("ValueConsumables={}", m_config.value_consumables ? "true" : "false"));
+    const std::string body = fmt::format(Config_Instruction,
+        m_config.enabled ? "true" : "false",
+        m_config.hotkey,
+        static_cast<int>(m_config.hotkey_mode),
+        m_config.pulse_duration_ms,
+        m_config.scan_interval_ms,
+        static_cast<int>(m_config.display_mode),
+        m_config.outline_thickness,
+        m_config.icon_radius,
+        m_config.outline_color,
+        m_config.min_opacity,
+        m_config.max_distance,
+        m_config.fade_start_distance,
+        m_config.fade_power,
+        m_config.hide_searched_enabled ? "true" : "false",
+        m_config.value_filter_enabled ? "true" : "false",
+        m_config.value_quest_items ? "true" : "false",
+        m_config.value_keys ? "true" : "false",
+        m_config.value_enchanted ? "true" : "false",
+        m_config.value_high_value ? "true" : "false",
+        m_config.high_value_threshold,
+        static_cast<int>(m_config.book_filter_mode.underlying()),
+        m_config.value_consumables ? "true" : "false"
+        );
 
     std::string const& path = get_config_path();
     std::ofstream file(path, std::ios::binary);
